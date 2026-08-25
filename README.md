@@ -34,11 +34,14 @@ namespace MultiplayerCampaign
      * CAMPAIGN WORLD HELPER
      * ============================================================
      *
-     * مهم:
+     * Bannerlord 1.3.4
      *
-     * این helper فقط باید روی Game/Campaign Thread استفاده شود.
+     * IMPORTANT:
      *
-     * Network Thread نباید این متدها را صدا بزند.
+     * These methods may ONLY be called from the
+     * Campaign/Game thread.
+     *
+     * Network threads must never call these methods.
      *
      * ============================================================
      */
@@ -81,10 +84,12 @@ namespace MultiplayerCampaign
                     mainParty != null &&
                     mainParty.MemberRoster != null)
                 {
-                    return
+                    return Math.Max(
+                        1,
                         mainParty
                             .MemberRoster
-                            .TotalManCount;
+                            .TotalManCount
+                    );
                 }
             }
             catch
@@ -101,28 +106,33 @@ namespace MultiplayerCampaign
      * CAMPAIGN MESSAGE FEED
      * ============================================================
      *
-     * این بخش فقط روی Game/Campaign Thread اجرا می‌شود.
+     * Game/Campaign thread only.
      *
-     * برای تست واقعی ارتباط:
+     * This is used to prove that the Client really entered
+     * the Host world/session.
      *
      * Client:
+     *
      *     WorldJoinTest
      *
      * Host:
-     *     WorldJoinAck
      *
-     * هر دو پیام از طریق Message Feed خود بازی
-     * نمایش داده می‌شوند.
+     *     WorldJoinAck
      *
      * ============================================================
      */
 
     internal static class CampaignMessageFeed
     {
-        public static void Show(string message)
+        public static void Show(
+            string message)
         {
-            if (string.IsNullOrWhiteSpace(message))
+            if (
+                string.IsNullOrWhiteSpace(
+                    message))
+            {
                 return;
+            }
 
             try
             {
@@ -160,10 +170,6 @@ namespace MultiplayerCampaign
         protected override void OnSubModuleLoad()
         {
             base.OnSubModuleLoad();
-
-            /*
-             * Console is initialized for both Host and Client.
-             */
 
             HostConsole.Initialize();
 
@@ -315,13 +321,19 @@ namespace MultiplayerCampaign
         public static void StartHostIfReady()
         {
             if (!_hostRequested)
+            {
                 return;
+            }
 
             if (_host != null)
+            {
                 return;
+            }
 
             if (Campaign.Current == null)
+            {
                 return;
+            }
 
             _host =
                 new MultiplayerCampaignHost(
@@ -341,10 +353,9 @@ namespace MultiplayerCampaign
             Game game)
         {
             /*
-             * هنگام Load شدن World روی Client،
-             * Campaign قبلی نابود می‌شود.
-             *
-             * TCP باید باقی بماند.
+             * When Client's old Campaign is destroyed while
+             * the transferred MCC Campaign is being loaded,
+             * TCP must remain alive.
              */
 
             if (_loadingTransferredWorld)
@@ -408,15 +419,16 @@ namespace MultiplayerCampaign
             float dt)
         {
             /*
-             * HOST SERVER
+             * HOST
              */
 
             MultiplayerCampaignSubModule
                 .StartHostIfReady();
 
             /*
-             * Network messages are processed
-             * on the Campaign/Game Thread.
+             * PROCESS NETWORK QUEUE
+             *
+             * Game Thread.
              */
 
             MultiplayerNetworkClient
@@ -447,7 +459,7 @@ namespace MultiplayerCampaign
                 _playerReadySent = true;
 
                 HostConsole.WriteLine(
-                    "[*] Campaign world is ready."
+                    "[*] Client Campaign is active."
                 );
 
                 MultiplayerNetworkClient
@@ -457,27 +469,32 @@ namespace MultiplayerCampaign
 
             /*
              * REMOTE PLAYERS
+             *
+             * All Hero/MobileParty changes happen here,
+             * on the Campaign/Game thread.
              */
 
             RemotePlayerManager.Update(dt);
 
             /*
-             * NPC PARTY SYNC
+             * NPC WORLD SYNCHRONIZATION
              */
 
             WorldPartySynchronizer
                 .ApplyPending(dt);
 
             /*
-             * NETWORK RATE:
+             * FIXED NETWORK RATE
              *
-             * 10 updates/sec
+             * 10 updates/sec.
              */
 
             _networkTimer += dt;
 
             if (_networkTimer < 0.10f)
+            {
                 return;
+            }
 
             _networkTimer = 0f;
 
@@ -496,7 +513,7 @@ namespace MultiplayerCampaign
             /*
              * LOCAL PLAYER STATE
              *
-             * اینجا Game Thread است.
+             * Game Thread only.
              */
 
             if (
@@ -545,10 +562,14 @@ namespace MultiplayerCampaign
                     __instance.MenuOptions[i];
 
                 if (option == null)
+                {
                     continue;
+                }
 
                 if (option.InitialStateOption == null)
+                {
                     continue;
+                }
 
                 if (
                     option.InitialStateOption.Id ==
@@ -675,7 +696,7 @@ namespace MultiplayerCampaign
         protected override void OnFinalize()
         {
             /*
-             * GUI closing MUST NOT disconnect TCP.
+             * Closing GUI must NOT disconnect TCP.
              */
 
             if (
@@ -724,7 +745,8 @@ namespace MultiplayerCampaign
         private string _statusText =
             "";
 
-        private bool _showMain = true;
+        private bool _showMain =
+            true;
 
         private bool _showCreate;
 
@@ -752,7 +774,9 @@ namespace MultiplayerCampaign
             set
             {
                 if (_ipAddress == value)
+                {
                     return;
+                }
 
                 _ipAddress = value;
 
@@ -774,7 +798,9 @@ namespace MultiplayerCampaign
             set
             {
                 if (_playerName == value)
+                {
                     return;
+                }
 
                 _playerName = value;
 
@@ -796,7 +822,9 @@ namespace MultiplayerCampaign
             set
             {
                 if (_statusText == value)
+                {
                     return;
+                }
 
                 _statusText = value;
 
@@ -818,7 +846,9 @@ namespace MultiplayerCampaign
             private set
             {
                 if (_showMain == value)
+                {
                     return;
+                }
 
                 _showMain = value;
 
@@ -840,7 +870,9 @@ namespace MultiplayerCampaign
             private set
             {
                 if (_showCreate == value)
+                {
                     return;
+                }
 
                 _showCreate = value;
 
@@ -862,7 +894,9 @@ namespace MultiplayerCampaign
             private set
             {
                 if (_showJoin == value)
+                {
                     return;
+                }
 
                 _showJoin = value;
 
@@ -930,7 +964,9 @@ namespace MultiplayerCampaign
                     : PlayerName.Trim();
 
             LocalPlayerState
-                .SetDisplayName(name);
+                .SetDisplayName(
+                    name
+                );
 
             StatusText =
                 "LOADING MCC...";
@@ -1004,10 +1040,6 @@ namespace MultiplayerCampaign
                 .Instance
                 .Update();
 
-            /*
-             * World baseline has completed.
-             */
-
             if (
                 MultiplayerNetworkClient
                     .Instance
@@ -1032,19 +1064,14 @@ namespace MultiplayerCampaign
     internal enum NetworkPacketType : byte
     {
         Hello = 1,
-
         Welcome = 2,
 
         WorldBegin = 3,
-
         WorldChunk = 4,
-
         WorldComplete = 5,
 
         PlayerReady = 6,
-
         PlayerSnapshot = 7,
-
         PlayerLeave = 8,
 
         WorldPartySnapshot = 9,
@@ -1053,18 +1080,7 @@ namespace MultiplayerCampaign
 
         Error = 11,
 
-        /*
-         * World communication test.
-         *
-         * Client -> Host
-         */
         WorldJoinTest = 12,
-
-        /*
-         * World communication test acknowledgement.
-         *
-         * Host -> Client
-         */
         WorldJoinAck = 13
     }
 
@@ -1081,7 +1097,10 @@ namespace MultiplayerCampaign
             byte[] payload)
         {
             if (payload == null)
-                payload = Array.Empty<byte>();
+            {
+                payload =
+                    Array.Empty<byte>();
+            }
 
             int bodyLength =
                 2 +
@@ -1156,6 +1175,13 @@ namespace MultiplayerCampaign
         public static string ReadString(
             byte[] payload)
         {
+            if (
+                payload == null ||
+                payload.Length == 0)
+            {
+                return "";
+            }
+
             using (
                 MemoryStream stream =
                     new MemoryStream(
@@ -1196,7 +1222,7 @@ namespace MultiplayerCampaign
                 MultiplayerNetworkClient>(
                     () =>
                         new MultiplayerNetworkClient()
-            );
+                );
 
         public static MultiplayerNetworkClient Instance =>
             InstanceHolder.Value;
@@ -1269,20 +1295,17 @@ namespace MultiplayerCampaign
             lock (_connectionLock)
             {
                 if (_connectionRunning)
+                {
                     return;
+                }
 
                 DisconnectInternal();
 
                 _cts =
                     new CancellationTokenSource();
 
-                _connectionRunning = true;
-
-                HostConsole.WriteLine(
-                    "[*] Connecting to " +
-                    ip +
-                    ":25565..."
-                );
+                _connectionRunning =
+                    true;
 
                 _ =
                     ConnectAsync(
@@ -1301,7 +1324,8 @@ namespace MultiplayerCampaign
                 TcpClient client =
                     new TcpClient();
 
-                client.NoDelay = true;
+                client.NoDelay =
+                    true;
 
                 await client.ConnectAsync(
                     ip,
@@ -1321,16 +1345,12 @@ namespace MultiplayerCampaign
                 _stream =
                     client.GetStream();
 
-                IsConnected = true;
+                IsConnected =
+                    true;
 
                 HostConsole.WriteLine(
                     "[*] TCP connection established."
                 );
-
-                /*
-                 * Internal handshake.
-                 * Never shown as HELLO.
-                 */
 
                 SendHello();
 
@@ -1344,16 +1364,17 @@ namespace MultiplayerCampaign
             }
             catch (Exception ex)
             {
-                IsConnected = false;
-
-                HostConsole.WriteLine(
-                    "[!] Connection error: " +
-                    ex.Message
-                );
+                IsConnected =
+                    false;
 
                 if (
                     !token.IsCancellationRequested)
                 {
+                    HostConsole.WriteLine(
+                        "[!] TCP connection error: " +
+                        ex.Message
+                    );
+
                     _vm?.SetStatus(
                         "CONNECTION FAILED: " +
                         ex.Message
@@ -1362,11 +1383,13 @@ namespace MultiplayerCampaign
             }
             finally
             {
-                IsConnected = false;
+                IsConnected =
+                    false;
 
                 lock (_connectionLock)
                 {
-                    _connectionRunning = false;
+                    _connectionRunning =
+                        false;
                 }
             }
         }
@@ -1393,7 +1416,9 @@ namespace MultiplayerCampaign
                         );
 
                     if (lengthBytes == null)
+                    {
                         return;
+                    }
 
                     int length =
                         BitConverter.ToInt32(
@@ -1417,7 +1442,9 @@ namespace MultiplayerCampaign
                         );
 
                     if (body == null)
+                    {
                         return;
+                    }
 
                     if (
                         body[0] !=
@@ -1470,7 +1497,8 @@ namespace MultiplayerCampaign
             {
             }
 
-            IsConnected = false;
+            IsConnected =
+                false;
         }
 
         /*
@@ -1491,12 +1519,12 @@ namespace MultiplayerCampaign
                         message
                     );
                 }
-                catch
+                catch (Exception ex)
                 {
-                    /*
-                     * Invalid network message must
-                     * never kill Campaign.
-                     */
+                    HostConsole.WriteLine(
+                        "[!] Network message error: " +
+                        ex.Message
+                    );
                 }
             }
         }
@@ -1507,10 +1535,6 @@ namespace MultiplayerCampaign
             switch (message.Type)
             {
                 case NetworkPacketType.Welcome:
-
-                    HostConsole.WriteLine(
-                        "[*] Host acknowledged connection."
-                    );
 
                     _vm?.SetStatus(
                         "HOST FOUND - RECEIVING MCC"
@@ -1627,11 +1651,6 @@ namespace MultiplayerCampaign
          * ========================================================
          * WORLD JOIN ACK
          * ========================================================
-         *
-         * This runs on Game Thread.
-         *
-         * Therefore InformationManager.DisplayMessage
-         * is safe here.
          */
 
         private void ProcessWorldJoinAck(
@@ -1657,7 +1676,7 @@ namespace MultiplayerCampaign
             }
 
             HostConsole.WriteLine(
-                "[✓] Host confirmed world session."
+                "[+] Host confirmed world session."
             );
 
             CampaignMessageFeed.Show(
@@ -1708,7 +1727,9 @@ namespace MultiplayerCampaign
         public void SendPlayerReady()
         {
             if (!IsConnected)
+            {
                 return;
+            }
 
             string playerName =
                 LocalPlayerState
@@ -1730,20 +1751,10 @@ namespace MultiplayerCampaign
             );
 
             /*
-             * IMPORTANT:
-             *
-             * This is the explicit test that proves:
-             *
-             * Client Campaign
-             *        ->
-             *        TCP
-             *        ->
-             * Host Campaign
-             *
-             * The packet itself does not modify Campaign objects.
+             * REAL CLIENT -> HOST TEST MESSAGE
              */
 
-            byte[] joinTestPayload =
+            byte[] testPayload =
                 NetworkProtocol.CreatePayload(
                     writer =>
                     {
@@ -1755,11 +1766,11 @@ namespace MultiplayerCampaign
 
             SendPacket(
                 NetworkPacketType.WorldJoinTest,
-                joinTestPayload
+                testPayload
             );
 
             HostConsole.WriteLine(
-                "[*] World join test sent."
+                "[*] WorldJoinTest sent."
             );
         }
 
@@ -1774,10 +1785,18 @@ namespace MultiplayerCampaign
             int partySize)
         {
             if (!IsConnected)
+            {
                 return;
+            }
 
-            if (partySize < 1)
-                partySize = 1;
+            partySize =
+                Math.Max(
+                    1,
+                    Math.Min(
+                        10000,
+                        partySize
+                    )
+                );
 
             byte[] payload =
                 NetworkProtocol.CreatePayload(
@@ -1812,7 +1831,9 @@ namespace MultiplayerCampaign
         public void RequestResync()
         {
             if (!IsConnected)
+            {
                 return;
+            }
 
             SendPacket(
                 NetworkPacketType.ResyncRequest,
@@ -1822,7 +1843,7 @@ namespace MultiplayerCampaign
 
         /*
          * ========================================================
-         * SEND
+         * SEND PACKET
          * ========================================================
          */
 
@@ -1834,7 +1855,9 @@ namespace MultiplayerCampaign
                 _stream;
 
             if (stream == null)
+            {
                 return;
+            }
 
             byte[] frame;
 
@@ -1865,7 +1888,8 @@ namespace MultiplayerCampaign
                 }
                 catch
                 {
-                    IsConnected = false;
+                    IsConnected =
+                        false;
                 }
             }
         }
@@ -1879,16 +1903,20 @@ namespace MultiplayerCampaign
         public bool ConsumeWorldReady()
         {
             if (!_worldReady)
+            {
                 return false;
+            }
 
-            _worldReady = false;
+            _worldReady =
+                false;
 
             return true;
         }
 
         public void MarkWorldLoaded()
         {
-            _worldLoaded = true;
+            _worldLoaded =
+                true;
         }
 
         /*
@@ -1907,11 +1935,14 @@ namespace MultiplayerCampaign
 
         private void DisconnectInternal()
         {
-            IsConnected = false;
+            IsConnected =
+                false;
 
-            _worldReady = false;
+            _worldReady =
+                false;
 
-            _worldLoaded = false;
+            _worldLoaded =
+                false;
 
             try
             {
@@ -1971,10 +2002,14 @@ namespace MultiplayerCampaign
                 CancellationToken token)
         {
             if (stream == null)
+            {
                 return null;
+            }
 
             if (count <= 0)
+            {
                 return Array.Empty<byte>();
+            }
 
             byte[] buffer =
                 new byte[count];
@@ -1998,9 +2033,12 @@ namespace MultiplayerCampaign
                     );
 
                 if (read <= 0)
+                {
                     return null;
+                }
 
-                offset += read;
+                offset +=
+                    read;
             }
 
             return buffer;
@@ -2016,7 +2054,8 @@ namespace MultiplayerCampaign
 
     public sealed class MultiplayerCampaignHost
     {
-        private const int Port = 25565;
+        private const int Port =
+            25565;
 
         private const string HostSaveName =
             "MCC";
@@ -2042,17 +2081,13 @@ namespace MultiplayerCampaign
                 string,
                 ServerPlayerState>();
 
-        /*
-         * Network Thread -> Game Thread
-         *
-         * Join test messages are queued here.
-         */
-
-        private readonly ConcurrentQueue<
-            string>
-            _pendingWorldJoinTests =
-            new ConcurrentQueue<
-                string>();
+        private readonly ConcurrentDictionary<
+            string,
+            byte>
+            _joinedPlayers =
+            new ConcurrentDictionary<
+                string,
+                byte>();
 
         private TcpListener _listener;
 
@@ -2070,7 +2105,10 @@ namespace MultiplayerCampaign
             string hostName)
         {
             _hostName =
-                hostName;
+                string.IsNullOrWhiteSpace(
+                    hostName)
+                    ? "Host"
+                    : hostName;
         }
 
         /*
@@ -2082,7 +2120,9 @@ namespace MultiplayerCampaign
         public void Start()
         {
             if (_listener != null)
+            {
                 return;
+            }
 
             HostConsole.Initialize();
 
@@ -2100,11 +2140,12 @@ namespace MultiplayerCampaign
                 _listener.Start();
 
                 HostConsole.WriteLine(
-                    "[*] Server started on port 25565"
+                    "[*] Server started on port 25565."
                 );
 
                 HostConsole.WriteLine(
-                    "[*] Player is hosting."
+                    "[*] Host: " +
+                    _hostName
                 );
 
                 _ =
@@ -2118,6 +2159,8 @@ namespace MultiplayerCampaign
                     "[!] Server start failed: " +
                     ex.Message
                 );
+
+                _listener = null;
             }
         }
 
@@ -2129,46 +2172,16 @@ namespace MultiplayerCampaign
 
         public void Update()
         {
-            /*
-             * Process queued World Join Tests
-             * on Game Thread.
-             */
-
-            while (
-                _pendingWorldJoinTests.TryDequeue(
-                    out string playerName))
-            {
-                if (
-                    string.IsNullOrWhiteSpace(
-                        playerName))
-                {
-                    playerName =
-                        "Player";
-                }
-
-                HostConsole.WriteLine(
-                    "[✓] World join test received from " +
-                    playerName +
-                    "."
-                );
-
-                CampaignMessageFeed.Show(
-                    "[Multiplayer] " +
-                    playerName +
-                    " joined the world."
-                );
-            }
-
-            _timer += 0.10f;
+            _timer +=
+                0.10f;
 
             if (_timer < 0.25f)
+            {
                 return;
+            }
 
-            _timer = 0f;
-
-            /*
-             * Resync must be started from Game Thread.
-             */
+            _timer =
+                0f;
 
             if (
                 _resyncRequested &&
@@ -2178,13 +2191,13 @@ namespace MultiplayerCampaign
             }
 
             /*
-             * Host authoritative player state.
+             * HOST AUTHORITATIVE PLAYER SNAPSHOT
              */
 
             BroadcastPlayerSnapshot();
 
             /*
-             * Host authoritative NPC party state.
+             * NPC WORLD SNAPSHOT
              */
 
             BroadcastWorldPartySnapshot();
@@ -2208,7 +2221,9 @@ namespace MultiplayerCampaign
                         _listener;
 
                     if (listener == null)
+                    {
                         return;
+                    }
 
                     TcpClient client =
                         await listener
@@ -2228,7 +2243,8 @@ namespace MultiplayerCampaign
                         return;
                     }
 
-                    client.NoDelay = true;
+                    client.NoDelay =
+                        true;
 
                     int connectionId =
                         Interlocked.Increment(
@@ -2245,10 +2261,6 @@ namespace MultiplayerCampaign
                         connectionId
                     ] =
                         connection;
-
-                    HostConsole.WriteLine(
-                        "[*] Incoming TCP client connection."
-                    );
 
                     _ =
                         HandleClientAsync(
@@ -2285,7 +2297,9 @@ namespace MultiplayerCampaign
                     );
 
                 if (hello == null)
+                {
                     return;
+                }
 
                 if (
                     hello.Type !=
@@ -2294,20 +2308,21 @@ namespace MultiplayerCampaign
                     return;
                 }
 
-                /*
-                 * ParseHello only touches
-                 * managed network state.
-                 *
-                 * It does NOT access Campaign objects.
-                 */
-
                 ParseHello(
                     hello.Payload,
                     connection
                 );
 
+                if (
+                    string.IsNullOrWhiteSpace(
+                        connection.PlayerId))
+                {
+                    return;
+                }
+
                 HostConsole.WriteLine(
-                    "[+] Client connected."
+                    "[+] Client connected: " +
+                    connection.PlayerName
                 );
 
                 SendDirect(
@@ -2322,10 +2337,6 @@ namespace MultiplayerCampaign
                         }
                     )
                 );
-
-                /*
-                 * Find MCC file.
-                 */
 
                 string file =
                     SaveFileLocator.Find(
@@ -2345,7 +2356,9 @@ namespace MultiplayerCampaign
                 }
 
                 HostConsole.WriteLine(
-                    "[*] MCC sending..."
+                    "[*] MCC sending to " +
+                    connection.PlayerName +
+                    "..."
                 );
 
                 MultiplayerWorldTransfer
@@ -2381,7 +2394,9 @@ namespace MultiplayerCampaign
          *
          * IMPORTANT:
          *
-         * No Campaign access here.
+         * No Campaign access occurs here.
+         *
+         * This is a Network Thread.
          */
 
         private void ParseHello(
@@ -2401,34 +2416,46 @@ namespace MultiplayerCampaign
                             Encoding.UTF8,
                             true))
                 {
-                    connection.PlayerId =
+                    string playerId =
                         reader.ReadString();
 
-                    connection.PlayerName =
+                    string playerName =
                         reader.ReadString();
 
                     if (
                         string.IsNullOrWhiteSpace(
-                            connection.PlayerName))
+                            playerId))
                     {
-                        connection.PlayerName =
+                        connection.PlayerId =
+                            null;
+
+                        return;
+                    }
+
+                    if (
+                        string.IsNullOrWhiteSpace(
+                            playerName))
+                    {
+                        playerName =
                             "Player";
                     }
 
-                    /*
-                     * Initial network-only state.
-                     */
+                    connection.PlayerId =
+                        playerId;
+
+                    connection.PlayerName =
+                        playerName;
 
                     _players[
-                        connection.PlayerId
+                        playerId
                     ] =
                         new ServerPlayerState
                         {
                             PlayerId =
-                                connection.PlayerId,
+                                playerId,
 
                             Name =
-                                connection.PlayerName,
+                                playerName,
 
                             Position =
                                 CampaignVec2.Zero,
@@ -2443,7 +2470,8 @@ namespace MultiplayerCampaign
             }
             catch
             {
-                connection.PlayerId = null;
+                connection.PlayerId =
+                    null;
 
                 connection.PlayerName =
                     "Player";
@@ -2471,10 +2499,11 @@ namespace MultiplayerCampaign
                     );
 
                 if (message == null)
+                {
                     return;
+                }
 
-                switch (
-                    message.Type)
+                switch (message.Type)
                 {
                     case NetworkPacketType.PlayerReady:
 
@@ -2505,11 +2534,8 @@ namespace MultiplayerCampaign
 
                     case NetworkPacketType.ResyncRequest:
 
-                        /*
-                         * Managed state only.
-                         */
-
-                        _resyncRequested = true;
+                        _resyncRequested =
+                            true;
 
                         break;
                 }
@@ -2528,28 +2554,35 @@ namespace MultiplayerCampaign
         {
             try
             {
-                string name;
+                string name =
+                    connection.PlayerName;
 
-                using (
-                    MemoryStream stream =
-                        new MemoryStream(
-                            payload))
-                using (
-                    System.IO.BinaryReader reader =
-                        new System.IO.BinaryReader(
-                            stream,
-                            Encoding.UTF8,
-                            true))
+                if (
+                    payload != null &&
+                    payload.Length > 0)
                 {
-                    name =
-                        reader.ReadString();
+                    using (
+                        MemoryStream stream =
+                            new MemoryStream(
+                                payload))
+                    using (
+                        System.IO.BinaryReader reader =
+                            new System.IO.BinaryReader(
+                                stream,
+                                Encoding.UTF8,
+                                true))
+                    {
+                        name =
+                            reader.ReadString();
+                    }
                 }
 
                 if (
-                    string.IsNullOrWhiteSpace(name))
+                    string.IsNullOrWhiteSpace(
+                        name))
                 {
                     name =
-                        connection.PlayerName;
+                        "Player";
                 }
 
                 connection.PlayerName =
@@ -2569,21 +2602,43 @@ namespace MultiplayerCampaign
                         true;
 
                     /*
-                     * Queue remote player creation.
+                     * Initial spawn position is taken from the
+                     * first valid PlayerSnapshot.
                      *
-                     * This is not executed on
-                     * Network Thread.
+                     * If none arrived yet, zero is temporarily used.
                      */
 
-                    RemotePlayerManager.QueueJoin(
+                    RemotePlayerManager.QueueJoinWithState(
                         connection.PlayerId,
+                        name,
+                        state.Position,
+                        state.PartySize
+                    );
+                }
+
+                if (
+                    _joinedPlayers.TryAdd(
+                        connection.PlayerId,
+                        0))
+                {
+                    HostConsole.WriteLine(
+                        "[+] Player joined the world: " +
                         name
                     );
 
-                    HostConsole.WriteLine(
-                        "[+] " +
-                        name +
-                        " joined the world."
+                    /*
+                     * IMPORTANT:
+                     *
+                     * This is an actual Bannerlord Message Feed
+                     * notification on the Host Game Thread.
+                     *
+                     * We only queue it through a GameThread command
+                     * so the Network Thread never directly touches
+                     * InformationManager.
+                     */
+
+                    RemotePlayerManager.QueueWorldJoinFeed(
+                        name
                     );
                 }
             }
@@ -2596,30 +2651,17 @@ namespace MultiplayerCampaign
          * ========================================================
          * WORLD JOIN TEST
          * ========================================================
-         *
-         * Network Thread receives packet.
-         *
-         * It does NOT touch InformationManager.
-         *
-         * It simply:
-         *
-         *     1. validates message
-         *     2. queues notification
-         *     3. sends ACK
-         *
-         * Message Feed is shown later from
-         * Host.Update() on Game Thread.
          */
 
         private void HandleWorldJoinTest(
             HostConnection connection,
             byte[] payload)
         {
+            string playerName =
+                connection.PlayerName;
+
             try
             {
-                string playerName =
-                    connection.PlayerName;
-
                 if (
                     payload != null &&
                     payload.Length > 0)
@@ -2639,62 +2681,41 @@ namespace MultiplayerCampaign
                             reader.ReadString();
                     }
                 }
-
-                if (
-                    string.IsNullOrWhiteSpace(
-                        playerName))
-                {
-                    playerName =
-                        connection.PlayerName;
-                }
-
-                if (
-                    string.IsNullOrWhiteSpace(
-                        playerName))
-                {
-                    playerName =
-                        "Player";
-                }
-
-                /*
-                 * Queue only managed data.
-                 */
-
-                _pendingWorldJoinTests.Enqueue(
-                    playerName
-                );
-
-                HostConsole.WriteLine(
-                    "[*] World join message received."
-                );
-
-                /*
-                 * Immediate network acknowledgement.
-                 */
-
-                byte[] ackPayload =
-                    NetworkProtocol.CreatePayload(
-                        writer =>
-                        {
-                            writer.Write(
-                                _hostName
-                            );
-                        }
-                    );
-
-                SendDirect(
-                    connection,
-                    NetworkPacketType.WorldJoinAck,
-                    ackPayload
-                );
-
-                HostConsole.WriteLine(
-                    "[*] World join acknowledgement sent."
-                );
             }
             catch
             {
             }
+
+            HostConsole.WriteLine(
+                "[+] Test message received from " +
+                playerName
+            );
+
+            /*
+             * Message Feed is handled on Game Thread.
+             */
+
+            RemotePlayerManager
+                .QueueWorldJoinFeed(
+                    playerName
+                );
+
+            /*
+             * Acknowledgement back to Client.
+             */
+
+            SendDirect(
+                connection,
+                NetworkPacketType.WorldJoinAck,
+                NetworkProtocol.CreatePayload(
+                    writer =>
+                    {
+                        writer.Write(
+                            _hostName
+                        );
+                    }
+                )
+            );
         }
 
         /*
@@ -2716,6 +2737,13 @@ namespace MultiplayerCampaign
 
             try
             {
+                if (
+                    payload == null ||
+                    payload.Length < 12)
+                {
+                    return;
+                }
+
                 using (
                     MemoryStream stream =
                         new MemoryStream(
@@ -2749,8 +2777,8 @@ namespace MultiplayerCampaign
                         Math.Max(
                             1,
                             Math.Min(
-                                partySize,
-                                10000
+                                10000,
+                                partySize
                             )
                         );
 
@@ -2775,6 +2803,23 @@ namespace MultiplayerCampaign
 
                     state.PartySize =
                         partySize;
+
+                    if (state.Ready)
+                    {
+                        /*
+                         * Queue remote update.
+                         *
+                         * Still no Campaign object access here.
+                         */
+
+                        RemotePlayerManager
+                            .QueueState(
+                                state.PlayerId,
+                                state.Name,
+                                state.Position,
+                                state.PartySize
+                            );
+                    }
                 }
             }
             catch
@@ -2787,13 +2832,15 @@ namespace MultiplayerCampaign
          * PLAYER SNAPSHOT BROADCAST
          * ========================================================
          *
-         * Called from Campaign/Game Thread.
+         * Game Thread.
          */
 
         private void BroadcastPlayerSnapshot()
         {
             if (_connections.Count == 0)
+            {
                 return;
+            }
 
             CampaignVec2 hostPosition =
                 CampaignWorld
@@ -2803,20 +2850,28 @@ namespace MultiplayerCampaign
                 CampaignWorld
                     .GetMainPartySize();
 
+            List<ServerPlayerState> players =
+                new List<ServerPlayerState>(
+                    _players.Values
+                );
+
+            /*
+             * HOST + CLIENTS
+             */
+
             byte[] payload =
                 NetworkProtocol.CreatePayload(
                     writer =>
                     {
-                        /*
-                         * Host + all clients.
-                         */
-
                         writer.Write(
-                            _players.Count + 1
+                            players.Count + 1
                         );
 
                         /*
                          * HOST
+                         *
+                         * "HOST" is intentionally used as
+                         * a remote identity on Clients.
                          */
 
                         writer.Write(
@@ -2843,20 +2898,28 @@ namespace MultiplayerCampaign
                          * CLIENTS
                          */
 
-                        foreach (
-                            ServerPlayerState player
-                            in _players.Values)
+                        for (
+                            int i = 0;
+                            i < players.Count;
+                            i++)
                         {
+                            ServerPlayerState player =
+                                players[i];
+
                             if (player == null)
+                            {
                                 continue;
+                            }
 
                             writer.Write(
                                 player.PlayerId
                             );
 
                             writer.Write(
-                                player.Name ??
-                                "Player"
+                                string.IsNullOrWhiteSpace(
+                                    player.Name)
+                                    ? "Player"
+                                    : player.Name
                             );
 
                             writer.Write(
@@ -2898,7 +2961,9 @@ namespace MultiplayerCampaign
         private void BroadcastWorldPartySnapshot()
         {
             if (_connections.Count == 0)
+            {
                 return;
+            }
 
             byte[] payload =
                 WorldPartySynchronizer
@@ -2918,15 +2983,17 @@ namespace MultiplayerCampaign
 
         /*
          * ========================================================
-         * RESYNC SAVE
+         * RESYNC
          * ========================================================
          */
 
         private void StartResyncSave()
         {
-            _resyncRequested = false;
+            _resyncRequested =
+                false;
 
-            _resyncRunning = true;
+            _resyncRunning =
+                true;
 
             try
             {
@@ -2999,7 +3066,8 @@ namespace MultiplayerCampaign
             }
             catch (Exception ex)
             {
-                _resyncRunning = false;
+                _resyncRunning =
+                    false;
 
                 HostConsole.WriteLine(
                     "[!] Resync error: " +
@@ -3031,6 +3099,20 @@ namespace MultiplayerCampaign
                     out _
                 );
 
+                _joinedPlayers.TryRemove(
+                    connection.PlayerId,
+                    out _
+                );
+
+                /*
+                 * Queue remote cleanup on Game Thread.
+                 */
+
+                RemotePlayerManager
+                    .QueueLeave(
+                        connection.PlayerId
+                    );
+
                 byte[] leavePayload =
                     NetworkProtocol.CreatePayload(
                         writer =>
@@ -3054,7 +3136,7 @@ namespace MultiplayerCampaign
             }
 
             HostConsole.WriteLine(
-                "[-] Client disconnected."
+                "[-] Player disconnected."
             );
         }
 
@@ -3102,7 +3184,9 @@ namespace MultiplayerCampaign
                 );
 
             if (lengthBytes == null)
+            {
                 return null;
+            }
 
             int length =
                 BitConverter.ToInt32(
@@ -3126,7 +3210,9 @@ namespace MultiplayerCampaign
                 );
 
             if (body == null)
+            {
                 return null;
+            }
 
             if (
                 body[0] !=
@@ -3180,7 +3266,9 @@ namespace MultiplayerCampaign
                 CancellationToken token)
         {
             if (stream == null)
+            {
                 return null;
+            }
 
             byte[] buffer =
                 new byte[count];
@@ -3204,7 +3292,9 @@ namespace MultiplayerCampaign
                     );
 
                 if (read <= 0)
+                {
                     return null;
+                }
 
                 offset += read;
             }
@@ -3223,11 +3313,12 @@ namespace MultiplayerCampaign
             NetworkPacketType type,
             byte[] payload)
         {
-            if (connection == null)
+            if (
+                connection == null ||
+                connection.Stream == null)
+            {
                 return;
-
-            if (connection.Stream == null)
-                return;
+            }
 
             byte[] frame;
 
@@ -3303,11 +3394,7 @@ namespace MultiplayerCampaign
 
             _players.Clear();
 
-            while (
-                _pendingWorldJoinTests.TryDequeue(
-                    out string _))
-            {
-            }
+            _joinedPlayers.Clear();
 
             try
             {
@@ -3362,7 +3449,9 @@ namespace MultiplayerCampaign
             string filePath)
         {
             if (connection == null)
+            {
                 return;
+            }
 
             if (
                 string.IsNullOrWhiteSpace(
@@ -3386,7 +3475,9 @@ namespace MultiplayerCampaign
             try
             {
                 if (!File.Exists(filePath))
+                {
                     return;
+                }
 
                 FileInfo info =
                     new FileInfo(
@@ -3515,7 +3606,7 @@ namespace MultiplayerCampaign
 
         /*
          * ========================================================
-         * HOST DIRECT SEND
+         * DIRECT SEND
          * ========================================================
          */
 
@@ -3524,11 +3615,12 @@ namespace MultiplayerCampaign
             NetworkPacketType type,
             byte[] payload)
         {
-            if (connection == null)
+            if (
+                connection == null ||
+                connection.Stream == null)
+            {
                 return;
-
-            if (connection.Stream == null)
-                return;
+            }
 
             byte[] frame;
 
@@ -3608,7 +3700,9 @@ namespace MultiplayerCampaign
                         if (
                             _expectedLength <= 0 ||
                             _expectedLength >
-                            1024L * 1024L * 1024L)
+                            1024L *
+                            1024L *
+                            1024L)
                         {
                             return;
                         }
@@ -3673,10 +3767,14 @@ namespace MultiplayerCampaign
             lock (FileLock)
             {
                 if (!_transferActive)
+                {
                     return;
+                }
 
                 if (_clientStream == null)
+                {
                     return;
+                }
 
                 if (
                     payload == null ||
@@ -3751,10 +3849,14 @@ namespace MultiplayerCampaign
             lock (FileLock)
             {
                 if (!_transferActive)
+                {
                     return false;
+                }
 
                 if (_clientStream == null)
+                {
                     return false;
+                }
 
                 try
                 {
@@ -3794,7 +3896,9 @@ namespace MultiplayerCampaign
                         );
 
                     if (!File.Exists(temp))
+                    {
                         return false;
+                    }
 
                     byte[] actualHash =
                         ComputeHash(
@@ -3901,10 +4005,6 @@ namespace MultiplayerCampaign
                     );
                 }
 
-                /*
-                 * Keep TCP alive.
-                 */
-
                 MultiplayerCampaignSubModule
                     .BeginTransferredWorldLoad();
 
@@ -3989,7 +4089,9 @@ namespace MultiplayerCampaign
         {
             if (_clientStream == null)
             {
-                _transferActive = false;
+                _transferActive =
+                    false;
+
                 return;
             }
 
@@ -4001,9 +4103,11 @@ namespace MultiplayerCampaign
             {
             }
 
-            _clientStream = null;
+            _clientStream =
+                null;
 
-            _transferActive = false;
+            _transferActive =
+                false;
         }
     }
 
@@ -4031,6 +4135,12 @@ namespace MultiplayerCampaign
         public Hero Hero;
 
         public bool Active;
+
+        public bool Spawned;
+
+        public bool WorldJoinFeedPending;
+
+        public bool IsHostRemote;
     }
 
 
@@ -4044,7 +4154,8 @@ namespace MultiplayerCampaign
     {
         Join,
         Leave,
-        State
+        State,
+        WorldJoinFeed
     }
 
 
@@ -4145,6 +4256,19 @@ namespace MultiplayerCampaign
                     partySize
             };
         }
+
+        public static RemotePlayerCommand WorldJoinFeed(
+            string name)
+        {
+            return new RemotePlayerCommand
+            {
+                Type =
+                    RemotePlayerCommandType.WorldJoinFeed,
+
+                Name =
+                    name
+            };
+        }
     }
 
 
@@ -4152,10 +4276,29 @@ namespace MultiplayerCampaign
      * ============================================================
      * REMOTE PLAYER MANAGER
      * ============================================================
+     *
+     * This is the most important part of the current stage.
+     *
+     * The local player remains:
+     *
+     *     Hero.MainHero
+     *     MobileParty.MainParty
+     *
+     * A remote player is:
+     *
+     *     separate Hero
+     *     separate MobileParty
+     *
+     * The remote Hero MUST NEVER equal MainHero.
+     *
+     * ============================================================
      */
 
     internal static class RemotePlayerManager
     {
+        private const string TestRemoteName =
+            "Test";
+
         private static readonly Dictionary<
             string,
             RemotePlayerState>
@@ -4180,11 +4323,11 @@ namespace MultiplayerCampaign
             string playerId,
             string name)
         {
-            Commands.Enqueue(
-                RemotePlayerCommand.Join(
-                    playerId,
-                    name
-                )
+            QueueJoinWithState(
+                playerId,
+                name,
+                CampaignVec2.Zero,
+                1
             );
         }
 
@@ -4200,12 +4343,25 @@ namespace MultiplayerCampaign
             CampaignVec2 position,
             int partySize)
         {
+            if (
+                string.IsNullOrWhiteSpace(
+                    playerId))
+            {
+                return;
+            }
+
             Commands.Enqueue(
                 RemotePlayerCommand.JoinWithState(
                     playerId,
-                    name,
+                    TestRemoteName,
                     position,
-                    partySize
+                    Math.Max(
+                        1,
+                        Math.Min(
+                            10000,
+                            partySize
+                        )
+                    )
                 )
             );
         }
@@ -4239,18 +4395,63 @@ namespace MultiplayerCampaign
          * ========================================================
          */
 
+        public static void QueueState(
+            string playerId,
+            string name,
+            CampaignVec2 position,
+            int partySize)
+        {
+            if (
+                string.IsNullOrWhiteSpace(
+                    playerId))
+            {
+                return;
+            }
+
+            Commands.Enqueue(
+                RemotePlayerCommand.State(
+                    playerId,
+                    TestRemoteName,
+                    position,
+                    Math.Max(
+                        1,
+                        Math.Min(
+                            10000,
+                            partySize
+                        )
+                    )
+                )
+            );
+        }
+
         public static void ApplySnapshot(
             string playerId,
             string name,
             CampaignVec2 position,
             int partySize)
         {
+            QueueState(
+                playerId,
+                name,
+                position,
+                partySize
+            );
+        }
+
+        /*
+         * ========================================================
+         * MESSAGE FEED
+         * ========================================================
+         *
+         * Must happen on Game Thread.
+         */
+
+        public static void QueueWorldJoinFeed(
+            string name)
+        {
             Commands.Enqueue(
-                RemotePlayerCommand.State(
-                    playerId,
-                    name,
-                    position,
-                    partySize
+                RemotePlayerCommand.WorldJoinFeed(
+                    name
                 )
             );
         }
@@ -4264,6 +4465,10 @@ namespace MultiplayerCampaign
         public static void Update(
             float dt)
         {
+            /*
+             * Apply queued commands.
+             */
+
             while (
                 Commands.TryDequeue(
                     out RemotePlayerCommand command))
@@ -4274,13 +4479,19 @@ namespace MultiplayerCampaign
                         command
                     );
                 }
-                catch
+                catch (Exception ex)
                 {
+                    HostConsole.WriteLine(
+                        "[!] Remote command error: " +
+                        ex.Message
+                    );
                 }
             }
 
             if (Players.Count == 0)
+            {
                 return;
+            }
 
             RemotePlayerState[] states =
                 new RemotePlayerState[
@@ -4297,6 +4508,10 @@ namespace MultiplayerCampaign
                     state;
             }
 
+            /*
+             * Remote party interpolation.
+             */
+
             for (
                 int i = 0;
                 i < states.Length;
@@ -4306,13 +4521,22 @@ namespace MultiplayerCampaign
                     states[i];
 
                 if (!state.Active)
+                {
                     continue;
+                }
+
+                if (!state.Spawned)
+                {
+                    continue;
+                }
 
                 MobileParty party =
                     state.Party;
 
                 if (party == null)
+                {
                     continue;
+                }
 
                 CampaignVec2 current =
                     state.CurrentPosition;
@@ -4323,7 +4547,10 @@ namespace MultiplayerCampaign
                 float alpha =
                     Math.Min(
                         1f,
-                        dt * 8f
+                        Math.Max(
+                            0.01f,
+                            dt * 8f
+                        )
                     );
 
                 float x =
@@ -4356,12 +4583,22 @@ namespace MultiplayerCampaign
 
                 try
                 {
+                    /*
+                     * Game Thread only.
+                     */
+
                     party.Position =
                         interpolated;
                 }
                 catch
                 {
-                    state.Active = false;
+                    /*
+                     * Don't crash the Campaign if a remote
+                     * party becomes invalid.
+                     */
+
+                    state.Active =
+                        false;
                 }
             }
         }
@@ -4375,6 +4612,39 @@ namespace MultiplayerCampaign
         private static void ApplyCommand(
             RemotePlayerCommand command)
         {
+            if (command == null)
+            {
+                return;
+            }
+
+            /*
+             * MESSAGE FEED
+             */
+
+            if (
+                command.Type ==
+                RemotePlayerCommandType.WorldJoinFeed)
+            {
+                if (
+                    string.IsNullOrWhiteSpace(
+                        command.Name))
+                {
+                    return;
+                }
+
+                CampaignMessageFeed.Show(
+                    "* " +
+                    command.Name +
+                    " joined the world."
+                );
+
+                HostConsole.WriteLine(
+                    "[*] Player joined the world."
+                );
+
+                return;
+            }
+
             if (
                 string.IsNullOrWhiteSpace(
                     command.PlayerId))
@@ -4382,12 +4652,22 @@ namespace MultiplayerCampaign
                 return;
             }
 
+            /*
+             * Never create ourselves as remote.
+             */
+
             if (
                 command.PlayerId ==
                 PlayerIdentity.GetLocalId())
             {
                 return;
             }
+
+            /*
+             * ====================================================
+             * LEAVE
+             * ====================================================
+             */
 
             if (
                 command.Type ==
@@ -4407,10 +4687,21 @@ namespace MultiplayerCampaign
                     Players.Remove(
                         command.PlayerId
                     );
+
+                    HostConsole.WriteLine(
+                        "[-] Remote player removed: " +
+                        existing.Name
+                    );
                 }
 
                 return;
             }
+
+            /*
+             * ====================================================
+             * CREATE
+             * ====================================================
+             */
 
             RemotePlayerState state;
 
@@ -4426,10 +4717,7 @@ namespace MultiplayerCampaign
                             command.PlayerId,
 
                         Name =
-                            string.IsNullOrWhiteSpace(
-                                command.Name)
-                                ? "Player"
-                                : command.Name,
+                            TestRemoteName,
 
                         CurrentPosition =
                             command.Position,
@@ -4443,8 +4731,24 @@ namespace MultiplayerCampaign
                                 command.PartySize
                             ),
 
+                        Party =
+                            null,
+
+                        Hero =
+                            null,
+
                         Active =
-                            false
+                            false,
+
+                        Spawned =
+                            false,
+
+                        WorldJoinFeedPending =
+                            false,
+
+                        IsHostRemote =
+                            command.PlayerId ==
+                            "HOST"
                     };
 
                 if (
@@ -4458,13 +4762,27 @@ namespace MultiplayerCampaign
                     command.PlayerId
                 ] =
                     state;
+
+                HostConsole.WriteLine(
+                    "[+] Player spawned: " +
+                    TestRemoteName
+                );
+
+                CampaignMessageFeed.Show(
+                    "[Multiplayer] " +
+                    TestRemoteName +
+                    " spawned."
+                );
             }
 
+            /*
+             * ====================================================
+             * UPDATE
+             * ====================================================
+             */
+
             state.Name =
-                string.IsNullOrWhiteSpace(
-                    command.Name)
-                    ? state.Name
-                    : command.Name;
+                TestRemoteName;
 
             state.TargetPosition =
                 command.Position;
@@ -4472,8 +4790,24 @@ namespace MultiplayerCampaign
             state.PartySize =
                 Math.Max(
                     1,
-                    command.PartySize
+                    Math.Min(
+                        10000,
+                        command.PartySize
+                    )
                 );
+
+            if (!state.Spawned)
+            {
+                if (
+                    CreateRemotePlayer(
+                        state))
+                {
+                    HostConsole.WriteLine(
+                        "[+] Player spawned: " +
+                        TestRemoteName
+                    );
+                }
+            }
 
             state.Active =
                 state.Party != null;
@@ -4487,41 +4821,100 @@ namespace MultiplayerCampaign
          * ========================================================
          * CREATE REMOTE PLAYER
          * ========================================================
+         *
+         * Bannerlord 1.3.4:
+         *
+         * MobilePartyHelper.SpawnLordParty(
+         *     Hero,
+         *     CampaignVec2,
+         *     float)
+         *
+         * is available.
+         *
+         * ========================================================
          */
 
         private static bool
             CreateRemotePlayer(
                 RemotePlayerState state)
         {
+            if (state == null)
+            {
+                return false;
+            }
+
+            if (
+                state.Spawned &&
+                state.Hero != null &&
+                state.Party != null)
+            {
+                return true;
+            }
+
+            if (
+                Campaign.Current == null)
+            {
+                return false;
+            }
+
+            if (
+                Hero.MainHero == null)
+            {
+                return false;
+            }
+
+            CharacterObject template =
+                Hero.MainHero.CharacterObject;
+
+            if (template == null)
+            {
+                return false;
+            }
+
+            /*
+             * Never use the reference to MainHero.
+             */
+
             Hero remoteHero = null;
 
             MobileParty remoteParty = null;
 
             try
             {
-                if (
-                    Campaign.Current == null)
-                {
-                    return false;
-                }
+                /*
+                 * Unique remote Hero ID.
+                 *
+                 * "HOST" is allowed because it is not the
+                 * local player's persistent ID.
+                 *
+                 * Client players receive the Host as:
+                 *
+                 *     mpc_remote_HOST
+                 *
+                 * Host receives Client as:
+                 *
+                 *     mpc_remote_<client-id>
+                 */
 
-                if (
-                    Hero.MainHero == null)
-                {
-                    return false;
-                }
+                string safePlayerId =
+                    SanitizeId(
+                        state.PlayerId
+                    );
 
-                CharacterObject template =
-                    Hero.MainHero
-                        .CharacterObject;
+                string heroId =
+                    "mpc_remote_" +
+                    safePlayerId;
 
-                if (template == null)
-                    return false;
+                /*
+                 * Create completely separate Hero.
+                 *
+                 * The source CharacterObject is only used as
+                 * the template. This does NOT reuse MainHero.
+                 */
 
                 bool created =
                     HeroCreator.CreateBasicHero(
-                        "mpc_" +
-                        state.PlayerId,
+                        heroId,
                         template,
                         out remoteHero,
                         true
@@ -4531,17 +4924,53 @@ namespace MultiplayerCampaign
                     !created ||
                     remoteHero == null)
                 {
+                    /*
+                     * If the Hero already exists due to a
+                     * repeated command, do not create a reference
+                     * to MainHero.
+                     */
+
                     return false;
                 }
 
+                /*
+                 * Safety check.
+                 */
+
+                if (
+                    remoteHero ==
+                    Hero.MainHero)
+                {
+                    return false;
+                }
+
+                /*
+                 * Experimental test character.
+                 *
+                 * The current stage intentionally uses:
+                 *
+                 *     Test
+                 *
+                 * This keeps character generation simple while
+                 * we verify real two-player visibility.
+                 */
+
                 remoteHero.SetName(
                     new TextObject(
-                        state.Name
+                        TestRemoteName
                     ),
                     new TextObject(
-                        state.Name
+                        TestRemoteName
                     )
                 );
+
+                /*
+                 * Create a REAL MobileParty.
+                 *
+                 * Not a proxy.
+                 * Not a visual marker.
+                 * Not MainParty.
+                 */
 
                 remoteParty =
                     MobilePartyHelper
@@ -4552,12 +4981,55 @@ namespace MultiplayerCampaign
                         );
 
                 if (remoteParty == null)
+                {
                     return false;
+                }
+
+                /*
+                 * Safety:
+                 *
+                 * Remote party must never equal MainParty.
+                 */
+
+                if (
+                    remoteParty ==
+                    MobileParty.MainParty)
+                {
+                    try
+                    {
+                        DestroyPartyAction.Apply(
+                            null,
+                            remoteParty
+                        );
+                    }
+                    catch
+                    {
+                    }
+
+                    return false;
+                }
+
+                /*
+                 * Prevent autonomous local movement.
+                 */
 
                 remoteParty.SetMoveModeHold();
 
+                /*
+                 * Initial exact position.
+                 */
+
                 remoteParty.Position =
                     state.TargetPosition;
+
+                /*
+                 * Create basic roster.
+                 */
+
+                AddInitialRemoteTroops(
+                    remoteParty,
+                    template
+                );
 
                 state.Hero =
                     remoteHero;
@@ -4568,17 +5040,68 @@ namespace MultiplayerCampaign
                 state.CurrentPosition =
                     state.TargetPosition;
 
+                state.TargetPosition =
+                    state.TargetPosition;
+
+                state.Spawned =
+                    true;
+
                 state.Active =
                     true;
 
-                UpdateRemoteRoster(
-                    state
+                /*
+                 * Final safety check.
+                 */
+
+                if (
+                    Hero.MainHero ==
+                    remoteHero ||
+                    MobileParty.MainParty ==
+                    remoteParty)
+                {
+                    try
+                    {
+                        DestroyPartyAction.Apply(
+                            null,
+                            remoteParty
+                        );
+                    }
+                    catch
+                    {
+                    }
+
+                    state.Hero =
+                        null;
+
+                    state.Party =
+                        null;
+
+                    state.Spawned =
+                        false;
+
+                    state.Active =
+                        false;
+
+                    return false;
+                }
+
+                HostConsole.WriteLine(
+                    "[+] Remote Hero created: Test"
+                );
+
+                HostConsole.WriteLine(
+                    "[+] Remote MobileParty created."
                 );
 
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                HostConsole.WriteLine(
+                    "[!] Remote Hero/Party creation failed: " +
+                    ex.Message
+                );
+
                 try
                 {
                     if (remoteParty != null)
@@ -4593,13 +5116,62 @@ namespace MultiplayerCampaign
                 {
                 }
 
-                state.Party = null;
+                state.Party =
+                    null;
 
-                state.Hero = null;
+                state.Hero =
+                    null;
 
-                state.Active = false;
+                state.Spawned =
+                    false;
+
+                state.Active =
+                    false;
 
                 return false;
+            }
+        }
+
+        /*
+         * ========================================================
+         * INITIAL TROOPS
+         * ========================================================
+         */
+
+        private static void AddInitialRemoteTroops(
+            MobileParty party,
+            CharacterObject template)
+        {
+            try
+            {
+                if (
+                    party == null ||
+                    template == null)
+                {
+                    return;
+                }
+
+                if (
+                    party.MemberRoster == null)
+                {
+                    return;
+                }
+
+                /*
+                 * Very small test party.
+                 *
+                 * Later this will be replaced by complete
+                 * synchronized Party Roster data.
+                 */
+
+                party.MemberRoster
+                    .AddToCounts(
+                        template,
+                        5
+                    );
+            }
+            catch
+            {
             }
         }
 
@@ -4632,12 +5204,17 @@ namespace MultiplayerCampaign
                     Hero.MainHero.CharacterObject;
 
                 if (template == null)
+                {
                     return;
+                }
 
                 int desired =
                     Math.Max(
                         1,
-                        state.PartySize
+                        Math.Min(
+                            10000,
+                            state.PartySize
+                        )
                     );
 
                 int current =
@@ -4671,11 +5248,16 @@ namespace MultiplayerCampaign
                 RemotePlayerState state)
         {
             if (state == null)
+            {
                 return;
+            }
 
             try
             {
-                if (state.Party != null)
+                if (
+                    state.Party != null &&
+                    state.Party !=
+                    MobileParty.MainParty)
                 {
                     DestroyPartyAction.Apply(
                         null,
@@ -4687,11 +5269,61 @@ namespace MultiplayerCampaign
             {
             }
 
-            state.Party = null;
+            state.Party =
+                null;
 
-            state.Hero = null;
+            state.Hero =
+                null;
 
-            state.Active = false;
+            state.Spawned =
+                false;
+
+            state.Active =
+                false;
+        }
+
+        /*
+         * ========================================================
+         * SANITIZE ID
+         * ========================================================
+         */
+
+        private static string SanitizeId(
+            string value)
+        {
+            if (
+                string.IsNullOrWhiteSpace(
+                    value))
+            {
+                return "player";
+            }
+
+            StringBuilder builder =
+                new StringBuilder();
+
+            for (
+                int i = 0;
+                i < value.Length;
+                i++)
+            {
+                char c =
+                    value[i];
+
+                if (
+                    char.IsLetterOrDigit(c) ||
+                    c == '_' ||
+                    c == '-')
+                {
+                    builder.Append(c);
+                }
+            }
+
+            if (builder.Length == 0)
+            {
+                return "player";
+            }
+
+            return builder.ToString();
         }
 
         /*
@@ -4784,6 +5416,13 @@ namespace MultiplayerCampaign
                             reader.ReadInt32();
 
                         if (
+                            string.IsNullOrWhiteSpace(
+                                playerId))
+                        {
+                            continue;
+                        }
+
+                        if (
                             float.IsNaN(x) ||
                             float.IsNaN(y) ||
                             float.IsInfinity(x) ||
@@ -4791,6 +5430,10 @@ namespace MultiplayerCampaign
                         {
                             continue;
                         }
+
+                        /*
+                         * Ignore ourselves.
+                         */
 
                         if (
                             playerId ==
@@ -4814,8 +5457,8 @@ namespace MultiplayerCampaign
                                 Math.Max(
                                     1,
                                     Math.Min(
-                                        partySize,
-                                        10000
+                                        10000,
+                                        partySize
                                     )
                                 )
                             );
@@ -4857,6 +5500,8 @@ namespace MultiplayerCampaign
          * ========================================================
          * BUILD HOST SNAPSHOT
          * ========================================================
+         *
+         * Game Thread only.
          */
 
         public static byte[]
@@ -4871,7 +5516,8 @@ namespace MultiplayerCampaign
                             MobileParty
                                 .AllLordParties;
 
-                        int count = 0;
+                        int count =
+                            0;
 
                         if (parties != null)
                         {
@@ -4884,7 +5530,9 @@ namespace MultiplayerCampaign
                                     parties[i];
 
                                 if (party == null)
+                                {
                                     continue;
+                                }
 
                                 if (
                                     party ==
@@ -4900,11 +5548,26 @@ namespace MultiplayerCampaign
                                     continue;
                                 }
 
-                                if (
-                                    party.StringId.StartsWith(
-                                        "mpc_party_",
-                                        StringComparison
-                                            .Ordinal))
+                                /*
+                                 * Remote test parties are
+                                 * not NPC world parties.
+                                 *
+                                 * Their exact StringId is not
+                                 * assumed here because Bannerlord
+                                 * generates the party StringId.
+                                 *
+                                 * Remote parties are therefore
+                                 * filtered later on the receiver
+                                 * using RemotePlayerManager.
+                                 */
+
+                                bool isRemote =
+                                    RemotePlayerManager
+                                        .IsRemoteParty(
+                                            party
+                                        );
+
+                                if (isRemote)
                                 {
                                     continue;
                                 }
@@ -4918,7 +5581,9 @@ namespace MultiplayerCampaign
                         );
 
                         if (parties == null)
+                        {
                             return;
+                        }
 
                         for (
                             int i = 0;
@@ -4929,7 +5594,9 @@ namespace MultiplayerCampaign
                                 parties[i];
 
                             if (party == null)
+                            {
                                 continue;
+                            }
 
                             if (
                                 party ==
@@ -4946,10 +5613,10 @@ namespace MultiplayerCampaign
                             }
 
                             if (
-                                party.StringId.StartsWith(
-                                    "mpc_party_",
-                                    StringComparison
-                                        .Ordinal))
+                                RemotePlayerManager
+                                    .IsRemoteParty(
+                                        party
+                                    ))
                             {
                                 continue;
                             }
@@ -4966,10 +5633,12 @@ namespace MultiplayerCampaign
                                 party.Position.Y
                             );
 
-                            int size = 0;
+                            int size =
+                                0;
 
                             if (
-                                party.MemberRoster != null)
+                                party.MemberRoster !=
+                                null)
                             {
                                 size =
                                     party
@@ -5106,17 +5775,21 @@ namespace MultiplayerCampaign
             float dt)
         {
             List<WorldPartyState>
-                snapshot = null;
+                snapshot =
+                null;
 
             while (
                 Pending.TryDequeue(
                     out List<WorldPartyState> next))
             {
-                snapshot = next;
+                snapshot =
+                    next;
             }
 
             if (snapshot == null)
+            {
                 return;
+            }
 
             try
             {
@@ -5151,7 +5824,9 @@ namespace MultiplayerCampaign
                         .AllLordParties;
 
                 if (parties == null)
+                {
                     return;
+                }
 
                 for (
                     int i = 0;
@@ -5162,7 +5837,9 @@ namespace MultiplayerCampaign
                         parties[i];
 
                     if (party == null)
+                    {
                         continue;
+                    }
 
                     if (
                         party ==
@@ -5172,10 +5849,10 @@ namespace MultiplayerCampaign
                     }
 
                     if (
-                        party.StringId.StartsWith(
-                            "mpc_party_",
-                            StringComparison
-                                .Ordinal))
+                        RemotePlayerManager
+                            .IsRemoteParty(
+                                party
+                            ))
                     {
                         continue;
                     }
@@ -5196,7 +5873,10 @@ namespace MultiplayerCampaign
                     float alpha =
                         Math.Min(
                             1f,
-                            dt * 5f
+                            Math.Max(
+                                0.01f,
+                                dt * 5f
+                            )
                         );
 
                     float x =
@@ -5345,12 +6025,12 @@ namespace MultiplayerCampaign
 
     /*
      * ============================================================
-     * PLAYER ID
+     * PLAYER IDENTITY
      * ============================================================
      *
      * Internal only.
      *
-     * Never logged.
+     * Never printed in normal logs.
      */
 
     internal static class PlayerIdentity
@@ -5514,7 +6194,9 @@ namespace MultiplayerCampaign
                 );
 
             if (files.Length == 0)
+            {
                 return null;
+            }
 
             return files[0];
         }
@@ -5547,7 +6229,9 @@ namespace MultiplayerCampaign
         public static void Initialize()
         {
             if (_initialized)
+            {
                 return;
+            }
 
             try
             {
@@ -5561,7 +6245,8 @@ namespace MultiplayerCampaign
             {
             }
 
-            _initialized = true;
+            _initialized =
+                true;
 
             try
             {
