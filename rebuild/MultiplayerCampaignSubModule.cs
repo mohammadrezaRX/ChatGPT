@@ -3,6 +3,8 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
+using BinaryReader = System.IO.BinaryReader;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -8132,7 +8134,7 @@ internal static class LocalPlayerNetworkSender
         CampaignVec2 position;
 
         if (
-            !SafeCampaignAccess
+            !CampaignWorld
                 .TryGetMainPartyPosition(
                     out position))
         {
@@ -8140,7 +8142,7 @@ internal static class LocalPlayerNetworkSender
         }
 
         int size =
-            SafeCampaignAccess
+            CampaignWorld
                 .GetMainPartySize();
 
         client.SendLocalPlayerState(
@@ -9828,7 +9830,7 @@ internal static class PlayerSnapshotSendTimer
         CampaignVec2 position;
 
         if (
-            !SafeCampaignAccess
+            !CampaignWorld
                 .TryGetMainPartyPosition(
                     out position))
         {
@@ -9836,7 +9838,7 @@ internal static class PlayerSnapshotSendTimer
         }
 
         int size =
-            SafeCampaignAccess
+            CampaignWorld
                 .GetMainPartySize();
 
         string name =
@@ -12748,7 +12750,7 @@ internal static class RemotePlayerCommandProcessor
                 command.PlayerId
             );
 
-        RemotePlayerMapRegistry
+        CampaignMapRemotePlayerRegistry
             .Remove(
                 command.PlayerId
             );
@@ -14548,7 +14550,7 @@ internal static class NetworkPlayerSnapshotService
         }
 
         int partySize =
-            SafeCampaignAccess
+            CampaignWorld
                 .GetMainPartySize();
 
         string playerName =
@@ -14911,7 +14913,7 @@ internal static class RemotePlayerLeaveProcessor
                     playerId
                 );
 
-            RemotePlayerMapRegistry
+            CampaignMapRemotePlayerRegistry
                 .Remove(
                     playerId
                 );
@@ -16032,7 +16034,7 @@ internal static class HostClientSnapshotBroadcaster
             MobileParty.MainParty.Position;
 
         int hostPartySize =
-            SafeCampaignAccess
+            CampaignWorld
                 .GetMainPartySize();
 
         byte[] hostPayload =
@@ -17716,7 +17718,7 @@ internal static class RemotePlayerLeaveService
                 playerId
             );
 
-        RemotePlayerMapRegistry
+        CampaignMapRemotePlayerRegistry
             .Remove(
                 playerId
             );
@@ -17946,7 +17948,7 @@ internal static class NetworkPacketProcessor
             case NetworkPacketType.WorldPartySnapshot:
 
                 WorldPartySynchronizer
-                    .QueueSnapshot(
+                    .EnqueueSnapshot(
                         message.Payload
                     );
 
@@ -18890,13 +18892,13 @@ internal static class HostCampaignSnapshotBuilder
             true;
 
         snapshot.PartySize =
-            SafeCampaignAccess
+            CampaignWorld
                 .GetMainPartySize();
 
         CampaignVec2 position;
 
         if (
-            SafeCampaignAccess
+            CampaignWorld
                 .TryGetMainPartyPosition(
                     out position))
         {
@@ -19328,7 +19330,7 @@ internal static class ClientPlayerStateSender
         CampaignVec2 position;
 
         if (
-            !SafeCampaignAccess
+            !CampaignWorld
                 .TryGetMainPartyPosition(
                     out position))
         {
@@ -19336,7 +19338,7 @@ internal static class ClientPlayerStateSender
         }
 
         int partySize =
-            SafeCampaignAccess
+            CampaignWorld
                 .GetMainPartySize();
 
         CampaignPlayerSnapshot snapshot =
@@ -21683,10 +21685,10 @@ public sealed class MultiplayerCampaignBehaviorV2
             );
 
         CampaignEvents
-            .GameLoadFinishedEvent
+            .OnGameLoadedEvent
             .AddNonSerializedListener(
                 this,
-                OnGameLoadFinished
+                _ => OnGameLoadFinished()
             );
     }
 
@@ -24779,7 +24781,7 @@ internal static class HostStateExporter
         }
 
         int partySize =
-            SafeCampaignAccess
+            CampaignWorld
                 .GetMainPartySize();
 
         return
@@ -24815,13 +24817,13 @@ internal static class HostStateExporter
             true;
 
         result.PartySize =
-            SafeCampaignAccess
+            CampaignWorld
                 .GetMainPartySize();
 
         CampaignVec2 position;
 
         if (
-            SafeCampaignAccess
+            CampaignWorld
                 .TryGetMainPartyPosition(
                     out position))
         {
@@ -25969,6 +25971,20 @@ internal static class MultiplayerCampaignFinalization
 // ===== MPC REBUILD LAYER 2026 =====
 // This layer is intentionally contained in the same source file so the
 // original Multiplayer Campaign core remains present and readable.
+internal static class PlayerIdentity
+{
+    public static void Reset() { }
+}
+
+internal static class RemotePlayerMapMarkerCleanup
+{
+    public static void Remove(string playerId)
+    {
+        if (string.IsNullOrWhiteSpace(playerId)) return;
+        CampaignMapRemotePlayerRegistry.Remove(playerId);
+    }
+}
+
 namespace MultiplayerCampaignRebuildLayer
 {
     internal sealed class CharacterSlotData
@@ -26620,7 +26636,7 @@ namespace MultiplayerCampaignRebuildLayer
 
                     if (Party != null)
                     {
-                        try { Party.SetCustomName(new TextObject(MpcSession.Name)); } catch { }
+                        try { Party.Party.SetCustomName(new TextObject(MpcSession.Name)); } catch { }
                     }
 
                     return Party;
