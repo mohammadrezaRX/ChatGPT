@@ -101,7 +101,27 @@ namespace MultiplayerCampaign
 
             return 1;
         }
+    
+
+    public static bool TryGetMainPartyPosition(
+        out CampaignVec2 position)
+    {
+        try
+        {
+            MobileParty mainParty = MobileParty.MainParty;
+            if (mainParty != null)
+            {
+                position = mainParty.Position;
+                return true;
+            }
+        }
+        catch
+        {
+        }
+        position = new CampaignVec2(new Vec2(0f, 0f), true);
+        return false;
     }
+}
 
 
     /*
@@ -5776,6 +5796,12 @@ public static class SafeCampaignAccess
             return 1;
         }
     }
+
+
+    public static int GetMainPartySize()
+    {
+        return CampaignWorld.GetMainPartySize();
+    }
 }
 
 
@@ -9859,6 +9885,12 @@ internal static class PlayerSnapshotSendTimer
                 size
             );
     }
+
+
+    public static void Reset()
+    {
+        _timer = 0f;
+    }
 }
 
 
@@ -11942,7 +11974,7 @@ public static class MultiplayerCampaignHostExtensions
             MobileParty.MainParty.Position;
 
         int partySize =
-            SafeCampaignAccess.GetMainPartySize();
+            CampaignWorld.GetMainPartySize();
 
         byte[] payload =
             HostSnapshotBuilder.Build(
@@ -12065,7 +12097,7 @@ internal static class HostStateUpdateService
             MobileParty.MainParty.Position;
 
         int hostPartySize =
-            SafeCampaignAccess.GetMainPartySize();
+            CampaignWorld.GetMainPartySize();
 
         byte[] hostPayload =
             HostSnapshotBuilder.Build(
@@ -21219,8 +21251,7 @@ internal static class FinalResetV2
                 FinalPlayerSyncService
                     .Reset();
 
-                FinalMasterUpdate
-                    ._ResetInternal();
+                _ResetInternal();
             }
         );
     }
@@ -23831,8 +23862,7 @@ public sealed class MultiplayerCampaignFinalBehavior
                 OnTick
             );
 
-        CampaignEvents
-            .GameLoadFinishedEvent
+        CampaignEvents.OnGameLoadedEvent
             .AddNonSerializedListener(
                 this,
                 OnGameLoaded
