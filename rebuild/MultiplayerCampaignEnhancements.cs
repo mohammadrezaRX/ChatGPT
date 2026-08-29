@@ -5,6 +5,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Text;
+using BinaryWriter = System.IO.BinaryWriter;
+using BinaryReader = System.IO.BinaryReader;
 using HarmonyLib;
 using Helpers;
 using TaleWorlds.CampaignSystem;
@@ -1245,16 +1247,16 @@ namespace MultiplayerCampaign
 
         private static void ApplyWorldParties(float dt)
         {
-            WorldPartySyncState[] snapshot;
+            WorldPartyState[] snapshot;
             lock (Sync)
             {
-                snapshot = new WorldPartySyncState[WorldParties.Count];
+                snapshot = new WorldPartyState[WorldParties.Count];
                 WorldParties.Values.CopyTo(snapshot, 0);
             }
 
             for (int i = 0; i < snapshot.Length; i++)
             {
-                WorldPartySyncState state = snapshot[i];
+                WorldPartyState state = snapshot[i];
                 if (state == null)
                     continue;
 
