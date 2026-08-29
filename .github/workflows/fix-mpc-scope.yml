@@ -1,4 +1,4 @@
-name: Fix MPC source structure
+name: Repair MPC namespaces
 
 on:
   push:
@@ -10,86 +10,59 @@ permissions:
   contents: write
 
 jobs:
-  fix:
+  repair:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           ref: mpc-full-rebuild-final
 
-      - name: Repair C# source structure
+      - name: Repair source
         shell: python
         run: |
           from pathlib import Path
-          import re
 
-          path = Path('rebuild/MultiplayerCampaignSubModule.cs')
-          text = path.read_text(encoding='utf-8-sig')
+          p = Path('rebuild/MultiplayerCampaignSubModule.cs')
+          text = p.read_text(encoding='utf-8-sig')
 
-          # 1) The original declaration is extended later in the same file.
-          #    Both declarations therefore must be partial.
-          text, n = re.subn(
-              r'(?m)^public static class RemotePlayerManager\s*$',
-              'public static partial class RemotePlayerManager',
-              text,
-              count=1,
+          marker = '// ============================\n// CONTINUATION'
+          idx = text.find(marker)
+          if idx < 0:
+              raise SystemExit('CONTINUATION marker not found')
+
+          before = text[:idx]
+          expected = '\n        }\n    }\n}\n'
+          if not before.endswith(expected):
+              raise SystemExit('Expected namespace boundary not found; refusing blind edit.')
+
+          # Remove only the namespace-closing brace. Keep the NetworkClient class close.
+          before = before[:-len('\n}\n')]
+          text = before + '\n' + text[idx:]
+
+          rebuild_marker = 'namespace MultiplayerCampaignRebuildLayer\n{\n'
+          if rebuild_marker not in text:
+              raise SystemExit('Rebuild namespace marker not found')
+          text = text.replace(
+              rebuild_marker,
+              'namespace MultiplayerCampaignRebuildLayer\n{\n    using MultiplayerCampaign;\n    using System.Reflection;\n',
+              1,
           )
 
-          # 2) The compiler reported CS1513 immediately before the rebuild
-          #    namespace. Make that boundary explicit instead of changing
-          #    unrelated braces in the 27k-line source.
-          marker = '// ===== MPC REBUILD LAYER 2026 ====='
-          idx = text.find(marker)
-          if idx >= 0:
-              prefix = text[:idx]
-              if not prefix.rstrip().endswith('} }'):
-                  # Ensure the preceding top-level construct is closed.
-                  # This is intentionally conservative: only add one brace
-                  # immediately before the rebuild layer when the visible
-                  # source boundary has an unmatched opening brace.
-                  depth = 0
-                  in_line = False
-                  in_block = False
-                  in_string = False
-                  verbatim = False
-                  escape = False
-                  i = 0
-                  while i < len(prefix):
-                      c = prefix[i]
-                      nchar = prefix[i+1] if i + 1 < len(prefix) else ''
-                      if in_line:
-                          if c == '\n': in_line = False
-                          i += 1; continue
-                      if in_block:
-                          if c == '*' and nchar == '/': in_block = False; i += 2; continue
-                          i += 1; continue
-                      if in_string:
-                          if verbatim:
-                              if c == '"' and nchar == '"': i += 2; continue
-                              if c == '"': in_string = False
-                          else:
-                              if escape: escape = False
-                              elif c == '\\': escape = True
-                              elif c == '"': in_string = False
-                          i += 1; continue
-                      if c == '/' and nchar == '/': in_line = True; i += 2; continue
-                      if c == '/' and nchar == '*': in_block = True; i += 2; continue
-                      if c == '@' and nchar == '"':
-                          in_string = True; verbatim = True; i += 2; continue
-                      if c == '"':
-                          in_string = True; verbatim = False; i += 1; continue
-                      if c == '{': depth += 1
-                      elif c == '}': depth -= 1
-                      i += 1
-                  if depth == 1:
-                      text = prefix.rstrip() + '\n}\n\n' + text[idx:]
+          safe_marker = 'public static bool TryGetPosition(\n        out CampaignVec2 position)'
+          if safe_marker not in text:
+              raise SystemExit('SafeCampaignAccess.TryGetPosition marker not found')
+          text = text.replace(
+              safe_marker,
+              'public static bool TryGetMainPartyPosition(\n        out CampaignVec2 position)\n    {\n        return TryGetPosition(out position);\n    }\n\n    ' + safe_marker,
+              1,
+          )
 
-          path.write_text(text, encoding='utf-8')
-          print('Source structure repair completed.')
+          p.write_text(text, encoding='utf-8')
+          print('MPC namespace/import/helper repairs completed.')
 
-      - name: Commit repaired source
+      - name: Commit repair
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
@@ -99,5 +72,5 @@ jobs:
             echo "No changes to commit"
             exit 0
           fi
-          git commit -m "Fix MPC C# scope and partial declarations"
+          git commit -m "Fix MPC namespace scope and helper API"
           git push origin mpc-full-rebuild-final
