@@ -6,32 +6,28 @@
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <OutputPath>bin\Debug\netstandard2.0\</OutputPath>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
-    <BannerlordRoot Condition="'$(BannerlordRoot)' == ''">E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord</BannerlordRoot>
+    <OutputPath>bin\Debug\netstandard2.0\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <NoWarn>MSB3277</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="0Harmony"><HintPath>$(BannerlordRoot)\Modules\Bannerlord.Harmony\bin\Win64_Shipping_Client\0Harmony.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.Core"><HintPath>$(BannerlordRoot)\bin\Win64_Shipping_Client\TaleWorlds.Core.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.Library"><HintPath>$(BannerlordRoot)\bin\Win64_Shipping_Client\TaleWorlds.Library.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.Localization"><HintPath>$(BannerlordRoot)\bin\Win64_Shipping_Client\TaleWorlds.Localization.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.ScreenSystem"><HintPath>$(BannerlordRoot)\bin\Win64_Shipping_Client\TaleWorlds.ScreenSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.MountAndBlade"><HintPath>$(BannerlordRoot)\bin\Win64_Shipping_Client\TaleWorlds.MountAndBlade.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.CampaignSystem"><HintPath>$(BannerlordRoot)\bin\Win64_Shipping_Client\TaleWorlds.CampaignSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.Engine"><HintPath>$(BannerlordRoot)\bin\Win64_Shipping_Client\TaleWorlds.Engine.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.ObjectSystem"><HintPath>$(BannerlordRoot)\bin\Win64_Shipping_Client\TaleWorlds.ObjectSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.SaveSystem"><HintPath>$(BannerlordRoot)\bin\Win64_Shipping_Client\TaleWorlds.SaveSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.Engine.GauntletUI"><HintPath>$(BannerlordRoot)\bin\Win64_Shipping_Client\TaleWorlds.Engine.GauntletUI.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.GauntletUI"><HintPath>$(BannerlordRoot)\bin\Win64_Shipping_Client\TaleWorlds.GauntletUI.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.GauntletUI.Data"><HintPath>$(BannerlordRoot)\bin\Win64_Shipping_Client\TaleWorlds.GauntletUI.Data.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.MountAndBlade.View"><HintPath>$(BannerlordRoot)\Modules\Native\bin\Win64_Shipping_Client\TaleWorlds.MountAndBlade.View.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.MountAndBlade.ViewModelCollection"><HintPath>$(BannerlordRoot)\bin\Win64_Shipping_Client\TaleWorlds.MountAndBlade.ViewModelCollection.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="SandBox"><HintPath>$(BannerlordRoot)\Modules\SandBox\bin\Win64_Shipping_Client\SandBox.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="0Harmony"><HintPath>..\DLLs\0Harmony.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="TaleWorlds.Core"><HintPath>..\DLLs\TaleWorlds.Core.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="TaleWorlds.Library"><HintPath>..\DLLs\TaleWorlds.Library.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="TaleWorlds.Localization"><HintPath>..\DLLs\TaleWorlds.Localization.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="TaleWorlds.ScreenSystem"><HintPath>..\DLLs\TaleWorlds.ScreenSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="TaleWorlds.MountAndBlade"><HintPath>..\DLLs\TaleWorlds.MountAndBlade.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="TaleWorlds.CampaignSystem"><HintPath>..\DLLs\TaleWorlds.CampaignSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="TaleWorlds.Engine"><HintPath>..\DLLs\TaleWorlds.Engine.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="TaleWorlds.ObjectSystem"><HintPath>..\DLLs\TaleWorlds.ObjectSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="TaleWorlds.SaveSystem"><HintPath>..\DLLs\TaleWorlds.SaveSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="TaleWorlds.Engine.GauntletUI"><HintPath>..\DLLs\TaleWorlds.Engine.GauntletUI.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="TaleWorlds.GauntletUI"><HintPath>..\DLLs\TaleWorlds.GauntletUI.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="TaleWorlds.GauntletUI.Data"><HintPath>..\DLLs\TaleWorlds.GauntletUI.Data.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="TaleWorlds.MountAndBlade.View"><HintPath>..\DLLs\TaleWorlds.MountAndBlade.View.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="TaleWorlds.MountAndBlade.ViewModelCollection"><HintPath>..\DLLs\TaleWorlds.MountAndBlade.ViewModelCollection.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="SandBox"><HintPath>..\DLLs\SandBox.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
   </ItemGroup>
-  <Target Name="CopyBannerlordMod" AfterTargets="Build">
-    <MakeDir Directories="$(BannerlordRoot)\Modules\MultiplayerCampaign\bin\Win64_Shipping_Client" />
-    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(BannerlordRoot)\Modules\MultiplayerCampaign\bin\Win64_Shipping_Client\MultiplayerCampaign.dll" SkipUnchangedFiles="true" />
-  </Target>
 </Project>
