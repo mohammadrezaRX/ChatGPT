@@ -35,6 +35,34 @@ jobs:
           if ($names.Count -ne 3) { throw "rebuild must contain exactly 3 files; found $($names.Count)." }
           Write-Host 'rebuild directory is correct.'
 
+      - name: Download Bannerlord reference DLLs
+        shell: pwsh
+        run: |
+          $base = 'https://raw.githubusercontent.com/mohammadrezaRX/ChatGPT/main/DLLs'
+          $dlls = @(
+            '0Harmony.dll',
+            'SandBox.dll',
+            'TaleWorlds.CampaignSystem.dll',
+            'TaleWorlds.Core.dll',
+            'TaleWorlds.Engine.GauntletUI.dll',
+            'TaleWorlds.Engine.dll',
+            'TaleWorlds.GauntletUI.Data.dll',
+            'TaleWorlds.GauntletUI.dll',
+            'TaleWorlds.Library.dll',
+            'TaleWorlds.Localization.dll',
+            'TaleWorlds.MountAndBlade.View.dll',
+            'TaleWorlds.MountAndBlade.ViewModelCollection.dll',
+            'TaleWorlds.MountAndBlade.dll',
+            'TaleWorlds.ObjectSystem.dll',
+            'TaleWorlds.SaveSystem.dll',
+            'TaleWorlds.ScreenSystem.dll'
+          )
+          New-Item -ItemType Directory -Path DLLs -Force | Out-Null
+          foreach ($dll in $dlls) {
+            Invoke-WebRequest -Uri "$base/$dll" -OutFile "DLLs/$dll"
+          }
+          Write-Host "Downloaded $($dlls.Count) reference DLLs."
+
       - name: Restore
         run: dotnet restore rebuild\MultiplayerCampaignRebuild.csproj --nologo
 
