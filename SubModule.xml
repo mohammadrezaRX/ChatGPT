@@ -1,0 +1,22 @@
+<Module>
+  <Name value="MultiplayerCampaign"/>
+  <Id value="MultiplayerCampaign"/>
+  <Version value="v1.0.0"/>
+  <SingleplayerModule value="true"/>
+  <MultiplayerModule value="true"/>
+
+  <DependedModules>
+    <DependedModule Id="Native"/>
+    <DependedModule Id="Bannerlord.Harmony"/>
+  </DependedModules>
+
+  <SubModules>
+    <SubModule>
+      <Name value="MultiplayerCampaign"/>
+      <DLLName value="MultiplayerCampaign.dll"/>
+      <SubModuleClassType value="MultiplayerCampaign.MultiplayerCampaignSubModule"/>
+    </SubModule>
+  </SubModules>
+
+  <Xmls/>
+</Module>
