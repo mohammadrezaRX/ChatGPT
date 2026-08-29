@@ -2230,7 +2230,7 @@ internal sealed class RemotePlayerCommand
  * ============================================================
  */
 
-public static class RemotePlayerManager
+public static partial class RemotePlayerManager
 {
     private static readonly object Sync =
         new object();
@@ -25964,6 +25964,7 @@ internal static class MultiplayerCampaignFinalization
 // ============================================================
 // EOF
 // ============================================================
+}
 
 // ===== MPC REBUILD LAYER 2026 =====
 // This layer is intentionally contained in the same source file so the
