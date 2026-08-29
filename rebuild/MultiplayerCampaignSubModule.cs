@@ -1932,7 +1932,6 @@ namespace MultiplayerCampaign
             }
         }
     }
-}
 // ============================
 // CONTINUATION
 // ============================
@@ -5716,6 +5715,12 @@ public static class SafeCampaignAccess
         return
             Campaign.Current != null &&
             MobileParty.MainParty != null;
+    }
+
+    public static bool TryGetMainPartyPosition(
+        out CampaignVec2 position)
+    {
+        return TryGetPosition(out position);
     }
 
     public static bool TryGetPosition(
@@ -25971,6 +25976,8 @@ internal static class MultiplayerCampaignFinalization
 // original Multiplayer Campaign core remains present and readable.
 namespace MultiplayerCampaignRebuildLayer
 {
+    using MultiplayerCampaign;
+    using System.Reflection;
     internal sealed class CharacterSlotData
     {
         public int Slot;
