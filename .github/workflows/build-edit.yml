@@ -79,7 +79,7 @@ jobs:
           }
           Write-Host "FINAL BRACE DEPTH=$depth"
 
-      - name: Build
+      - name: Build corrected edit source
         run: dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity normal
 
       - name: Upload compiled DLL
