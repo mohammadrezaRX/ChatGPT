@@ -27,77 +27,74 @@ jobs:
           p = Path('rebuild/MultiplayerCampaignSubModule.cs')
           s = p.read_text(encoding='utf-8-sig')
 
-          # System.IO types take precedence over TaleWorlds.Library ambiguous types.
           if 'using BinaryReader = System.IO.BinaryReader;' not in s:
               s = s.replace('using System.IO;\n', 'using System.IO;\nusing BinaryReader = System.IO.BinaryReader;\n', 1)
           if 'using System.Reflection;' not in s:
-              anchor = 'using System.IO;\n'
-              s = s.replace(anchor, anchor + 'using System.Reflection;\n', 1)
+              s = s.replace('using System.IO;\n', 'using System.IO;\nusing System.Reflection;\n', 1)
 
-          # Use the existing main-party helper instead of the incomplete compatibility wrapper.
-          s = s.replace('SafeCampaignAccess\n                .TryGetMainPartyPosition(', 'CampaignWorld\n                .TryGetMainPartyPosition(')
-          s = s.replace('SafeCampaignAccess\n                .GetMainPartySize()', 'CampaignWorld\n                .GetMainPartySize()')
+          # Resolve stale helper call sites.
+          s = re.sub(r'SafeCampaignAccess\s*\.\s*TryGetMainPartyPosition\s*\(', 'CampaignWorld.TryGetMainPartyPosition(', s)
+          s = re.sub(r'SafeCampaignAccess\s*\.\s*GetMainPartySize\s*\(\s*\)', 'CampaignWorld.GetMainPartySize()', s)
+          s = re.sub(r'WorldPartySynchronizer\s*\.\s*QueueSnapshot\s*\(', 'WorldPartySynchronizer.EnqueueSnapshot(', s)
 
-          # World-party packet queue method in the actual synchronizer is EnqueueSnapshot.
-          s = s.replace('WorldPartySynchronizer\n                    .QueueSnapshot(', 'WorldPartySynchronizer\n                    .EnqueueSnapshot(')
+          # Resolve the old load event API.
+          s = re.sub(r'CampaignEvents\s*\.\s*GameLoadFinishedEvent', 'CampaignEvents.OnGameLoadedEvent', s)
+          s = re.sub(r'\.AddNonSerializedListener\(\s*this,\s*OnGameLoadFinished\s*\)', '.AddNonSerializedListener(this, _ => OnGameLoadFinished())', s)
 
-          # Remote player map registry removal is provided by the campaign-map registry.
-          s = s.replace('RemotePlayerMapRegistry\n            .Remove(', 'CampaignMapRemotePlayerRegistry\n            .Remove(')
-          s = s.replace('RemotePlayerMapRegistry\n                .Remove(', 'CampaignMapRemotePlayerRegistry\n                .Remove(')
+          # Fix stale FinalMasterUpdate reference inside FinalResetV2.
+          s = s.replace('FinalMasterUpdate\n                    ._ResetInternal();', '_ResetInternal();')
+          s = s.replace('FinalMasterUpdate._ResetInternal();', '_ResetInternal();')
 
-          # Bannerlord 1.3.4 exposes SetCustomName through PartyBase in this source set.
-          s = s.replace('Party.SetCustomName(new TextObject(MpcSession.Name))',
-                        'Party.Party.SetCustomName(new TextObject(MpcSession.Name))')
-
-          # Valid CampaignEvents load hook for Bannerlord 1.3.4.
-          old = '''        CampaignEvents\n            .GameLoadFinishedEvent\n            .AddNonSerializedListener(\n                this,\n                OnGameLoadFinished\n            );'''
-          new = '''        CampaignEvents\n            .OnGameLoadedEvent\n            .AddNonSerializedListener(\n                this,\n                _ => OnGameLoadFinished()\n            );'''
-          s = s.replace(old, new)
-
-          # Add Reset() to the existing snapshot send timer if absent.
-          def inject_method(text, class_name, method):
-              if re.search(r'(?m)^\s*(public|internal|private)\s+static\s+void\s+Reset\s*\(', text):
-                  return text
-              m = re.search(r'(?m)^\s*internal static class ' + re.escape(class_name) + r'\s*\{', text)
+          def find_class(text, name):
+              m = re.search(r'(?m)^\s*(?:public|internal|private|protected)?\s*(?:sealed\s+|abstract\s+)?(?:static\s+)?class\s+' + re.escape(name) + r'\s*\{', text)
               if not m:
-                  m = re.search(r'(?m)^\s*public static class ' + re.escape(class_name) + r'\s*\{', text)
-              if not m:
-                  raise SystemExit(f'class not found: {class_name}')
-              start = m.end()-1
-              depth=0; i=start
+                  raise SystemExit(f'class not found: {name}')
+              start = text.find('{', m.start())
+              depth = 0
+              i = start
               while i < len(text):
-                  if text[i]=='{': depth += 1
-                  elif text[i]=='}':
+                  c = text[i]
+                  if c == '{': depth += 1
+                  elif c == '}':
                       depth -= 1
-                      if depth==0:
-                          return text[:i] + '\n' + method + '\n' + text[i:]
+                      if depth == 0:
+                          return m, start, i
                   i += 1
-              raise SystemExit(f'unclosed class: {class_name}')
+              raise SystemExit(f'unclosed class: {name}')
 
-          s = inject_method(s, 'PlayerSnapshotSendTimer', '''    public static void Reset()\n    {\n        _timer = 0f;\n    }''')
+          def ensure_method(text, class_name, signature_prefix, method):
+              m, start, end = find_class(text, class_name)
+              body = text[start:end+1]
+              if signature_prefix in body:
+                  return text
+              return text[:end] + '\n\n' + method + '\n' + text[end:]
 
-          # Add Remove() to the map registry where call sites require it.
-          if not re.search(r'(?m)^\s*public static void Remove\(\s*string playerId\)', s):
-              method = '''    public static void Remove(\n        string playerId)\n    {\n        if (string.IsNullOrWhiteSpace(playerId))\n            return;\n        lock (Sync)\n        {\n            Markers.Remove(playerId);\n        }\n    }'''
-              s = inject_method(s, 'RemotePlayerMapRegistry', method)
+          # CampaignWorld boolean-safe accessor.
+          s = ensure_method(
+              s,
+              'CampaignWorld',
+              'TryGetMainPartyPosition',
+              '''    public static bool TryGetMainPartyPosition(\n        out CampaignVec2 position)\n    {\n        try\n        {\n            MobileParty mainParty = MobileParty.MainParty;\n            if (mainParty != null)\n            {\n                position = mainParty.Position;\n                return true;\n            }\n        }\n        catch\n        {\n        }\n        position = new CampaignVec2(new Vec2(0f, 0f), true);\n        return false;\n    }'''
+          )
 
-          # CampaignWorld needs a boolean-safe position accessor.
-          if 'bool\n        TryGetMainPartyPosition' not in s and 'TryGetMainPartyPosition(\n        out CampaignVec2' not in s:
-              method = '''    public static bool TryGetMainPartyPosition(\n        out CampaignVec2 position)\n    {\n        try\n        {\n            MobileParty mainParty = MobileParty.MainParty;\n            if (mainParty != null)\n            {\n                position = mainParty.Position;\n                return true;\n            }\n        }\n        catch\n        {\n        }\n        position = new CampaignVec2(new Vec2(0f, 0f), true);\n        return false;\n    }'''
-              s = inject_method(s, 'CampaignWorld', method)
+          # Reset belongs specifically to PlayerSnapshotSendTimer.
+          s = ensure_method(
+              s,
+              'PlayerSnapshotSendTimer',
+              'void Reset()',
+              '''    public static void Reset()\n    {\n        _timer = 0f;\n    }'''
+          )
 
-          # Only Reset is required by the existing cleanup call sites.
-          if 'class PlayerIdentity' not in s:
-              marker = 'namespace MultiplayerCampaignRebuildLayer'
-              idx = s.find(marker)
-              if idx < 0:
-                  idx = len(s)
-              addition = '''internal static class PlayerIdentity\n{\n    public static void Reset() { }\n}\n\ninternal static class RemotePlayerMapMarkerCleanup\n{\n    public static void Remove(string playerId)\n    {\n        if (string.IsNullOrWhiteSpace(playerId)) return;\n        CampaignMapRemotePlayerRegistry.Remove(playerId);\n    }\n}\n\n'''
-              s = s[:idx] + addition + s[idx:]
+          # Exact helper for SafeCampaignAccess call sites retained elsewhere.
+          s = ensure_method(
+              s,
+              'SafeCampaignAccess',
+              'GetMainPartySize',
+              '''    public static int GetMainPartySize()\n    {\n        return CampaignWorld.GetMainPartySize();\n    }'''
+          )
 
-          # Replace any stale reflection namespace import mistakes.
           p.write_text(s, encoding='utf-8')
-          print('compile fixes applied')
+          print('Applied targeted compile repairs.')
 
       - name: Commit source fixes
         shell: pwsh
@@ -105,7 +102,7 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add rebuild/MultiplayerCampaignSubModule.cs
-          git commit -m 'Fix Bannerlord 1.3.4 compile issues' || exit 0
+          git commit -m 'Fix MPC helper and event API errors' || exit 0
           git push origin HEAD:edit
 
       - name: Prepare reference DLLs
