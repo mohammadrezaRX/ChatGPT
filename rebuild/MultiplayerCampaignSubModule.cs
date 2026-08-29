@@ -1,3 +1,4 @@
+using MultiplayerCampaign;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -25968,8 +25969,6 @@ internal static class MultiplayerCampaignFinalization
 // ===== MPC REBUILD LAYER 2026 =====
 // This layer is intentionally contained in the same source file so the
 // original Multiplayer Campaign core remains present and readable.
-using MultiplayerCampaign;
-
 namespace MultiplayerCampaignRebuildLayer
 {
     internal sealed class CharacterSlotData
