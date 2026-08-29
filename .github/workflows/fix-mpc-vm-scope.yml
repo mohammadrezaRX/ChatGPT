@@ -1,4 +1,4 @@
-name: Fix MPC VM scope and API visibility
+name: Fix MPC namespace boundary
 
 on:
   push:
@@ -19,29 +19,36 @@ jobs:
           fetch-depth: 0
           ref: mpc-full-rebuild-final
 
-      - name: Repair C# source structure
+      - name: Repair namespace and accessibility
         shell: python
         run: |
           from pathlib import Path
+          import re
+
           p = Path('rebuild/MultiplayerCampaignSubModule.cs')
           text = p.read_text(encoding='utf-8-sig')
 
-          marker = '''        public void UpdateNetwork()\n        {\n            MultiplayerNetworkClient\n                .Instance\n                .Update();\n\n            if (\n                MultiplayerNetworkClient\n                    .Instance\n                    .ConsumeWorldReady())\n            {\n                StatusText =\n                    "LOADING HOST WORLD...";\n\n                MultiplayerWorldTransfer\n                    .FinishClientLoad();\n            }\n        }\n    }\n\n\n    /*\n     * ============================================================\n     * NETWORK PROTOCOL\n'''
+          # The previous repair accidentally closed the outer
+          # MultiplayerCampaign namespace before NETWORK PROTOCOL.
+          # Remove exactly that one namespace-closing brace.
+          boundary = re.compile(
+              r'(ConsumeWorldReady\(\)\)\n\s*\{.*?\n\s*\}\n\s*\}\n\s*\}\n\s*\n\s*\n\s*/\*\n\s*\* ============================================================\n\s*\* NETWORK PROTOCOL)',
+              re.S,
+          )
+          m = boundary.search(text)
+          if not m:
+              raise SystemExit('NETWORK PROTOCOL boundary pattern not found; refusing blind edit.')
 
-          if marker not in text:
-              raise SystemExit('Expected VM/protocol boundary not found; refusing blind edit.')
+          replacement = m.group(0)
+          replacement = replacement.replace('\n    }\n}\n\n\n    /*\n', '\n    }\n\n\n    /*\n', 1)
+          text = text[:m.start()] + replacement + text[m.end():]
 
-          fixed = marker.replace('            }\n        }\n    }\n\n\n    /*\n', '            }\n        }\n    }\n}\n\n\n    /*\n', 1)
-          if fixed == marker:
-              raise SystemExit('Boundary replacement did not occur.')
-          text = text.replace(marker, fixed, 1)
-
-          # These types are used by public methods in the same assembly.
+          # Public methods cannot expose internal parameter/return types.
           text = text.replace('internal enum NetworkPacketType : byte', 'public enum NetworkPacketType : byte', 1)
           text = text.replace('public HostClientConnection[] GetClientsSnapshot()', 'internal HostClientConnection[] GetClientsSnapshot()', 1)
 
           p.write_text(text, encoding='utf-8')
-          print('Scope and accessibility repairs completed.')
+          print('MPC namespace and accessibility repairs completed.')
 
       - name: Commit repair
         shell: bash
@@ -53,5 +60,5 @@ jobs:
             echo "No changes to commit"
             exit 0
           fi
-          git commit -m "Repair MPC source scope and API visibility"
+          git commit -m "Fix MPC namespace scope and accessibility"
           git push origin mpc-full-rebuild-final
