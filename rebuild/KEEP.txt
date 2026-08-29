@@ -1,0 +1,1 @@
+Keep this branch workspace focused on the copied core, enhancement layer, matching UI, and standalone build project.
