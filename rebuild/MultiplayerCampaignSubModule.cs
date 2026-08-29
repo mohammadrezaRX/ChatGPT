@@ -1837,7 +1837,7 @@ namespace MultiplayerCampaign
             );
         }
 
-        public void Send(
+        internal void Send(
             NetworkPacketType type,
             byte[] payload)
         {
@@ -2230,7 +2230,7 @@ internal sealed class RemotePlayerCommand
  * ============================================================
  */
 
-public static class RemotePlayerManager
+public static partial class RemotePlayerManager
 {
     private static readonly object Sync =
         new object();
@@ -4912,7 +4912,7 @@ public sealed class MultiplayerCampaignHost
      * ========================================================
      */
 
-    public HostClientConnection[] GetClientsSnapshot()
+    internal HostClientConnection[] GetClientsSnapshot()
     {
         lock (_sync)
         {
@@ -25968,6 +25968,8 @@ internal static class MultiplayerCampaignFinalization
 // ===== MPC REBUILD LAYER 2026 =====
 // This layer is intentionally contained in the same source file so the
 // original Multiplayer Campaign core remains present and readable.
+using MultiplayerCampaign;
+
 namespace MultiplayerCampaignRebuildLayer
 {
     internal sealed class CharacterSlotData
