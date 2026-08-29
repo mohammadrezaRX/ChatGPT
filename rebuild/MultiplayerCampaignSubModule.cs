@@ -1053,7 +1053,6 @@ namespace MultiplayerCampaign
             }
         }
     }
-}
 
 
     /*
@@ -1062,7 +1061,7 @@ namespace MultiplayerCampaign
      * ============================================================
      */
 
-    internal enum NetworkPacketType : byte
+    public enum NetworkPacketType : byte
     {
         Hello = 1,
 
@@ -4913,7 +4912,7 @@ public sealed class MultiplayerCampaignHost
      * ========================================================
      */
 
-    public HostClientConnection[] GetClientsSnapshot()
+    internal HostClientConnection[] GetClientsSnapshot()
     {
         lock (_sync)
         {
