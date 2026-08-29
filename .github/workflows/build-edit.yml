@@ -6,54 +6,40 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Checkout
+      - name: Checkout edit
         uses: actions/checkout@v4
         with:
           ref: edit
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: Reset rebuild source from main
-        if: contains(github.event.head_commit.message, 'RESET: rebuild from main')
+      - name: Verify rebuild contains exactly three source files
         shell: pwsh
         run: |
-          git fetch origin main --depth=1
-          New-Item -ItemType Directory -Path rebuild -Force | Out-Null
-          git show origin/main:MultiplayerCampaignSubModule.cs | Out-File rebuild\MultiplayerCampaignSubModule.cs -Encoding utf8
-
-          $required = @(
+          $files = @(Get-ChildItem -Path rebuild -File -Recurse | Where-Object { $_.FullName -notmatch '\\bin\\|\\obj\\' })
+          $allowed = @(
             'rebuild\MultiplayerCampaignSubModule.cs',
             'rebuild\MultiplayerCampaignRebuild.csproj',
             'rebuild\MultiplayerCampaign.xml'
           )
-          $keep = $required | ForEach-Object { [IO.Path]::GetFullPath($_) }
-          Get-ChildItem rebuild -File -Recurse |
-            Where-Object { $keep -notcontains $_.FullName } |
-            Remove-Item -Force
-
-      - name: Verify rebuild files
-        shell: pwsh
-        run: |
-          $files = @(Get-ChildItem -Path rebuild -File -Recurse | Where-Object { $_.FullName -notmatch '\\bin\\|\\obj\\' })
-          $names = @($files | ForEach-Object { $_.Name })
-          $required = @('MultiplayerCampaignSubModule.cs','MultiplayerCampaignRebuild.csproj','MultiplayerCampaign.xml')
-          foreach ($name in $required) {
-            if ($names -notcontains $name) { throw "Missing rebuild/$name" }
+          foreach ($f in $files) {
+            if ($allowed -notcontains $f.FullName.Substring((Get-Location).Path.Length + 1)) {
+              throw "Unexpected file in rebuild: $($f.FullName)"
+            }
           }
-          if ($names.Count -ne 3) { throw "rebuild must contain exactly 3 files; found $($names.Count)." }
-          Write-Host 'rebuild directory is correct.'
+          if ($files.Count -ne 3) { throw "Expected 3 rebuild files, found $($files.Count)." }
 
-      - name: Download Bannerlord reference DLLs
+      - name: Download Bannerlord DLL references
         shell: pwsh
         run: |
           $base = 'https://raw.githubusercontent.com/mohammadrezaRX/ChatGPT/main/DLLs'
@@ -67,7 +53,7 @@ jobs:
           )
           New-Item -ItemType Directory -Path DLLs -Force | Out-Null
           foreach ($dll in $dlls) {
-            Invoke-WebRequest -Uri "$base/$dll" -OutFile "DLLs/$dll"
+            Invoke-WebRequest -UseBasicParsing -Uri "$base/$dll" -OutFile "DLLs/$dll"
           }
 
       - name: Restore
@@ -76,7 +62,7 @@ jobs:
       - name: Build
         run: dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity normal
 
-      - name: Upload DLL
+      - name: Upload compiled DLL
         if: success()
         uses: actions/upload-artifact@v4
         with:
