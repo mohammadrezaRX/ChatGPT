@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -16,12 +16,30 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: edit
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+
+      - name: Reset rebuild source from main
+        if: contains(github.event.head_commit.message, 'RESET: rebuild from main')
+        shell: pwsh
+        run: |
+          git fetch origin main --depth=1
+          New-Item -ItemType Directory -Path rebuild -Force | Out-Null
+          git show origin/main:MultiplayerCampaignSubModule.cs | Out-File rebuild\MultiplayerCampaignSubModule.cs -Encoding utf8
+
+          $required = @(
+            'rebuild\MultiplayerCampaignSubModule.cs',
+            'rebuild\MultiplayerCampaignRebuild.csproj',
+            'rebuild\MultiplayerCampaign.xml'
+          )
+          $keep = $required | ForEach-Object { [IO.Path]::GetFullPath($_) }
+          Get-ChildItem rebuild -File -Recurse |
+            Where-Object { $keep -notcontains $_.FullName } |
+            Remove-Item -Force
 
       - name: Verify rebuild files
         shell: pwsh
@@ -40,28 +58,17 @@ jobs:
         run: |
           $base = 'https://raw.githubusercontent.com/mohammadrezaRX/ChatGPT/main/DLLs'
           $dlls = @(
-            '0Harmony.dll',
-            'SandBox.dll',
-            'TaleWorlds.CampaignSystem.dll',
-            'TaleWorlds.Core.dll',
-            'TaleWorlds.Engine.GauntletUI.dll',
-            'TaleWorlds.Engine.dll',
-            'TaleWorlds.GauntletUI.Data.dll',
-            'TaleWorlds.GauntletUI.dll',
-            'TaleWorlds.Library.dll',
-            'TaleWorlds.Localization.dll',
-            'TaleWorlds.MountAndBlade.View.dll',
-            'TaleWorlds.MountAndBlade.ViewModelCollection.dll',
-            'TaleWorlds.MountAndBlade.dll',
-            'TaleWorlds.ObjectSystem.dll',
-            'TaleWorlds.SaveSystem.dll',
+            '0Harmony.dll','SandBox.dll','TaleWorlds.CampaignSystem.dll','TaleWorlds.Core.dll',
+            'TaleWorlds.Engine.GauntletUI.dll','TaleWorlds.Engine.dll','TaleWorlds.GauntletUI.Data.dll',
+            'TaleWorlds.GauntletUI.dll','TaleWorlds.Library.dll','TaleWorlds.Localization.dll',
+            'TaleWorlds.MountAndBlade.View.dll','TaleWorlds.MountAndBlade.ViewModelCollection.dll',
+            'TaleWorlds.MountAndBlade.dll','TaleWorlds.ObjectSystem.dll','TaleWorlds.SaveSystem.dll',
             'TaleWorlds.ScreenSystem.dll'
           )
           New-Item -ItemType Directory -Path DLLs -Force | Out-Null
           foreach ($dll in $dlls) {
             Invoke-WebRequest -Uri "$base/$dll" -OutFile "DLLs/$dll"
           }
-          Write-Host "Downloaded $($dlls.Count) reference DLLs."
 
       - name: Restore
         run: dotnet restore rebuild\MultiplayerCampaignRebuild.csproj --nologo
