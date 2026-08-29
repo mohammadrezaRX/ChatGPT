@@ -32,77 +32,21 @@ jobs:
           if 'using System.Reflection;' not in s:
               s = s.replace('using System.IO;\n', 'using System.IO;\nusing System.Reflection;\n', 1)
 
-          # Resolve stale helper call sites.
-          s = re.sub(r'SafeCampaignAccess\s*\.\s*TryGetMainPartyPosition\s*\(', 'CampaignWorld.TryGetMainPartyPosition(', s)
-          s = re.sub(r'SafeCampaignAccess\s*\.\s*GetMainPartySize\s*\(\s*\)', 'CampaignWorld.GetMainPartySize()', s)
-          s = re.sub(r'WorldPartySynchronizer\s*\.\s*QueueSnapshot\s*\(', 'WorldPartySynchronizer.EnqueueSnapshot(', s)
-
-          # Resolve the old load event API.
-          s = re.sub(r'CampaignEvents\s*\.\s*GameLoadFinishedEvent', 'CampaignEvents.OnGameLoadedEvent', s)
-          s = re.sub(r'\.AddNonSerializedListener\(\s*this,\s*OnGameLoadFinished\s*\)', '.AddNonSerializedListener(this, _ => OnGameLoadFinished())', s)
-
-          # Fix stale FinalMasterUpdate reference inside FinalResetV2.
-          s = s.replace('FinalMasterUpdate\n                    ._ResetInternal();', '_ResetInternal();')
-          s = s.replace('FinalMasterUpdate._ResetInternal();', '_ResetInternal();')
-
-          def find_class(text, name):
-              m = re.search(r'(?m)^\s*(?:public|internal|private|protected)?\s*(?:sealed\s+|abstract\s+)?(?:static\s+)?class\s+' + re.escape(name) + r'\s*\{', text)
-              if not m:
-                  raise SystemExit(f'class not found: {name}')
-              start = text.find('{', m.start())
-              depth = 0
-              i = start
-              while i < len(text):
-                  c = text[i]
-                  if c == '{': depth += 1
-                  elif c == '}':
-                      depth -= 1
-                      if depth == 0:
-                          return m, start, i
-                  i += 1
-              raise SystemExit(f'unclosed class: {name}')
-
-          def ensure_method(text, class_name, signature_prefix, method):
-              m, start, end = find_class(text, class_name)
-              body = text[start:end+1]
-              if signature_prefix in body:
-                  return text
-              return text[:end] + '\n\n' + method + '\n' + text[end:]
-
-          # CampaignWorld boolean-safe accessor.
-          s = ensure_method(
-              s,
-              'CampaignWorld',
-              'TryGetMainPartyPosition',
-              '''    public static bool TryGetMainPartyPosition(\n        out CampaignVec2 position)\n    {\n        try\n        {\n            MobileParty mainParty = MobileParty.MainParty;\n            if (mainParty != null)\n            {\n                position = mainParty.Position;\n                return true;\n            }\n        }\n        catch\n        {\n        }\n        position = new CampaignVec2(new Vec2(0f, 0f), true);\n        return false;\n    }'''
-          )
-
-          # Reset belongs specifically to PlayerSnapshotSendTimer.
-          s = ensure_method(
-              s,
-              'PlayerSnapshotSendTimer',
-              'void Reset()',
-              '''    public static void Reset()\n    {\n        _timer = 0f;\n    }'''
-          )
-
-          # Exact helper for SafeCampaignAccess call sites retained elsewhere.
-          s = ensure_method(
-              s,
-              'SafeCampaignAccess',
-              'GetMainPartySize',
-              '''    public static int GetMainPartySize()\n    {\n        return CampaignWorld.GetMainPartySize();\n    }'''
-          )
+          # Current Bannerlord CampaignEvents load event requires CampaignGameStarter argument.
+          s = re.sub(r'private void OnGameLoaded\(\)', 'private void OnGameLoaded(CampaignGameStarter starter)', s)
+          # Existing registrations may use the method group directly; bind explicitly and ignore the argument when needed.
+          s = re.sub(r'(CampaignEvents\s*\.\s*OnGameLoadedEvent\s*\.\s*AddNonSerializedListener\s*\(\s*this\s*,\s*)OnGameLoaded\s*(\))', r'\1starter => OnGameLoaded(starter)\2', s)
 
           p.write_text(s, encoding='utf-8')
-          print('Applied targeted compile repairs.')
+          print('Applied event callback signature fix.')
 
-      - name: Commit source fixes
+      - name: Commit source fix
         shell: pwsh
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add rebuild/MultiplayerCampaignSubModule.cs
-          git commit -m 'Fix MPC helper and event API errors' || exit 0
+          git commit -m 'Fix campaign load event callback signature' || exit 0
           git push origin HEAD:edit
 
       - name: Prepare reference DLLs
