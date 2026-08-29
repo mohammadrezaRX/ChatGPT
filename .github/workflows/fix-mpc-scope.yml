@@ -1,0 +1,73 @@
+name: Diagnose MPC scope
+
+on:
+  push:
+    branches:
+      - mpc-full-rebuild-final
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: mpc-full-rebuild-final
+      - name: Diagnose C# nesting
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+          text = Path('rebuild/MultiplayerCampaignSubModule.cs').read_text(encoding='utf-8-sig')
+          marker = '// CONTINUATION'
+          idx = text.find(marker)
+          if idx < 0:
+              raise SystemExit('CONTINUATION marker not found')
+          start = max(0, idx - 500)
+          print('--- BEFORE CONTINUATION ---')
+          print(text[start:idx])
+          print('--- DEPTH ---')
+          prefix = text[:idx]
+          depth = 0
+          in_line = in_block = in_string = False
+          verbatim = escape = False
+          stack = []
+          line = 1
+          i = 0
+          while i < len(prefix):
+              c = prefix[i]
+              n = prefix[i+1] if i+1 < len(prefix) else ''
+              if c == '\n': line += 1
+              if in_line:
+                  if c == '\n': in_line = False
+                  i += 1; continue
+              if in_block:
+                  if c == '*' and n == '/': in_block=False; i += 2; continue
+                  i += 1; continue
+              if in_string:
+                  if verbatim:
+                      if c == '"' and n == '"': i += 2; continue
+                      if c == '"': in_string=False
+                  else:
+                      if escape: escape=False
+                      elif c == '\\': escape=True
+                      elif c == '"': in_string=False
+                  i += 1; continue
+              if c == '/' and n == '/': in_line=True; i += 2; continue
+              if c == '/' and n == '*': in_block=True; i += 2; continue
+              if c == '@' and n == '"': in_string=True; verbatim=True; i += 2; continue
+              if c == '"': in_string=True; verbatim=False; i += 1; continue
+              if c == '{':
+                  depth += 1
+                  if depth <= 6:
+                      line_text = prefix[max(0, prefix.rfind('\n',0,i)+1):prefix.find('\n',i) if prefix.find('\n',i)>=0 else len(prefix)].strip()
+                      stack.append((depth,line,line_text))
+              elif c == '}':
+                  if stack and stack[-1][0] == depth: stack.pop()
+                  depth -= 1
+              i += 1
+          print('depth at marker =', depth)
+          print('open stack tail =')
+          for item in stack[-15:]: print(item)
