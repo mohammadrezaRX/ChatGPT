@@ -1,0 +1,50 @@
+name: Fix MPC source
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: edit
+          fetch-depth: 1
+      - name: Patch source
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('rebuild/MultiplayerCampaignSubModule.cs')
+          s = p.read_text(encoding='utf-8-sig')
+          marker = '''        }\n    }\n\n\n    /*\n     * ============================================================\n     * NETWORK PROTOCOL\n     * ============================================================\n     */\n'''
+          expected = 1
+          if s.count(marker) != expected:
+              raise SystemExit(f'Expected {expected} protocol marker, found {s.count(marker)}')
+          s = s.replace(marker, '''        }\n    }\n\n\n    /*\n     * ============================================================\n     * NETWORK PROTOCOL\n     * ============================================================\n     */\n''', 1)
+          # The actual class-closing brace is the one immediately before NETWORK PROTOCOL.
+          # Replace the exact boundary if it is missing.
+          needle = '''        }\n    }\n\n\n    /*\n     * ============================================================\n     * NETWORK PROTOCOL'''
+          if needle in s:
+              # Insert one additional namespace-level transition only if the preceding class is still open.
+              # We do this by changing the two-brace boundary to three braces.
+              s = s.replace(needle, '''        }\n    }\n}\n\n\n/*\n * ============================================================\n * NETWORK PROTOCOL''', 1)
+          else:
+              raise SystemExit('Protocol boundary not found')
+          # Network protocol/client must be top-level in namespace.
+          s = s.replace('public static class RemotePlayerManager', 'public static partial class RemotePlayerManager', 1)
+          s = s.replace('public HostClientConnection[] GetClientsSnapshot()', 'internal HostClientConnection[] GetClientsSnapshot()', 1)
+          s = s.replace('public void Send(\n            NetworkPacketType type,', 'internal void Send(\n            NetworkPacketType type,', 1)
+          layer = 'namespace MultiplayerCampaignRebuildLayer\n{'
+          if layer in s and 'using MultiplayerCampaign;\n\n' + layer not in s:
+              s = s.replace(layer, 'using MultiplayerCampaign;\n\n' + layer, 1)
+          p.write_text(s, encoding='utf-8')
+          print('Patched source:', p)
+      - name: Commit
+        shell: pwsh
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add rebuild/MultiplayerCampaignSubModule.cs
+          git commit -m 'Fix multiplayer campaign source scope' || exit 0
+          git push origin HEAD:edit
