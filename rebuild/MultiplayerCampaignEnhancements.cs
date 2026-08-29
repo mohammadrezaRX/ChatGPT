@@ -9,6 +9,7 @@ using HarmonyLib;
 using Helpers;
 using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Actions;
+using TaleWorlds.CampaignSystem.CharacterCreationContent;
 using TaleWorlds.Core;
 using TaleWorlds.Library;
 using TaleWorlds.Localization;
@@ -17,71 +18,41 @@ using TaleWorlds.MountAndBlade.ViewModelCollection.InitialMenu;
 
 namespace MultiplayerCampaign
 {
-    /*
-     * ============================================================
-     * REBUILD / MULTIPLAYER EXTENSION LAYER
-     * ============================================================
-     *
-     * This file extends the copied 6304-line core without replacing it.
-     * It is deliberately defensive: network callbacks only queue data;
-     * Campaign objects are touched from CampaignEvents.TickEvent.
-     *
-     * Scope of this stage:
-     *  - 3 client character slots
-     *  - mandatory slot selection before Join
-     *  - persistent character identity/name
-     *  - independent remote Hero/MobileParty objects
-     *  - authoritative Host time/state snapshots
-     *  - player position/target/movement state
-     *  - NPC party position/target/movement snapshots
-     *  - sequence/revision validation
-     *  - remote cleanup and crash guards
-     *  - safe MapInfoVM suppression when its player data is incomplete
-     *
-     * Battle/Siege/Encounter/Quest/Economy/Combat/Inventory/AI-decision
-     * synchronization is intentionally not implemented in this stage.
-     * ============================================================
-     */
-
-    internal static class MpcRebuildRuntime
+    internal static class MpcRebuildRuntimeV2
     {
         private const int SlotCount = 3;
-        private const int ProtocolMagic = 0x4D504358; // MPCX
-        private const byte ProtocolVersion = 1;
-        private const byte PlayerStateType = 1;
-        private const byte WorldPartyStateType = 2;
+        private const int Magic = 0x4D504358;
+        private const byte Version = 2;
+        private const byte PlayerStatePacket = 14;
+        private const byte WorldStatePacket = 15;
 
         private static readonly object Sync = new object();
-        private static readonly ConcurrentQueue<QueuedState> IncomingStates =
-            new ConcurrentQueue<QueuedState>();
-        private static readonly Dictionary<string, PlayerSyncState> RemotePlayers =
-            new Dictionary<string, PlayerSyncState>();
-        private static readonly Dictionary<string, WorldPartySyncState> WorldParties =
-            new Dictionary<string, WorldPartySyncState>();
+        private static readonly ConcurrentQueue<byte[]> PlayerQueue = new ConcurrentQueue<byte[]>();
+        private static readonly ConcurrentQueue<byte[]> WorldQueue = new ConcurrentQueue<byte[]>();
+        private static readonly Dictionary<string, PlayerState> Players = new Dictionary<string, PlayerState>();
+        private static readonly Dictionary<string, WorldPartyState> WorldParties = new Dictionary<string, WorldPartyState>();
 
-        private static bool _installed;
-        private static bool _joinBypass;
-        private static bool _slotDialogOpen;
-        private static bool _worldBootstrapped;
-        private static long _lastWorldRevision;
-        private static ulong _localSequence;
         private static int _selectedSlot = -1;
-        private static double _targetHostHours;
-        private static bool _haveHostTime;
-        private static float _hostSpeed = 4f;
-        private static int _hostMode = -1;
-        private static DateTime _lastHostPacketUtc = DateTime.MinValue;
+        private static bool _slotDialogOpen;
+        private static bool _joinBypass;
+        private static bool _creationOpen;
+        private static MultiplayerCampaignVM _pendingJoinVm;
+        private static int _pendingCreationSlot = -1;
         private static Hero _clientHero;
         private static MobileParty _clientParty;
+        private static ulong _sequence;
+        private static long _worldRevision;
+        private static double _hostHours;
+        private static float _hostSpeed = 4f;
+        private static int _hostTimeMode = -1;
+        private static DateTime _lastHostPacketUtc = DateTime.MinValue;
+        private static DateTime _lastResyncRequestUtc = DateTime.MinValue;
+        private static DateTime _lastWorldSendUtc = DateTime.MinValue;
+        private static DateTime _lastPlayerSendUtc = DateTime.MinValue;
+        private static bool _installed;
+        private static bool _localReferenceSwapAttempted;
 
-        private sealed class QueuedState
-        {
-            public byte Kind;
-            public byte[] Payload;
-            public DateTime ReceivedUtc;
-        }
-
-        private sealed class PlayerSyncState
+        private sealed class PlayerState
         {
             public string Id;
             public string Name;
@@ -91,18 +62,18 @@ namespace MultiplayerCampaign
             public bool Moving;
             public float Heading;
             public ulong Sequence;
-            public DateTime ReceivedUtc;
-            public MobileParty Party;
-            public Hero Hero;
             public bool IsHost;
+            public DateTime ReceivedUtc;
+            public Hero Hero;
+            public MobileParty Party;
         }
 
-        private sealed class WorldPartySyncState
+        private sealed class WorldPartyState
         {
             public string Id;
             public CampaignVec2 Position;
             public CampaignVec2 Target;
-            public int Size;
+            public int PartySize;
             public bool Moving;
             public ulong Sequence;
             public DateTime ReceivedUtc;
@@ -110,181 +81,64 @@ namespace MultiplayerCampaign
 
         public static void Install()
         {
-            lock (Sync)
-            {
-                if (_installed)
-                    return;
+            if (_installed)
+                return;
 
-                _installed = true;
-                CharacterSlotStore.Load();
-            }
+            _installed = true;
+            CharacterSlots.Load();
         }
 
         public static void Reset()
         {
+            PlayerState[] players;
             lock (Sync)
             {
-                _selectedSlot = -1;
-                _slotDialogOpen = false;
-                _worldBootstrapped = false;
-                _lastWorldRevision = 0;
-                _localSequence = 0;
-                _targetHostHours = 0;
-                _haveHostTime = false;
-                _lastHostPacketUtc = DateTime.MinValue;
-                _clientHero = null;
-                _clientParty = null;
-                RemotePlayers.Clear();
+                players = new PlayerState[Players.Count];
+                Players.Values.CopyTo(players, 0);
+                Players.Clear();
                 WorldParties.Clear();
             }
 
-            while (IncomingStates.TryDequeue(out _)) { }
-        }
+            for (int i = 0; i < players.Length; i++)
+                DestroyRemote(players[i]);
 
-        public static bool HasSelectedCharacter()
-        {
-            return _selectedSlot >= 0 &&
-                   _selectedSlot < SlotCount &&
-                   CharacterSlotStore.Exists(_selectedSlot);
+            while (PlayerQueue.TryDequeue(out _)) { }
+            while (WorldQueue.TryDequeue(out _)) { }
+
+            _selectedSlot = -1;
+            _slotDialogOpen = false;
+            _joinBypass = false;
+            _creationOpen = false;
+            _pendingJoinVm = null;
+            _pendingCreationSlot = -1;
+            _clientHero = null;
+            _clientParty = null;
+            _sequence = 0;
+            _worldRevision = 0;
+            _hostHours = 0;
+            _hostTimeMode = -1;
+            _lastHostPacketUtc = DateTime.MinValue;
+            _lastResyncRequestUtc = DateTime.MinValue;
+            _lastWorldSendUtc = DateTime.MinValue;
+            _lastPlayerSendUtc = DateTime.MinValue;
+            _localReferenceSwapAttempted = false;
         }
 
         public static int SelectedSlot => _selectedSlot;
 
-        public static string SelectedName
+        public static string SelectedCharacterName
         {
             get
             {
-                return HasSelectedCharacter()
-                    ? CharacterSlotStore.GetName(_selectedSlot)
+                return CharacterSlots.Exists(_selectedSlot)
+                    ? CharacterSlots.GetName(_selectedSlot)
                     : string.Empty;
             }
         }
 
-        public static void ShowCharacterSelection(MultiplayerCampaignVM vm)
+        public static bool HasSelectedCharacter()
         {
-            if (_slotDialogOpen)
-                return;
-
-            CharacterSlotStore.Load();
-            _slotDialogOpen = true;
-
-            string[] names = new string[SlotCount];
-            for (int i = 0; i < SlotCount; i++)
-            {
-                string name = CharacterSlotStore.GetName(i);
-                names[i] = string.IsNullOrWhiteSpace(name)
-                    ? "EMPTY"
-                    : name;
-            }
-
-            ShowSlot1(vm, names);
-        }
-
-        private static void ShowSlot1(MultiplayerCampaignVM vm, string[] names)
-        {
-            InformationManager.ShowInquiry(
-                new InquiryData(
-                    "CHARACTER SLOT",
-                    "Choose a character slot before joining the Host.\n\nSLOT 1: " + names[0] +
-                    "\nSLOT 2: " + names[1] + "\nSLOT 3: " + names[2],
-                    true,
-                    true,
-                    "SELECT SLOT 1",
-                    "CANCEL",
-                    () => SelectSlotAndContinue(vm, 0),
-                    () => CloseSlotDialog()),
-                true,
-                true);
-        }
-
-        private static void SelectSlotAndContinue(MultiplayerCampaignVM vm, int slot)
-        {
-            _slotDialogOpen = false;
-            _selectedSlot = slot;
-
-            if (CharacterSlotStore.Exists(slot))
-            {
-                LocalPlayerState.SetDisplayName(CharacterSlotStore.GetName(slot));
-                InvokeOriginalJoin(vm);
-                return;
-            }
-
-            AskNewCharacterName(vm, slot);
-        }
-
-        private static void AskNewCharacterName(MultiplayerCampaignVM vm, int slot)
-        {
-            InformationManager.ShowTextInquiry(
-                new TextInquiryData(
-                    "CHARACTER CREATION",
-                    "This slot is empty. Create the character for this slot.\n\nEnter the character name:",
-                    true,
-                    true,
-                    "CREATE",
-                    "CANCEL",
-                    name => FinishCharacterCreation(vm, slot, name),
-                    () => CloseSlotDialog(),
-                    false,
-                    text =>
-                    {
-                        string clean = SanitizeName(text);
-                        if (clean.Length == 0)
-                            return new Tuple<bool, string>(false, "Character name is required.");
-                        return new Tuple<bool, string>(true, string.Empty);
-                    },
-                    string.Empty,
-                    "Player"),
-                true,
-                true);
-        }
-
-        private static void FinishCharacterCreation(MultiplayerCampaignVM vm, int slot, string name)
-        {
-            string clean = SanitizeName(name);
-            if (clean.Length == 0)
-            {
-                AskNewCharacterName(vm, slot);
-                return;
-            }
-
-            CharacterSlotStore.Save(slot, clean);
-            _selectedSlot = slot;
-            LocalPlayerState.SetDisplayName(clean);
-            InvokeOriginalJoin(vm);
-        }
-
-        private static void CloseSlotDialog()
-        {
-            _slotDialogOpen = false;
-        }
-
-        private static string SanitizeName(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-                return string.Empty;
-
-            string clean = value.Trim();
-            clean = clean.Replace("|", string.Empty)
-                         .Replace("\r", string.Empty)
-                         .Replace("\n", string.Empty);
-
-            if (clean.Length > 32)
-                clean = clean.Substring(0, 32);
-
-            return clean;
-        }
-
-        private static void InvokeOriginalJoin(MultiplayerCampaignVM vm)
-        {
-            _joinBypass = true;
-            try
-            {
-                vm.ExecuteJoinHost();
-            }
-            finally
-            {
-                _joinBypass = false;
-            }
+            return CharacterSlots.Exists(_selectedSlot);
         }
 
         public static bool ConsumeJoinBypass()
@@ -296,95 +150,292 @@ namespace MultiplayerCampaign
             return true;
         }
 
-        public static void BootstrapClientCharacter()
+        public static void BeginJoinCharacterSelection(MultiplayerCampaignVM vm)
         {
-            if (Campaign.Current == null || !HasSelectedCharacter())
+            if (_slotDialogOpen || vm == null)
                 return;
 
-            string id = CharacterSlotStore.GetId(_selectedSlot);
-            if (string.IsNullOrWhiteSpace(id))
+            CharacterSlots.Load();
+            _slotDialogOpen = true;
+            ShowSlot1(vm);
+        }
+
+        private static void ShowSlot1(MultiplayerCampaignVM vm)
+        {
+            ShowSlotDialog(
+                "CHARACTER SLOT 1",
+                FormatSlot(0),
+                "SELECT SLOT 1",
+                "MORE SLOTS",
+                () => SelectSlot(vm, 0),
+                () => ShowSlot2(vm));
+        }
+
+        private static void ShowSlot2(MultiplayerCampaignVM vm)
+        {
+            ShowSlotDialog(
+                "CHARACTER SLOTS 2 / 3",
+                FormatSlot(1) + "\n\n" + FormatSlot(2),
+                "SELECT SLOT 2",
+                "SELECT SLOT 3",
+                () => SelectSlot(vm, 1),
+                () => SelectSlot(vm, 2));
+        }
+
+        private static string FormatSlot(int slot)
+        {
+            string name = CharacterSlots.GetName(slot);
+            return "SLOT " + (slot + 1) + ": " +
+                   (string.IsNullOrWhiteSpace(name) ? "EMPTY" : name);
+        }
+
+        private static void ShowSlotDialog(
+            string title,
+            string text,
+            string affirmative,
+            string negative,
+            Action affirmativeAction,
+            Action negativeAction)
+        {
+            InformationManager.ShowInquiry(
+                new InquiryData(
+                    title,
+                    text + "\n\nChoose a character before joining the Host.",
+                    true,
+                    true,
+                    affirmative,
+                    negative,
+                    affirmativeAction,
+                    negativeAction),
+                true,
+                true);
+        }
+
+        private static void SelectSlot(MultiplayerCampaignVM vm, int slot)
+        {
+            _slotDialogOpen = false;
+            _selectedSlot = slot;
+
+            if (CharacterSlots.Exists(slot))
+            {
+                LocalPlayerState.SetDisplayName(CharacterSlots.GetName(slot));
+                ContinueJoin(vm);
+                return;
+            }
+
+            OpenNativeCharacterCreation(vm, slot);
+        }
+
+        private static void OpenNativeCharacterCreation(MultiplayerCampaignVM vm, int slot)
+        {
+            if (_creationOpen)
                 return;
 
-            if (_clientHero != null && _clientParty != null)
-                return;
+            _creationOpen = true;
+            _pendingJoinVm = vm;
+            _pendingCreationSlot = slot;
 
             try
             {
-                Hero existing = Hero.Find(id);
-                if (existing != null)
-                    _clientHero = existing;
+                GameStateManager manager = GameStateManager.Current;
+                if (manager == null)
+                    throw new InvalidOperationException("Character creation state manager is unavailable.");
+
+                CharacterCreationState state =
+                    manager.CreateState<CharacterCreationState>();
+
+                manager.CleanAndPushState(state);
+            }
+            catch (Exception ex)
+            {
+                _creationOpen = false;
+                HostConsole.WriteLine("[!] Character creation could not open: " + ex.Message);
+                OpenFallbackNameEntry(vm, slot);
+            }
+        }
+
+        private static void OpenFallbackNameEntry(MultiplayerCampaignVM vm, int slot)
+        {
+            InformationManager.ShowTextInquiry(
+                new TextInquiryData(
+                    "CHARACTER CREATION",
+                    "The native character creator could not be opened. Enter the character name for this slot.",
+                    true,
+                    true,
+                    "CREATE",
+                    "CANCEL",
+                    name =>
+                    {
+                        string clean = SanitizeName(name);
+                        if (clean.Length == 0)
+                        {
+                            OpenFallbackNameEntry(vm, slot);
+                            return;
+                        }
+
+                        CharacterSlots.Save(slot, clean);
+                        LocalPlayerState.SetDisplayName(clean);
+                        _creationOpen = false;
+                        _pendingCreationSlot = -1;
+                        _pendingJoinVm = null;
+                        ContinueJoin(vm);
+                    },
+                    () =>
+                    {
+                        _creationOpen = false;
+                        _pendingCreationSlot = -1;
+                        _pendingJoinVm = null;
+                    },
+                    false,
+                    text =>
+                    {
+                        string clean = SanitizeName(text);
+                        return new Tuple<bool, string>(
+                            clean.Length > 0,
+                            clean.Length > 0 ? string.Empty : "Character name is required.");
+                    },
+                    string.Empty,
+                    "Player"),
+                true,
+                true);
+        }
+
+        private static void ContinueJoin(MultiplayerCampaignVM vm)
+        {
+            if (vm == null)
+                return;
+
+            _joinBypass = true;
+            try
+            {
+                vm.ExecuteJoinHost();
+            }
+            finally
+            {
+                _joinBypass = false;
+            }
+        }
+
+        private static string ReadCreationName()
+        {
+            try
+            {
+                CharacterCreationState state =
+                    GameStateManager.Current == null
+                        ? null
+                        : GameStateManager.Current.ActiveState as CharacterCreationState;
+
+                if (state != null)
+                {
+                    object manager = state.CharacterCreationManager;
+                    string value = FindNamedString(manager, "MainCharacterName", 3);
+                    if (!string.IsNullOrWhiteSpace(value))
+                        return SanitizeName(value);
+                }
             }
             catch
             {
             }
 
-            if (_clientHero == null)
+            try
             {
-                Hero templateHero = Hero.MainHero;
-                if (templateHero == null || templateHero.CharacterObject == null)
-                    return;
+                if (Hero.MainHero != null && Hero.MainHero.Name != null)
+                    return SanitizeName(Hero.MainHero.Name.ToString());
+            }
+            catch
+            {
+            }
 
-                Hero created;
-                if (!HeroCreator.CreateBasicHero(
-                        id,
-                        templateHero.CharacterObject,
-                        out created,
-                        true))
+            return string.Empty;
+        }
+
+        private static string FindNamedString(object root, string propertyName, int depth)
+        {
+            if (root == null || depth < 0)
+                return string.Empty;
+
+            try
+            {
+                Type type = root.GetType();
+                PropertyInfo property = type.GetProperty(
+                    propertyName,
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (property != null && property.GetIndexParameters().Length == 0)
                 {
+                    object value = property.GetValue(root, null);
+                    if (value is string)
+                        return (string)value;
+                }
+
+                FieldInfo field = type.GetField(
+                    propertyName,
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (field != null)
+                {
+                    object value = field.GetValue(root);
+                    if (value is string)
+                        return (string)value;
+                }
+
+                if (depth == 0)
+                    return string.Empty;
+
+                PropertyInfo[] properties = type.GetProperties(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                for (int i = 0; i < properties.Length && i < 32; i++)
+                {
+                    PropertyInfo p = properties[i];
+                    if (p.GetIndexParameters().Length != 0 || !p.CanRead)
+                        continue;
+
+                    object value;
                     try
                     {
-                        created = Hero.Find(id);
+                        value = p.GetValue(root, null);
                     }
                     catch
                     {
-                        created = null;
+                        continue;
                     }
+
+                    if (value == null || value is string)
+                        continue;
+
+                    string found = FindNamedString(value, propertyName, depth - 1);
+                    if (!string.IsNullOrWhiteSpace(found))
+                        return found;
                 }
-
-                if (created == null || created == Hero.MainHero)
-                    return;
-
-                created.SetName(
-                    new TextObject(CharacterSlotStore.GetName(_selectedSlot)),
-                    new TextObject(CharacterSlotStore.GetName(_selectedSlot)));
-                _clientHero = created;
             }
-
-            if (_clientParty == null)
+            catch
             {
-                CampaignVec2 spawn = MobileParty.MainParty != null
-                    ? MobileParty.MainParty.Position
-                    : new CampaignVec2(new Vec2(0f, 0f), true);
-
-                MobileParty party = MobilePartyHelper.SpawnLordParty(
-                    _clientHero,
-                    spawn,
-                    0f);
-
-                if (party == null || party == MobileParty.MainParty)
-                {
-                    _clientParty = null;
-                    return;
-                }
-
-                _clientParty = party;
-
-                try
-                {
-                    _clientParty.MemberRoster.AddToCounts(
-                        _clientHero.CharacterObject,
-                        5);
-                }
-                catch
-                {
-                }
-
-                CharacterSlotStore.SaveRuntimePartyId(
-                    _selectedSlot,
-                    _clientParty.StringId);
             }
 
-            _worldBootstrapped = true;
+            return string.Empty;
+        }
+
+        public static void OnCharacterCreationFinalized()
+        {
+            if (!_creationOpen)
+                return;
+
+            int slot = _pendingCreationSlot;
+            MultiplayerCampaignVM vm = _pendingJoinVm;
+            string name = ReadCreationName();
+
+            _creationOpen = false;
+            _pendingCreationSlot = -1;
+            _pendingJoinVm = null;
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                OpenFallbackNameEntry(vm, slot);
+                return;
+            }
+
+            CharacterSlots.Save(slot, name);
+            _selectedSlot = slot;
+            LocalPlayerState.SetDisplayName(name);
+            ContinueJoin(vm);
         }
 
         public static void Tick(float dt)
@@ -395,176 +446,404 @@ namespace MultiplayerCampaign
             if (dt < 0f || float.IsNaN(dt) || float.IsInfinity(dt))
                 return;
 
-            BootstrapClientCharacter();
-            DrainNetworkQueue();
-            ApplyHostTime();
+            BootstrapClientPlayer();
+            DrainQueues();
+            ApplyAuthoritativeTime();
             ApplyRemotePlayers(dt);
             ApplyWorldParties(dt);
 
-            if (IsClientSession())
-                SendLocalState();
-            else if (IsHostSession())
-                BroadcastAuthoritativeState();
+            DateTime now = DateTime.UtcNow;
 
-            CleanupStaleStates();
-        }
+            if (MultiplayerNetworkClient.Instance.IsConnected)
+            {
+                if (now - _lastPlayerSendUtc >= TimeSpan.FromMilliseconds(100))
+                {
+                    _lastPlayerSendUtc = now;
+                    SendLocalPlayerState();
+                }
 
-        private static bool IsClientSession()
-        {
-            return MultiplayerNetworkClient.Instance.IsConnected;
+                if (now - _lastHostPacketUtc >= TimeSpan.FromSeconds(5) &&
+                    now - _lastResyncRequestUtc >= TimeSpan.FromSeconds(5))
+                {
+                    _lastResyncRequestUtc = now;
+                    MultiplayerNetworkClient.Instance.RequestResync();
+                }
+            }
+
+            if (IsHostSession() && now - _lastWorldSendUtc >= TimeSpan.FromMilliseconds(250))
+            {
+                _lastWorldSendUtc = now;
+                BroadcastHostState();
+            }
+
+            CleanupStalePlayers();
         }
 
         private static bool IsHostSession()
         {
-            return MultiplayerCampaignSubModule.IsHostRequested() &&
-                   MultiplayerCampaignSubModule.GetHost() != null;
+            try
+            {
+                return MultiplayerCampaignSubModule.IsHostRequested() &&
+                       MultiplayerCampaignSubModule.GetHost() != null;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
-        private static void SendLocalState()
+        private static void BootstrapClientPlayer()
+        {
+            if (!MultiplayerNetworkClient.Instance.IsConnected ||
+                Campaign.Current == null ||
+                !HasSelectedCharacter())
+                return;
+
+            if (_clientHero == null)
+            {
+                try
+                {
+                    _clientHero = Hero.Find(CharacterSlots.GetId(_selectedSlot));
+                }
+                catch
+                {
+                }
+            }
+
+            if (_clientHero == null)
+            {
+                Hero mainHero = null;
+                try { mainHero = Hero.MainHero; } catch { }
+
+                if (mainHero == null || mainHero.CharacterObject == null)
+                    return;
+
+                Hero created;
+                try
+                {
+                    if (HeroCreator.CreateBasicHero(
+                            CharacterSlots.GetId(_selectedSlot),
+                            mainHero.CharacterObject,
+                            out created,
+                            true))
+                    {
+                        _clientHero = created;
+                    }
+                    else
+                    {
+                        _clientHero = Hero.Find(CharacterSlots.GetId(_selectedSlot));
+                    }
+                }
+                catch
+                {
+                    try { _clientHero = Hero.Find(CharacterSlots.GetId(_selectedSlot)); }
+                    catch { _clientHero = null; }
+                }
+
+                if (_clientHero != null)
+                {
+                    try
+                    {
+                        _clientHero.SetName(
+                            new TextObject(CharacterSlots.GetName(_selectedSlot)),
+                            new TextObject(CharacterSlots.GetName(_selectedSlot)));
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            if (_clientHero == null || _clientHero == Hero.MainHero)
+                return;
+
+            if (_clientParty == null)
+            {
+                string storedPartyId = CharacterSlots.GetPartyId(_selectedSlot);
+                if (!string.IsNullOrWhiteSpace(storedPartyId))
+                    _clientParty = FindParty(storedPartyId);
+
+                if (_clientParty == null)
+                {
+                    CampaignVec2 spawn = MobileParty.MainParty != null
+                        ? MobileParty.MainParty.Position
+                        : new CampaignVec2(new Vec2(0f, 0f), true);
+
+                    try
+                    {
+                        _clientParty = MobilePartyHelper.SpawnLordParty(
+                            _clientHero,
+                            spawn,
+                            0f);
+                    }
+                    catch
+                    {
+                        _clientParty = null;
+                    }
+
+                    if (_clientParty != null)
+                    {
+                        try
+                        {
+                            _clientParty.MemberRoster.AddToCounts(
+                                _clientHero.CharacterObject,
+                                5);
+                        }
+                        catch
+                        {
+                        }
+
+                        CharacterSlots.SavePartyId(
+                            _selectedSlot,
+                            _clientParty.StringId);
+                    }
+                }
+            }
+
+            if (_clientParty == null || _clientParty == MobileParty.MainParty)
+                return;
+
+            TryMakeClientReferencesPrimary();
+        }
+
+        private static void TryMakeClientReferencesPrimary()
+        {
+            if (_localReferenceSwapAttempted || _clientHero == null || _clientParty == null)
+                return;
+
+            _localReferenceSwapAttempted = true;
+
+            try
+            {
+                Hero oldHero = Hero.MainHero;
+                MobileParty oldParty = MobileParty.MainParty;
+
+                bool heroChanged = SetStaticReference(
+                    typeof(Hero), "MainHero", oldHero, _clientHero);
+                bool partyChanged = SetStaticReference(
+                    typeof(MobileParty), "MainParty", oldParty, _clientParty);
+
+                if (!heroChanged || !partyChanged)
+                {
+                    if (heroChanged)
+                        SetStaticReference(typeof(Hero), "MainHero", _clientHero, oldHero);
+                    if (partyChanged)
+                        SetStaticReference(typeof(MobileParty), "MainParty", _clientParty, oldParty);
+                    return;
+                }
+
+                try
+                {
+                    if (oldParty != null && oldParty != _clientParty)
+                    {
+                        oldParty.IsVisible = false;
+                        oldParty.IsActive = false;
+                    }
+                }
+                catch
+                {
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static bool SetStaticReference(Type type, string memberName, object expected, object replacement)
+        {
+            try
+            {
+                PropertyInfo property = type.GetProperty(
+                    memberName,
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+
+                if (property != null)
+                {
+                    MethodInfo setter = property.GetSetMethod(true);
+                    if (setter != null)
+                    {
+                        object current = property.GetValue(null, null);
+                        if (expected == null || ReferenceEquals(current, expected))
+                        {
+                            setter.Invoke(null, new[] { replacement });
+                            return true;
+                        }
+                    }
+                }
+
+                string[] names =
+                {
+                    "_" + char.ToLowerInvariant(memberName[0]) + memberName.Substring(1),
+                    memberName,
+                    "<" + memberName + ">k__BackingField"
+                };
+
+                for (int i = 0; i < names.Length; i++)
+                {
+                    FieldInfo field = type.GetField(
+                        names[i],
+                        BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (field == null)
+                        continue;
+
+                    object current = field.GetValue(null);
+                    if (expected != null && !ReferenceEquals(current, expected))
+                        continue;
+
+                    field.SetValue(null, replacement);
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+
+        private static void SendLocalPlayerState()
         {
             MobileParty party = _clientParty ?? MobileParty.MainParty;
-            if (party == null)
+            if (party == null || !MultiplayerNetworkClient.Instance.IsConnected)
                 return;
 
             CampaignVec2 position = party.Position;
-            CampaignVec2 target = TryGetTargetPosition(party, position);
-            bool moving = TryGetBoolProperty(party, "IsMoving");
-            float heading = TryGetFloatProperty(party, "MovementSpeed");
-            string playerId = PlayerIdentity.GetLocalId();
-            string name = HasSelectedCharacter()
-                ? CharacterSlotStore.GetName(_selectedSlot)
-                : LocalPlayerState.GetDisplayName();
+            CampaignVec2 target = GetTarget(party, position);
+            bool moving = GetBool(party, "IsMoving");
+            float heading = GetFloat(party, "MovementSpeed");
 
-            byte[] payload = BuildPlayerPayload(
-                playerId,
-                name,
+            byte[] payload = BuildPlayerPacket(
+                PlayerIdentity.GetLocalId(),
+                CharacterSlots.Exists(_selectedSlot)
+                    ? CharacterSlots.GetName(_selectedSlot)
+                    : LocalPlayerState.GetDisplayName(),
                 position,
                 target,
                 GetPartySize(party),
                 moving,
                 heading,
-                ++_localSequence,
+                ++_sequence,
                 CampaignTime.Now.ToHours,
                 Campaign.Current.TimeControlMode,
                 Campaign.Current.SpeedUpMultiplier,
                 false);
 
-            InvokeClientSendPacket(
-                NetworkPacketType.PlayerSnapshot,
-                payload);
+            TryInvokeClientSend(PlayerStatePacket, payload);
         }
 
-        private static void BroadcastAuthoritativeState()
+        private static void BroadcastHostState()
         {
             MultiplayerCampaignHost host = MultiplayerCampaignSubModule.GetHost();
-            if (host == null)
+            if (host == null || Campaign.Current == null || MobileParty.MainParty == null)
                 return;
 
-            MobileParty party = MobileParty.MainParty;
-            if (party == null)
-                return;
-
-            byte[] payload = BuildPlayerPayload(
+            List<byte[]> packets = new List<byte[]>();
+            MobileParty hostParty = MobileParty.MainParty;
+            packets.Add(BuildPlayerPacket(
                 "HOST",
                 LocalPlayerState.GetDisplayName(),
-                party.Position,
-                TryGetTargetPosition(party, party.Position),
-                GetPartySize(party),
-                TryGetBoolProperty(party, "IsMoving"),
-                TryGetFloatProperty(party, "MovementSpeed"),
-                ++_localSequence,
+                hostParty.Position,
+                GetTarget(hostParty, hostParty.Position),
+                GetPartySize(hostParty),
+                GetBool(hostParty, "IsMoving"),
+                GetFloat(hostParty, "MovementSpeed"),
+                ++_sequence,
                 CampaignTime.Now.ToHours,
                 Campaign.Current.TimeControlMode,
                 Campaign.Current.SpeedUpMultiplier,
-                true);
+                true));
+
+            lock (Sync)
+            {
+                foreach (PlayerState state in Players.Values)
+                {
+                    if (state == null || state.IsHost || string.IsNullOrWhiteSpace(state.Id))
+                        continue;
+
+                    packets.Add(BuildPlayerPacket(
+                        state.Id,
+                        state.Name,
+                        state.Position,
+                        state.Target,
+                        state.PartySize,
+                        state.Moving,
+                        state.Heading,
+                        state.Sequence,
+                        CampaignTime.Now.ToHours,
+                        Campaign.Current.TimeControlMode,
+                        Campaign.Current.SpeedUpMultiplier,
+                        false));
+                }
+            }
 
             foreach (HostConnection connection in GetHostConnections(host))
             {
-                InvokeHostSendDirect(
-                    host,
-                    connection,
-                    NetworkPacketType.PlayerSnapshot,
-                    payload);
+                for (int i = 0; i < packets.Count; i++)
+                    TryInvokeHostSend(host, connection, PlayerStatePacket, packets[i]);
             }
 
-            BroadcastWorldPartyState(host);
+            BroadcastWorldParties(host);
         }
 
-        private static void BroadcastWorldPartyState(MultiplayerCampaignHost host)
+        private static void BroadcastWorldParties(MultiplayerCampaignHost host)
         {
             if (MobileParty.AllLordParties == null)
                 return;
 
-            long revision = ++_lastWorldRevision;
-
             using (MemoryStream stream = new MemoryStream())
             using (BinaryWriter writer = new BinaryWriter(stream, Encoding.UTF8, true))
             {
-                writer.Write(ProtocolMagic);
-                writer.Write(ProtocolVersion);
-                writer.Write(WorldPartyStateType);
-                writer.Write(revision);
+                writer.Write(Magic);
+                writer.Write(Version);
+                writer.Write(WorldStatePacket);
+                writer.Write(++_worldRevision);
 
                 int count = 0;
                 for (int i = 0; i < MobileParty.AllLordParties.Count; i++)
                 {
-                    MobileParty p = MobileParty.AllLordParties[i];
-                    if (IsSerializableWorldParty(p))
+                    MobileParty party = MobileParty.AllLordParties[i];
+                    if (IsWorldParty(party))
                         count++;
                 }
-
                 writer.Write(count);
 
                 for (int i = 0; i < MobileParty.AllLordParties.Count; i++)
                 {
-                    MobileParty p = MobileParty.AllLordParties[i];
-                    if (!IsSerializableWorldParty(p))
+                    MobileParty party = MobileParty.AllLordParties[i];
+                    if (!IsWorldParty(party))
                         continue;
 
-                    CampaignVec2 position = p.Position;
-                    CampaignVec2 target = TryGetTargetPosition(p, position);
-
-                    writer.Write(p.StringId);
+                    CampaignVec2 position = party.Position;
+                    CampaignVec2 target = GetTarget(party, position);
+                    writer.Write(party.StringId);
                     writer.Write(position.X);
                     writer.Write(position.Y);
                     writer.Write(target.X);
                     writer.Write(target.Y);
-                    writer.Write(GetPartySize(p));
-                    writer.Write(TryGetBoolProperty(p, "IsMoving"));
-                    writer.Write(++_localSequence);
+                    writer.Write(GetPartySize(party));
+                    writer.Write(GetBool(party, "IsMoving"));
+                    writer.Write(++_sequence);
                 }
 
                 byte[] payload = stream.ToArray();
                 foreach (HostConnection connection in GetHostConnections(host))
-                {
-                    InvokeHostSendDirect(
-                        host,
-                        connection,
-                        NetworkPacketType.WorldPartySnapshot,
-                        payload);
-                }
+                    TryInvokeHostSend(host, connection, WorldStatePacket, payload);
             }
         }
 
-        private static bool IsSerializableWorldParty(MobileParty party)
+        private static bool IsWorldParty(MobileParty party)
         {
-            if (party == null || string.IsNullOrWhiteSpace(party.StringId))
-                return false;
-
-            if (party == MobileParty.MainParty || party == _clientParty)
-                return false;
-
-            if (RemotePlayerManager.IsRemoteParty(party))
-                return false;
-
-            if (!IsFinite(party.Position.X) || !IsFinite(party.Position.Y))
-                return false;
-
-            return true;
+            return party != null &&
+                   !string.IsNullOrWhiteSpace(party.StringId) &&
+                   party != MobileParty.MainParty &&
+                   party != _clientParty &&
+                   !RemotePlayerManager.IsRemoteParty(party) &&
+                   IsFinite(party.Position.X) &&
+                   IsFinite(party.Position.Y);
         }
 
-        private static byte[] BuildPlayerPayload(
-            string playerId,
+        private static byte[] BuildPlayerPacket(
+            string id,
             string name,
             CampaignVec2 position,
             CampaignVec2 target,
@@ -573,58 +852,55 @@ namespace MultiplayerCampaign
             float heading,
             ulong sequence,
             double hostHours,
-            CampaignTimeControlMode mode,
+            CampaignTimeControlMode timeMode,
             float speed,
-            bool host)
+            bool isHost)
         {
             using (MemoryStream stream = new MemoryStream())
             using (BinaryWriter writer = new BinaryWriter(stream, Encoding.UTF8, true))
             {
-                writer.Write(ProtocolMagic);
-                writer.Write(ProtocolVersion);
-                writer.Write(PlayerStateType);
+                writer.Write(Magic);
+                writer.Write(Version);
+                writer.Write(PlayerStatePacket);
                 writer.Write(sequence);
                 writer.Write(hostHours);
+                writer.Write((int)timeMode);
                 writer.Write(speed);
-                writer.Write((int)mode);
-                writer.Write(host);
-                writer.Write(playerId ?? string.Empty);
-                writer.Write(name ?? "Player");
+                writer.Write(isHost);
+                writer.Write(id ?? string.Empty);
+                writer.Write(SanitizeName(name));
                 writer.Write(position.X);
                 writer.Write(position.Y);
                 writer.Write(target.X);
                 writer.Write(target.Y);
-                writer.Write(partySize);
+                writer.Write(Math.Max(1, Math.Min(10000, partySize)));
                 writer.Write(moving);
-                writer.Write(heading);
+                writer.Write(IsFinite(heading) ? heading : 0f);
                 return stream.ToArray();
             }
         }
 
-        private static void DrainNetworkQueue()
+        public static bool QueuePlayerPacket(byte[] payload)
         {
-            QueuedState state;
-            while (IncomingStates.TryDequeue(out state))
-            {
-                try
-                {
-                    if (state == null || state.Payload == null)
-                        continue;
+            if (!ValidateHeader(payload, PlayerStatePacket))
+                return false;
 
-                    if (state.Kind == PlayerStateType)
-                        ReadPlayerPayload(state.Payload);
-                    else if (state.Kind == WorldPartyStateType)
-                        ReadWorldPartyPayload(state.Payload);
-                }
-                catch
-                {
-                }
-            }
+            PlayerQueue.Enqueue((byte[])payload.Clone());
+            return true;
         }
 
-        public static bool TryQueueCustomPacket(byte[] payload)
+        public static bool QueueWorldPacket(byte[] payload)
         {
-            if (payload == null || payload.Length < 6)
+            if (!ValidateHeader(payload, WorldStatePacket))
+                return false;
+
+            WorldQueue.Enqueue((byte[])payload.Clone());
+            return true;
+        }
+
+        private static bool ValidateHeader(byte[] payload, byte expectedType)
+        {
+            if (payload == null || payload.Length < 6 || payload.Length > 1024 * 1024)
                 return false;
 
             try
@@ -632,22 +908,9 @@ namespace MultiplayerCampaign
                 using (MemoryStream stream = new MemoryStream(payload))
                 using (BinaryReader reader = new BinaryReader(stream, Encoding.UTF8, true))
                 {
-                    int magic = reader.ReadInt32();
-                    byte version = reader.ReadByte();
-                    byte kind = reader.ReadByte();
-                    if (magic != ProtocolMagic || version != ProtocolVersion)
-                        return false;
-
-                    if (kind != PlayerStateType && kind != WorldPartyStateType)
-                        return false;
-
-                    IncomingStates.Enqueue(new QueuedState
-                    {
-                        Kind = kind,
-                        Payload = (byte[])payload.Clone(),
-                        ReceivedUtc = DateTime.UtcNow
-                    });
-                    return true;
+                    return reader.ReadInt32() == Magic &&
+                           reader.ReadByte() == Version &&
+                           reader.ReadByte() == expectedType;
                 }
             }
             catch
@@ -656,157 +919,181 @@ namespace MultiplayerCampaign
             }
         }
 
-        private static void ReadPlayerPayload(byte[] payload)
+        private static void DrainQueues()
         {
-            using (MemoryStream stream = new MemoryStream(payload))
-            using (BinaryReader reader = new BinaryReader(stream, Encoding.UTF8, true))
-            {
-                if (reader.ReadInt32() != ProtocolMagic ||
-                    reader.ReadByte() != ProtocolVersion ||
-                    reader.ReadByte() != PlayerStateType)
-                    return;
+            byte[] payload;
+            while (PlayerQueue.TryDequeue(out payload))
+                ReadPlayer(payload);
 
-                ulong sequence = reader.ReadUInt64();
-                double hostHours = reader.ReadDouble();
-                float speed = reader.ReadSingle();
-                int mode = reader.ReadInt32();
-                bool host = reader.ReadBoolean();
-                string playerId = reader.ReadString();
-                string name = reader.ReadString();
-                float x = reader.ReadSingle();
-                float y = reader.ReadSingle();
-                float tx = reader.ReadSingle();
-                float ty = reader.ReadSingle();
-                int size = reader.ReadInt32();
-                bool moving = reader.ReadBoolean();
-                float heading = reader.ReadSingle();
-
-                if (!IsValidNetworkIdentity(playerId) ||
-                    !IsFinite(x) || !IsFinite(y) ||
-                    !IsFinite(tx) || !IsFinite(ty) ||
-                    !IsFinite(speed))
-                    return;
-
-                PlayerSyncState current;
-                lock (Sync)
-                {
-                    if (RemotePlayers.TryGetValue(playerId, out current) &&
-                        sequence <= current.Sequence)
-                        return;
-
-                    current = new PlayerSyncState
-                    {
-                        Id = playerId,
-                        Name = string.IsNullOrWhiteSpace(name) ? "Player" : SanitizeName(name),
-                        Position = new CampaignVec2(new Vec2(x, y), true),
-                        Target = new CampaignVec2(new Vec2(tx, ty), true),
-                        PartySize = Math.Max(1, Math.Min(10000, size)),
-                        Moving = moving,
-                        Heading = heading,
-                        Sequence = sequence,
-                        ReceivedUtc = DateTime.UtcNow,
-                        IsHost = host
-                    };
-                    RemotePlayers[playerId] = current;
-                }
-
-                if (host)
-                {
-                    _targetHostHours = hostHours;
-                    _hostSpeed = Math.Max(0f, Math.Min(100f, speed));
-                    _hostMode = mode;
-                    _haveHostTime = true;
-                    _lastHostPacketUtc = DateTime.UtcNow;
-                }
-            }
+            while (WorldQueue.TryDequeue(out payload))
+                ReadWorld(payload);
         }
 
-        private static void ReadWorldPartyPayload(byte[] payload)
+        private static void ReadPlayer(byte[] payload)
         {
-            using (MemoryStream stream = new MemoryStream(payload))
-            using (BinaryReader reader = new BinaryReader(stream, Encoding.UTF8, true))
+            try
             {
-                if (reader.ReadInt32() != ProtocolMagic ||
-                    reader.ReadByte() != ProtocolVersion ||
-                    reader.ReadByte() != WorldPartyStateType)
-                    return;
-
-                long revision = reader.ReadInt64();
-                if (revision < _lastWorldRevision)
-                    return;
-
-                _lastWorldRevision = revision;
-                int count = reader.ReadInt32();
-                if (count < 0 || count > 100000)
-                    return;
-
-                for (int i = 0; i < count; i++)
+                using (MemoryStream stream = new MemoryStream(payload))
+                using (BinaryReader reader = new BinaryReader(stream, Encoding.UTF8, true))
                 {
+                    reader.ReadInt32();
+                    reader.ReadByte();
+                    reader.ReadByte();
+                    ulong sequence = reader.ReadUInt64();
+                    double hostHours = reader.ReadDouble();
+                    int timeMode = reader.ReadInt32();
+                    float speed = reader.ReadSingle();
+                    bool isHost = reader.ReadBoolean();
                     string id = reader.ReadString();
+                    string name = SanitizeName(reader.ReadString());
                     float x = reader.ReadSingle();
                     float y = reader.ReadSingle();
                     float tx = reader.ReadSingle();
                     float ty = reader.ReadSingle();
-                    int size = reader.ReadInt32();
+                    int partySize = reader.ReadInt32();
                     bool moving = reader.ReadBoolean();
-                    ulong sequence = reader.ReadUInt64();
+                    float heading = reader.ReadSingle();
 
-                    if (string.IsNullOrWhiteSpace(id) ||
+                    if (!IsValidId(id) ||
                         !IsFinite(x) || !IsFinite(y) ||
-                        !IsFinite(tx) || !IsFinite(ty))
-                        continue;
+                        !IsFinite(tx) || !IsFinite(ty) ||
+                        !IsFinite(speed) || !IsFinite(heading))
+                        return;
 
                     lock (Sync)
                     {
-                        WorldPartySyncState current;
-                        if (WorldParties.TryGetValue(id, out current) &&
-                            sequence <= current.Sequence)
-                            continue;
+                        PlayerState previous;
+                        if (Players.TryGetValue(id, out previous) && sequence <= previous.Sequence)
+                            return;
 
-                        WorldParties[id] = new WorldPartySyncState
+                        Players[id] = new PlayerState
                         {
                             Id = id,
+                            Name = string.IsNullOrWhiteSpace(name) ? "Player" : name,
                             Position = new CampaignVec2(new Vec2(x, y), true),
                             Target = new CampaignVec2(new Vec2(tx, ty), true),
-                            Size = Math.Max(0, Math.Min(10000, size)),
+                            PartySize = Math.Max(1, Math.Min(10000, partySize)),
                             Moving = moving,
+                            Heading = heading,
                             Sequence = sequence,
-                            ReceivedUtc = DateTime.UtcNow
+                            IsHost = isHost,
+                            ReceivedUtc = DateTime.UtcNow,
+                            Hero = previous == null ? null : previous.Hero,
+                            Party = previous == null ? null : previous.Party
                         };
                     }
+
+                    if (isHost)
+                    {
+                        _hostHours = hostHours;
+                        _hostTimeMode = timeMode;
+                        _hostSpeed = Math.Max(0f, Math.Min(100f, speed));
+                        _lastHostPacketUtc = DateTime.UtcNow;
+                    }
                 }
-            }
-        }
-
-        private static void ApplyHostTime()
-        {
-            if (!IsClientSession() || !_haveHostTime || Campaign.Current == null)
-                return;
-
-            try
-            {
-                double local = CampaignTime.Now.ToHours;
-                double difference = _targetHostHours - local;
-
-                // Exact time mutation is private in Bannerlord. For stability we correct
-                // the clock by choosing the authoritative mode and multiplier; when drift
-                // becomes large, a reflective MapTimeTracker correction is attempted.
-                if (_hostMode >= 0 && _hostMode <= 16)
-                {
-                    Campaign.Current.TimeControlMode =
-                        (CampaignTimeControlMode)_hostMode;
-                    Campaign.Current.SpeedUpMultiplier = _hostSpeed;
-                }
-
-                if (Math.Abs(difference) > 0.5d)
-                    TrySetCampaignTimeReflectively(_targetHostHours);
             }
             catch
             {
             }
         }
 
-        private static bool TrySetCampaignTimeReflectively(double hours)
+        private static void ReadWorld(byte[] payload)
+        {
+            try
+            {
+                using (MemoryStream stream = new MemoryStream(payload))
+                using (BinaryReader reader = new BinaryReader(stream, Encoding.UTF8, true))
+                {
+                    reader.ReadInt32();
+                    reader.ReadByte();
+                    reader.ReadByte();
+                    long revision = reader.ReadInt64();
+
+                    if (revision < _worldRevision)
+                        return;
+
+                    int count = reader.ReadInt32();
+                    if (count < 0 || count > 100000)
+                        return;
+
+                    Dictionary<string, WorldPartyState> next = new Dictionary<string, WorldPartyState>();
+                    for (int i = 0; i < count; i++)
+                    {
+                        string id = reader.ReadString();
+                        float x = reader.ReadSingle();
+                        float y = reader.ReadSingle();
+                        float tx = reader.ReadSingle();
+                        float ty = reader.ReadSingle();
+                        int size = reader.ReadInt32();
+                        bool moving = reader.ReadBoolean();
+                        ulong sequence = reader.ReadUInt64();
+
+                        if (string.IsNullOrWhiteSpace(id) ||
+                            !IsFinite(x) || !IsFinite(y) ||
+                            !IsFinite(tx) || !IsFinite(ty))
+                            continue;
+
+                        next[id] = new WorldPartyState
+                        {
+                            Id = id,
+                            Position = new CampaignVec2(new Vec2(x, y), true),
+                            Target = new CampaignVec2(new Vec2(tx, ty), true),
+                            PartySize = Math.Max(0, Math.Min(10000, size)),
+                            Moving = moving,
+                            Sequence = sequence,
+                            ReceivedUtc = DateTime.UtcNow
+                        };
+                    }
+
+                    lock (Sync)
+                    {
+                        _worldRevision = revision;
+                        foreach (KeyValuePair<string, WorldPartyState> item in next)
+                        {
+                            WorldPartyState old;
+                            if (!WorldParties.TryGetValue(item.Key, out old) || item.Value.Sequence > old.Sequence)
+                                WorldParties[item.Key] = item.Value;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static void ApplyAuthoritativeTime()
+        {
+            if (!MultiplayerNetworkClient.Instance.IsConnected ||
+                !_lastHostPacketUtc.Ticks.Equals(DateTime.MinValue.Ticks) ||
+                !_lastHostPacketUtc.Equals(DateTime.MinValue))
+            {
+                if (!_lastHostPacketUtc.Equals(DateTime.MinValue) && Campaign.Current != null)
+                {
+                    try
+                    {
+                        if (_hostTimeMode >= 0 && _hostTimeMode <= 16)
+                            Campaign.Current.TimeControlMode = (CampaignTimeControlMode)_hostTimeMode;
+                        Campaign.Current.SpeedUpMultiplier = _hostSpeed;
+                    }
+                    catch
+                    {
+                    }
+
+                    try
+                    {
+                        double localHours = CampaignTime.Now.ToHours;
+                        if (Math.Abs(localHours - _hostHours) > 0.5d)
+                            TrySetCampaignTime(_hostHours);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+        }
+
+        private static bool TrySetCampaignTime(double hours)
         {
             try
             {
@@ -814,11 +1101,9 @@ namespace MultiplayerCampaign
                 if (campaign == null)
                     return false;
 
-                Type campaignType = campaign.GetType();
-                MethodInfo[] methods = campaignType.GetMethods(
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
                 CampaignTime target = CampaignTime.Hours((float)hours);
+                MethodInfo[] methods = campaign.GetType().GetMethods(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
                 for (int i = 0; i < methods.Length; i++)
                 {
@@ -827,12 +1112,11 @@ namespace MultiplayerCampaign
                         continue;
 
                     ParameterInfo[] parameters = method.GetParameters();
-                    if (parameters.Length != 1 ||
-                        parameters[0].ParameterType != typeof(CampaignTime))
-                        continue;
-
-                    method.Invoke(campaign, new object[] { target });
-                    return true;
+                    if (parameters.Length == 1 && parameters[0].ParameterType == typeof(CampaignTime))
+                    {
+                        method.Invoke(campaign, new object[] { target });
+                        return true;
+                    }
                 }
             }
             catch
@@ -844,26 +1128,21 @@ namespace MultiplayerCampaign
 
         private static void ApplyRemotePlayers(float dt)
         {
-            PlayerSyncState[] snapshot;
+            PlayerState[] snapshot;
             lock (Sync)
             {
-                snapshot = new PlayerSyncState[RemotePlayers.Count];
-                RemotePlayers.Values.CopyTo(snapshot, 0);
+                snapshot = new PlayerState[Players.Count];
+                Players.Values.CopyTo(snapshot, 0);
             }
 
             for (int i = 0; i < snapshot.Length; i++)
             {
-                PlayerSyncState state = snapshot[i];
-                if (state == null || string.IsNullOrWhiteSpace(state.Id))
+                PlayerState state = snapshot[i];
+                if (state == null || state.Id == PlayerIdentity.GetLocalId())
                     continue;
 
-                if (state.Id == PlayerIdentity.GetLocalId())
-                    continue;
-
-                if (state.Party == null || state.Hero == null)
-                {
+                if (state.Hero == null || state.Party == null)
                     CreateRemoteObjects(state);
-                }
 
                 if (state.Party == null)
                     continue;
@@ -872,29 +1151,25 @@ namespace MultiplayerCampaign
                 {
                     CampaignVec2 current = state.Party.Position;
                     float alpha = Math.Max(0.05f, Math.Min(1f, dt * 10f));
-                    float x = current.X + (state.Target.X - current.X) * alpha;
-                    float y = current.Y + (state.Target.Y - current.Y) * alpha;
-                    state.Party.Position = new CampaignVec2(new Vec2(x, y), true);
+                    state.Party.Position = new CampaignVec2(
+                        new Vec2(
+                            current.X + (state.Target.X - current.X) * alpha,
+                            current.Y + (state.Target.Y - current.Y) * alpha),
+                        true);
                 }
                 catch
                 {
                     state.Party = null;
                 }
 
-                try
-                {
-                    UpdateRemoteRoster(state);
-                }
-                catch
-                {
-                }
+                try { UpdateRemoteRoster(state); } catch { }
             }
         }
 
-        private static void CreateRemoteObjects(PlayerSyncState state)
+        private static void CreateRemoteObjects(PlayerState state)
         {
             if (Campaign.Current == null || Hero.MainHero == null ||
-                Hero.MainHero.CharacterObject == null)
+                Hero.MainHero.CharacterObject == null || state == null)
                 return;
 
             if (state.Hero != null && state.Party != null)
@@ -902,32 +1177,26 @@ namespace MultiplayerCampaign
 
             try
             {
-                string id = "mpc_remote_" + SanitizeId(state.Id);
-                Hero hero = Hero.Find(id);
+                string heroId = "mpc_remote_" + SanitizeId(state.Id);
+                Hero hero = Hero.Find(heroId);
 
                 if (hero == null)
                 {
                     Hero created;
-                    if (!HeroCreator.CreateBasicHero(
-                            id,
+                    if (HeroCreator.CreateBasicHero(
+                            heroId,
                             Hero.MainHero.CharacterObject,
                             out created,
                             true))
-                    {
-                        hero = Hero.Find(id);
-                    }
-                    else
-                    {
                         hero = created;
-                    }
+                    else
+                        hero = Hero.Find(heroId);
                 }
 
                 if (hero == null || hero == Hero.MainHero)
                     return;
 
-                hero.SetName(
-                    new TextObject(state.Name),
-                    new TextObject(state.Name));
+                hero.SetName(new TextObject(state.Name), new TextObject(state.Name));
 
                 MobileParty party = MobilePartyHelper.SpawnLordParty(
                     hero,
@@ -936,6 +1205,9 @@ namespace MultiplayerCampaign
 
                 if (party == null || party == MobileParty.MainParty)
                     return;
+
+                party.SetMoveModeHold();
+                party.Position = state.Position;
 
                 try
                 {
@@ -955,7 +1227,7 @@ namespace MultiplayerCampaign
             }
         }
 
-        private static void UpdateRemoteRoster(PlayerSyncState state)
+        private static void UpdateRemoteRoster(PlayerState state)
         {
             if (state.Party == null || state.Party.MemberRoster == null ||
                 Hero.MainHero == null || Hero.MainHero.CharacterObject == null)
@@ -963,7 +1235,6 @@ namespace MultiplayerCampaign
 
             int desired = Math.Max(1, Math.Min(10000, state.PartySize));
             int current = state.Party.MemberRoster.TotalManCount;
-
             if (current < desired)
             {
                 state.Party.MemberRoster.AddToCounts(
@@ -983,11 +1254,11 @@ namespace MultiplayerCampaign
 
             for (int i = 0; i < snapshot.Length; i++)
             {
-                WorldPartySyncState sync = snapshot[i];
-                if (sync == null || string.IsNullOrWhiteSpace(sync.Id))
+                WorldPartySyncState state = snapshot[i];
+                if (state == null)
                     continue;
 
-                MobileParty party = FindParty(sync.Id);
+                MobileParty party = FindParty(state.Id);
                 if (party == null || party == MobileParty.MainParty ||
                     party == _clientParty || RemotePlayerManager.IsRemoteParty(party))
                     continue;
@@ -996,9 +1267,11 @@ namespace MultiplayerCampaign
                 {
                     CampaignVec2 current = party.Position;
                     float alpha = Math.Max(0.05f, Math.Min(1f, dt * 7f));
-                    float x = current.X + (sync.Position.X - current.X) * alpha;
-                    float y = current.Y + (sync.Position.Y - current.Y) * alpha;
-                    party.Position = new CampaignVec2(new Vec2(x, y), true);
+                    party.Position = new CampaignVec2(
+                        new Vec2(
+                            current.X + (state.Position.X - current.X) * alpha,
+                            current.Y + (state.Position.Y - current.Y) * alpha),
+                        true);
                 }
                 catch
                 {
@@ -1021,36 +1294,26 @@ namespace MultiplayerCampaign
             return null;
         }
 
-        private static void CleanupStaleStates()
+        private static void CleanupStalePlayers()
         {
+            List<string> remove = new List<string>();
             DateTime now = DateTime.UtcNow;
-            List<string> removePlayers = new List<string>();
-            List<string> removeParties = new List<string>();
 
             lock (Sync)
             {
-                foreach (KeyValuePair<string, PlayerSyncState> item in RemotePlayers)
+                foreach (KeyValuePair<string, PlayerState> item in Players)
                 {
-                    if (now - item.Value.ReceivedUtc > TimeSpan.FromSeconds(10))
-                        removePlayers.Add(item.Key);
+                    if (now - item.Value.ReceivedUtc > TimeSpan.FromSeconds(12))
+                        remove.Add(item.Key);
                 }
 
-                foreach (KeyValuePair<string, WorldPartySyncState> item in WorldParties)
+                for (int i = 0; i < remove.Count; i++)
                 {
-                    if (now - item.Value.ReceivedUtc > TimeSpan.FromSeconds(15))
-                        removeParties.Add(item.Key);
-                }
-
-                for (int i = 0; i < removePlayers.Count; i++)
-                {
-                    PlayerSyncState state;
-                    if (RemotePlayers.TryGetValue(removePlayers[i], out state))
+                    PlayerState state;
+                    if (Players.TryGetValue(remove[i], out state))
                         DestroyRemote(state);
-                    RemotePlayers.Remove(removePlayers[i]);
+                    Players.Remove(remove[i]);
                 }
-
-                for (int i = 0; i < removeParties.Count; i++)
-                    WorldParties.Remove(removeParties[i]);
             }
         }
 
@@ -1061,14 +1324,14 @@ namespace MultiplayerCampaign
 
             lock (Sync)
             {
-                PlayerSyncState state;
-                if (RemotePlayers.TryGetValue(playerId, out state))
+                PlayerState state;
+                if (Players.TryGetValue(playerId, out state))
                     DestroyRemote(state);
-                RemotePlayers.Remove(playerId);
+                Players.Remove(playerId);
             }
         }
 
-        private static void DestroyRemote(PlayerSyncState state)
+        private static void DestroyRemote(PlayerState state)
         {
             if (state == null)
                 return;
@@ -1086,37 +1349,29 @@ namespace MultiplayerCampaign
             state.Hero = null;
         }
 
-        public static void EnqueueIncomingPlayerPayload(byte[] payload)
-        {
-            TryQueueCustomPacket(payload);
-        }
-
-        public static void EnqueueIncomingWorldPayload(byte[] payload)
-        {
-            TryQueueCustomPacket(payload);
-        }
-
-        private static void InvokeClientSendPacket(NetworkPacketType type, byte[] payload)
+        private static void TryInvokeClientSend(byte packetType, byte[] payload)
         {
             try
             {
-                MultiplayerNetworkClient client = MultiplayerNetworkClient.Instance;
                 MethodInfo method = AccessTools.Method(
                     typeof(MultiplayerNetworkClient),
                     "SendPacket",
                     new[] { typeof(NetworkPacketType), typeof(byte[]) });
-                if (method != null)
-                    method.Invoke(client, new object[] { type, payload });
+                if (method == null)
+                    return;
+
+                object type = Enum.ToObject(typeof(NetworkPacketType), packetType);
+                method.Invoke(MultiplayerNetworkClient.Instance, new object[] { type, payload });
             }
             catch
             {
             }
         }
 
-        private static void InvokeHostSendDirect(
+        private static void TryInvokeHostSend(
             MultiplayerCampaignHost host,
             HostConnection connection,
-            NetworkPacketType type,
+            byte packetType,
             byte[] payload)
         {
             try
@@ -1125,8 +1380,11 @@ namespace MultiplayerCampaign
                     typeof(MultiplayerCampaignHost),
                     "SendDirect",
                     new[] { typeof(HostConnection), typeof(NetworkPacketType), typeof(byte[]) });
-                if (method != null)
-                    method.Invoke(host, new object[] { connection, type, payload });
+                if (method == null)
+                    return;
+
+                object type = Enum.ToObject(typeof(NetworkPacketType), packetType);
+                method.Invoke(host, new object[] { connection, type, payload });
             }
             catch
             {
@@ -1136,18 +1394,18 @@ namespace MultiplayerCampaign
         private static IEnumerable<HostConnection> GetHostConnections(MultiplayerCampaignHost host)
         {
             List<HostConnection> result = new List<HostConnection>();
+            if (host == null)
+                return result;
+
             try
             {
-                FieldInfo field = AccessTools.Field(
-                    typeof(MultiplayerCampaignHost),
-                    "_connections");
-                object dictionary = field == null ? null : field.GetValue(host);
-                if (dictionary == null)
+                FieldInfo field = AccessTools.Field(typeof(MultiplayerCampaignHost), "_connections");
+                object dict = field == null ? null : field.GetValue(host);
+                if (dict == null)
                     return result;
 
-                PropertyInfo valuesProperty = dictionary.GetType().GetProperty("Values");
-                object values = valuesProperty == null ? null : valuesProperty.GetValue(dictionary, null);
-                IEnumerable enumerable = values as IEnumerable;
+                PropertyInfo values = dict.GetType().GetProperty("Values");
+                IEnumerable enumerable = values == null ? null : values.GetValue(dict, null) as IEnumerable;
                 if (enumerable == null)
                     return result;
 
@@ -1165,13 +1423,10 @@ namespace MultiplayerCampaign
             return result;
         }
 
-        private static CampaignVec2 TryGetTargetPosition(MobileParty party, CampaignVec2 fallback)
+        private static CampaignVec2 GetTarget(MobileParty party, CampaignVec2 fallback)
         {
             try
             {
-                if (party == null)
-                    return fallback;
-
                 object value = ReadMember(party, "TargetPosition");
                 if (value is CampaignVec2)
                     return (CampaignVec2)value;
@@ -1188,29 +1443,29 @@ namespace MultiplayerCampaign
             return fallback;
         }
 
-        private static object ReadMember(object obj, string name)
+        private static object ReadMember(object instance, string name)
         {
-            if (obj == null)
+            if (instance == null)
                 return null;
 
-            Type type = obj.GetType();
+            Type type = instance.GetType();
             PropertyInfo property = type.GetProperty(
                 name,
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            if (property != null && property.GetIndexParameters().Length == 0)
-                return property.GetValue(obj, null);
+            if (property != null && property.GetIndexParameters().Length == 0 && property.CanRead)
+                return property.GetValue(instance, null);
 
             FieldInfo field = type.GetField(
                 name,
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            return field == null ? null : field.GetValue(obj);
+            return field == null ? null : field.GetValue(instance);
         }
 
-        private static bool TryGetBoolProperty(object obj, string name)
+        private static bool GetBool(object instance, string name)
         {
             try
             {
-                object value = ReadMember(obj, name);
+                object value = ReadMember(instance, name);
                 return value is bool && (bool)value;
             }
             catch
@@ -1219,11 +1474,11 @@ namespace MultiplayerCampaign
             }
         }
 
-        private static float TryGetFloatProperty(object obj, string name)
+        private static float GetFloat(object instance, string name)
         {
             try
             {
-                object value = ReadMember(obj, name);
+                object value = ReadMember(instance, name);
                 if (value is float)
                     return (float)value;
                 if (value is double)
@@ -1250,14 +1505,25 @@ namespace MultiplayerCampaign
             }
         }
 
-        private static bool IsValidNetworkIdentity(string value)
+        private static string SanitizeName(string value)
         {
-            return !string.IsNullOrWhiteSpace(value) && value.Length <= 128;
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            string clean = value.Trim()
+                .Replace("|", string.Empty)
+                .Replace("\r", string.Empty)
+                .Replace("\n", string.Empty);
+
+            if (clean.Length > 32)
+                clean = clean.Substring(0, 32);
+
+            return clean;
         }
 
-        private static bool IsFinite(float value)
+        private static bool IsValidId(string value)
         {
-            return !float.IsNaN(value) && !float.IsInfinity(value);
+            return !string.IsNullOrWhiteSpace(value) && value.Length <= 128;
         }
 
         private static string SanitizeId(string value)
@@ -1269,28 +1535,34 @@ namespace MultiplayerCampaign
             for (int i = 0; i < value.Length; i++)
             {
                 char c = value[i];
-                if (char.IsLetterOrDigit(c) || c == '-' || c == '_')
+                if (char.IsLetterOrDigit(c) || c == '_' || c == '-')
                     builder.Append(c);
             }
-
             return builder.Length == 0 ? "player" : builder.ToString();
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
     }
 
-    internal static class CharacterSlotStore
+    internal static class CharacterSlots
     {
-        private const int SlotCount = 3;
+        private const int Count = 3;
         private static readonly object Sync = new object();
-        private static readonly string[] Names = new string[SlotCount];
-        private static readonly string[] Ids = new string[SlotCount];
-        private static readonly string[] PartyIds = new string[SlotCount];
+        private static readonly string[] Names = new string[Count];
+        private static readonly string[] Ids = new string[Count];
+        private static readonly string[] PartyIds = new string[Count];
         private static bool _loaded;
 
         private static string DirectoryPath => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "MultiplayerCampaign");
 
-        private static string FilePath => Path.Combine(DirectoryPath, "character_slots.txt");
+        private static string FilePath => Path.Combine(
+            DirectoryPath,
+            "character_slots.txt");
 
         public static void Load()
         {
@@ -1300,7 +1572,7 @@ namespace MultiplayerCampaign
                     return;
 
                 _loaded = true;
-                for (int i = 0; i < SlotCount; i++)
+                for (int i = 0; i < Count; i++)
                 {
                     Names[i] = string.Empty;
                     Ids[i] = string.Empty;
@@ -1313,17 +1585,12 @@ namespace MultiplayerCampaign
                         return;
 
                     string[] lines = File.ReadAllLines(FilePath);
-                    for (int i = 0; i < lines.Length && i < SlotCount; i++)
+                    for (int i = 0; i < lines.Length && i < Count; i++)
                     {
-                        string line = lines[i] ?? string.Empty;
-                        string[] parts = line.Split(new[] { '|' }, 4);
-                        if (parts.Length >= 2)
-                        {
-                            Names[i] = Sanitize(parts[0]);
-                            Ids[i] = Sanitize(parts[1]);
-                        }
-                        if (parts.Length >= 3)
-                            PartyIds[i] = Sanitize(parts[2]);
+                        string[] parts = (lines[i] ?? string.Empty).Split(new[] { '|' }, 3);
+                        if (parts.Length > 0) Names[i] = Clean(parts[0]);
+                        if (parts.Length > 1) Ids[i] = Clean(parts[1]);
+                        if (parts.Length > 2) PartyIds[i] = Clean(parts[2]);
                     }
                 }
                 catch
@@ -1336,34 +1603,39 @@ namespace MultiplayerCampaign
         {
             Load();
             lock (Sync)
-            {
-                return slot >= 0 && slot < SlotCount &&
+                return slot >= 0 && slot < Count &&
                        !string.IsNullOrWhiteSpace(Names[slot]) &&
                        !string.IsNullOrWhiteSpace(Ids[slot]);
-            }
         }
 
         public static string GetName(int slot)
         {
             Load();
             lock (Sync)
-                return slot >= 0 && slot < SlotCount ? Names[slot] : string.Empty;
+                return slot >= 0 && slot < Count ? Names[slot] : string.Empty;
         }
 
         public static string GetId(int slot)
         {
             Load();
             lock (Sync)
-                return slot >= 0 && slot < SlotCount ? Ids[slot] : string.Empty;
+                return slot >= 0 && slot < Count ? Ids[slot] : string.Empty;
+        }
+
+        public static string GetPartyId(int slot)
+        {
+            Load();
+            lock (Sync)
+                return slot >= 0 && slot < Count ? PartyIds[slot] : string.Empty;
         }
 
         public static void Save(int slot, string name)
         {
             Load();
-            if (slot < 0 || slot >= SlotCount)
+            if (slot < 0 || slot >= Count)
                 return;
 
-            string clean = Sanitize(name);
+            string clean = Clean(name);
             if (string.IsNullOrWhiteSpace(clean))
                 return;
 
@@ -1376,15 +1648,15 @@ namespace MultiplayerCampaign
             }
         }
 
-        public static void SaveRuntimePartyId(int slot, string partyId)
+        public static void SavePartyId(int slot, string partyId)
         {
             Load();
-            if (slot < 0 || slot >= SlotCount)
+            if (slot < 0 || slot >= Count)
                 return;
 
             lock (Sync)
             {
-                PartyIds[slot] = Sanitize(partyId);
+                PartyIds[slot] = Clean(partyId);
                 PersistLocked();
             }
         }
@@ -1394,11 +1666,13 @@ namespace MultiplayerCampaign
             try
             {
                 Directory.CreateDirectory(DirectoryPath);
-                string[] lines = new string[SlotCount];
-                for (int i = 0; i < SlotCount; i++)
+                string[] lines = new string[Count];
+                for (int i = 0; i < Count; i++)
+                {
                     lines[i] = (Names[i] ?? string.Empty) + "|" +
                                (Ids[i] ?? string.Empty) + "|" +
                                (PartyIds[i] ?? string.Empty);
+                }
                 File.WriteAllLines(FilePath, lines);
             }
             catch
@@ -1406,7 +1680,7 @@ namespace MultiplayerCampaign
             }
         }
 
-        private static string Sanitize(string value)
+        private static string Clean(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
                 return string.Empty;
@@ -1418,49 +1692,41 @@ namespace MultiplayerCampaign
         }
     }
 
-    /* ============================================================
-     * HARMONY HOOKS
-     * ============================================================ */
-
     [HarmonyPatch]
-    internal static class MpcRuntimeLoadPatch
+    internal static class MpcLoadPatch
     {
         private static MethodBase TargetMethod()
         {
-            return AccessTools.Method(
-                typeof(MultiplayerCampaignSubModule),
-                "OnSubModuleLoad");
+            return AccessTools.Method(typeof(MultiplayerCampaignSubModule), "OnSubModuleLoad");
         }
 
         private static void Postfix()
         {
-            MpcRebuildRuntime.Install();
+            MpcRebuildRuntimeV2.Install();
         }
     }
 
     [HarmonyPatch]
-    internal static class MpcRuntimeJoinPatch
+    internal static class MpcJoinPatch
     {
         private static MethodBase TargetMethod()
         {
-            return AccessTools.Method(
-                typeof(MultiplayerCampaignVM),
-                "ExecuteJoinHost");
+            return AccessTools.Method(typeof(MultiplayerCampaignVM), "ExecuteJoinHost");
         }
 
         private static bool Prefix(MultiplayerCampaignVM __instance)
         {
-            if (MpcRebuildRuntime.ConsumeJoinBypass())
+            if (MpcRebuildRuntimeV2.ConsumeJoinBypass())
                 return true;
 
-            if (!MpcRebuildRuntime.HasSelectedCharacter())
+            if (!MpcRebuildRuntimeV2.HasSelectedCharacter())
             {
-                MpcRebuildRuntime.ShowCharacterSelection(__instance);
+                MpcRebuildRuntimeV2.BeginJoinCharacterSelection(__instance);
                 return false;
             }
 
             LocalPlayerState.SetDisplayName(
-                MpcRebuildRuntime.SelectedName);
+                MpcRebuildRuntimeV2.SelectedCharacterName);
             return true;
         }
     }
@@ -1470,9 +1736,7 @@ namespace MultiplayerCampaign
     {
         private static MethodBase TargetMethod()
         {
-            return AccessTools.Method(
-                typeof(MultiplayerCampaignSubModule),
-                "OnGameStart");
+            return AccessTools.Method(typeof(MultiplayerCampaignSubModule), "OnGameStart");
         }
 
         private static void Postfix(Game game, IGameStarter gameStarter)
@@ -1481,7 +1745,7 @@ namespace MultiplayerCampaign
             {
                 CampaignGameStarter starter = gameStarter as CampaignGameStarter;
                 if (starter != null && game != null && game.GameType is Campaign)
-                    starter.AddBehavior(new MpcRebuildCampaignBehavior());
+                    starter.AddBehavior(new MpcRebuildBehavior());
             }
             catch
             {
@@ -1489,7 +1753,7 @@ namespace MultiplayerCampaign
         }
     }
 
-    internal sealed class MpcRebuildCampaignBehavior : CampaignBehaviorBase
+    internal sealed class MpcRebuildBehavior : CampaignBehaviorBase
     {
         private bool _registered;
         private float _timer;
@@ -1511,9 +1775,9 @@ namespace MultiplayerCampaign
                 if (_timer < 0.05f)
                     return;
 
-                float tick = _timer;
+                float elapsed = _timer;
                 _timer = 0f;
-                MpcRebuildRuntime.Tick(tick);
+                MpcRebuildRuntimeV2.Tick(elapsed);
             }
             catch
             {
@@ -1526,13 +1790,11 @@ namespace MultiplayerCampaign
     }
 
     [HarmonyPatch]
-    internal static class MpcClientProcessMessagePatch
+    internal static class MpcClientMessagePatch
     {
         private static MethodBase TargetMethod()
         {
-            return AccessTools.Method(
-                typeof(MultiplayerNetworkClient),
-                "ProcessMessage");
+            return AccessTools.Method(typeof(MultiplayerNetworkClient), "ProcessMessage");
         }
 
         private static bool Prefix(NetworkMessage message)
@@ -1542,12 +1804,10 @@ namespace MultiplayerCampaign
                 if (message == null || message.Payload == null)
                     return true;
 
-                if (message.Type == NetworkPacketType.PlayerSnapshot &&
-                    MpcRebuildRuntime.TryQueueCustomPacket(message.Payload))
+                byte rawType = (byte)message.Type;
+                if (rawType == 14 && MpcRebuildRuntimeV2.QueuePlayerPacket(message.Payload))
                     return false;
-
-                if (message.Type == NetworkPacketType.WorldPartySnapshot &&
-                    MpcRebuildRuntime.TryQueueCustomPacket(message.Payload))
+                if (rawType == 15 && MpcRebuildRuntimeV2.QueueWorldPacket(message.Payload))
                     return false;
             }
             catch
@@ -1559,27 +1819,19 @@ namespace MultiplayerCampaign
     }
 
     [HarmonyPatch]
-    internal static class MpcHostPlayerSnapshotPatch
+    internal static class MpcHostPlayerPatch
     {
         private static MethodBase TargetMethod()
         {
-            return AccessTools.Method(
-                typeof(MultiplayerCampaignHost),
-                "ApplyPlayerSnapshot");
+            return AccessTools.Method(typeof(MultiplayerCampaignHost), "ApplyPlayerSnapshot");
         }
 
-        private static bool Prefix(
-            HostConnection connection,
-            byte[] payload)
+        private static bool Prefix(byte[] payload)
         {
             try
             {
-                if (payload != null && MpcRebuildRuntime.TryQueueCustomPacket(payload))
-                {
-                    // Host network thread never mutates Campaign objects.
-                    // The custom state is queued by the extension behavior.
+                if (MpcRebuildRuntimeV2.QueuePlayerPacket(payload))
                     return false;
-                }
             }
             catch
             {
@@ -1590,18 +1842,20 @@ namespace MultiplayerCampaign
     }
 
     [HarmonyPatch]
-    internal static class MpcHostWorldSnapshotPatch
+    internal static class MpcCharacterFinalizationPatch
     {
         private static MethodBase TargetMethod()
         {
-            return AccessTools.Method(
-                typeof(MultiplayerCampaignHost),
-                "HandleWorldJoinTest");
+            Type screenType = AccessTools.TypeByName(
+                "SandBox.View.CharacterCreation.CharacterCreationScreen");
+            return screenType == null
+                ? null
+                : AccessTools.Method(screenType, "OnCharacterCreationFinalized");
         }
 
         private static void Postfix()
         {
-            // The regular Join ACK remains the compatibility path.
+            MpcRebuildRuntimeV2.OnCharacterCreationFinalized();
         }
     }
 
@@ -1610,61 +1864,55 @@ namespace MultiplayerCampaign
     {
         private static MethodBase TargetMethod()
         {
-            return AccessTools.Method(
-                typeof(RemotePlayerManager),
-                "QueueLeave");
+            return AccessTools.Method(typeof(RemotePlayerManager), "QueueLeave");
         }
 
         private static void Prefix(string playerId)
         {
-            MpcRebuildRuntime.RemovePlayer(playerId);
+            MpcRebuildRuntimeV2.RemovePlayer(playerId);
         }
     }
 
     [HarmonyPatch]
-    internal static class MpcGameEndPatch
+    internal static class MpcShutdownPatch
     {
         private static MethodBase TargetMethod()
         {
-            return AccessTools.Method(
-                typeof(MultiplayerCampaignSubModule),
-                "OnGameEnd");
+            return AccessTools.Method(typeof(MultiplayerCampaignSubModule), "OnGameEnd");
         }
 
         private static void Prefix()
         {
-            MpcRebuildRuntime.Reset();
+            MpcRebuildRuntimeV2.Reset();
         }
     }
 
-    /*
-     * MapInfoVM is intentionally fail-safe in multiplayer.
-     * When its selected player object is incomplete, suppressing this
-     * presentation update is preferable to allowing a campaign-ending
-     * NullReferenceException. Other gameplay systems remain active.
-     */
     [HarmonyPatch]
     internal static class MpcMapInfoSafetyPatch
     {
         private static MethodBase TargetMethod()
         {
             Type type = AccessTools.TypeByName("SandBox.View.Map.MapInfoVM");
-            if (type == null)
-                return null;
-
-            return AccessTools.Method(type, "UpdatePlayerInfo");
+            return type == null ? null : AccessTools.Method(type, "UpdatePlayerInfo");
         }
 
         private static bool Prefix()
         {
-            if (Campaign.Current == null)
-                return false;
+            try
+            {
+                if (Campaign.Current == null)
+                    return false;
 
-            if (MultiplayerNetworkClient.Instance.IsConnected ||
-                MultiplayerCampaignSubModule.IsHostRequested())
+                // In multiplayer we do not allow an incomplete selected-player object
+                // to enter the vanilla map-info update path. Remote parties have their
+                // own safe visual state handled by the rebuild runtime.
+                return !MultiplayerNetworkClient.Instance.IsConnected &&
+                       !MultiplayerCampaignSubModule.IsHostRequested();
+            }
+            catch
+            {
                 return false;
-
-            return true;
+            }
         }
     }
 }

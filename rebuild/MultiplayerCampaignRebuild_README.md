@@ -1,1 +1,0 @@
-Build this workspace with MultiplayerCampaignRebuild.csproj. The project includes only the rebuilt core and enhancement source files from this folder, avoiding duplicate compilation of the untouched root sources.

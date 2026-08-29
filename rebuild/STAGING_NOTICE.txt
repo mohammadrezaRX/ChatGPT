@@ -1,1 +1,0 @@
-The final tree is assembled from existing blobs and will remove this staging notice.
