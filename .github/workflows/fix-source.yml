@@ -22,15 +22,18 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import re
+
           p = Path('rebuild/MultiplayerCampaignSubModule.cs')
           s = p.read_text(encoding='utf-8-sig')
 
-          old = 'public static class RemotePlayerManager'
-          new = 'public static partial class RemotePlayerManager'
-          if s.count(old) != 1:
-              raise SystemExit(f'Expected exactly one non-partial RemotePlayerManager, found {s.count(old)}')
-          s = s.replace(old, new, 1)
+          # First RemotePlayerManager declaration must be the other half of the later partial declaration.
+          matches = list(re.finditer(r'(?m)^public static class RemotePlayerManager\s*$', s))
+          if len(matches) != 1:
+              raise SystemExit(f'Expected exactly one exact non-partial RemotePlayerManager declaration, found {len(matches)}')
+          s = s[:matches[0].start()] + 'public static partial class RemotePlayerManager' + s[matches[0].end():]
 
+          # Keep these APIs internal because their types are internal implementation details.
           old = 'public void Send(\n            NetworkPacketType type,'
           new = 'internal void Send(\n            NetworkPacketType type,'
           if s.count(old) != 1:
@@ -43,14 +46,16 @@ jobs:
               raise SystemExit(f'Expected exactly one GetClientsSnapshot signature, found {s.count(old)}')
           s = s.replace(old, new, 1)
 
+          # Rebuild layer is a sibling namespace.
           marker = 'namespace MultiplayerCampaignRebuildLayer\n{'
           if marker not in s:
               raise SystemExit('Rebuild layer namespace marker not found')
-          if 'using MultiplayerCampaign;\n\n' + marker not in s:
-              s = s.replace(marker, 'using MultiplayerCampaign;\n\n' + marker, 1)
+          prefix = 'using MultiplayerCampaign;\n\n' + marker
+          if prefix not in s:
+              s = s.replace(marker, prefix, 1)
 
           p.write_text(s, encoding='utf-8')
-          print('Applied structural fixes; brace structure unchanged.')
+          print('Applied structural fixes; no brace edits.')
 
       - name: Commit fixes
         shell: pwsh
@@ -58,5 +63,5 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add rebuild/MultiplayerCampaignSubModule.cs
-          git commit -m 'Fix MPC namespace and accessibility errors' || exit 0
+          git commit -m 'Fix MPC source namespace and declarations' || exit 0
           git push origin HEAD:edit
