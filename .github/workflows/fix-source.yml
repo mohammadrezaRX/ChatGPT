@@ -27,35 +27,36 @@ jobs:
           p = Path('rebuild/MultiplayerCampaignSubModule.cs')
           s = p.read_text(encoding='utf-8-sig')
 
-          # First RemotePlayerManager declaration must be the other half of the later partial declaration.
           matches = list(re.finditer(r'(?m)^public static class RemotePlayerManager\s*$', s))
-          if len(matches) != 1:
-              raise SystemExit(f'Expected exactly one exact non-partial RemotePlayerManager declaration, found {len(matches)}')
-          s = s[:matches[0].start()] + 'public static partial class RemotePlayerManager' + s[matches[0].end():]
+          if len(matches) == 1:
+              m = matches[0]
+              s = s[:m.start()] + 'public static partial class RemotePlayerManager' + s[m.end():]
+          elif len(matches) != 0:
+              raise SystemExit(f'Unexpected non-partial RemotePlayerManager count: {len(matches)}')
 
-          # Keep these APIs internal because their types are internal implementation details.
           old = 'public void Send(\n            NetworkPacketType type,'
           new = 'internal void Send(\n            NetworkPacketType type,'
-          if s.count(old) != 1:
-              raise SystemExit(f'Expected exactly one NetworkPacketType Send signature, found {s.count(old)}')
-          s = s.replace(old, new, 1)
+          if old in s:
+              s = s.replace(old, new, 1)
 
           old = 'public HostClientConnection[] GetClientsSnapshot()'
           new = 'internal HostClientConnection[] GetClientsSnapshot()'
-          if s.count(old) != 1:
-              raise SystemExit(f'Expected exactly one GetClientsSnapshot signature, found {s.count(old)}')
-          s = s.replace(old, new, 1)
+          if old in s:
+              s = s.replace(old, new, 1)
 
-          # Rebuild layer is a sibling namespace.
-          marker = 'namespace MultiplayerCampaignRebuildLayer\n{'
-          if marker not in s:
-              raise SystemExit('Rebuild layer namespace marker not found')
-          prefix = 'using MultiplayerCampaign;\n\n' + marker
-          if prefix not in s:
-              s = s.replace(marker, prefix, 1)
+          # Remove any previous misplaced using inserted in the middle of the file.
+          s = s.replace('\nusing MultiplayerCampaign;\n\nnamespace MultiplayerCampaignRebuildLayer',
+                        '\nnamespace MultiplayerCampaignRebuildLayer', 1)
+
+          # Add the sibling namespace import at compilation-unit scope.
+          if not re.search(r'(?m)^using MultiplayerCampaign;\s*$', s):
+              first_using = re.search(r'(?m)^using\s+System;', s)
+              if not first_using:
+                  raise SystemExit('Could not find compilation-unit using section')
+              s = s[:first_using.start()] + 'using MultiplayerCampaign;\n' + s[first_using.start():]
 
           p.write_text(s, encoding='utf-8')
-          print('Applied structural fixes; no brace edits.')
+          print('Applied structural fixes. No brace changes.')
 
       - name: Commit fixes
         shell: pwsh
@@ -63,5 +64,5 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add rebuild/MultiplayerCampaignSubModule.cs
-          git commit -m 'Fix MPC source namespace and declarations' || exit 0
+          git commit -m 'Fix MPC source type visibility' || exit 0
           git push origin HEAD:edit
