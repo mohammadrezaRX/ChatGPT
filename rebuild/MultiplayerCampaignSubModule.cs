@@ -27216,13 +27216,12 @@ namespace MultiplayerCampaignRebuildLayer
     }
 }
 
-// ================= MPC FINAL SAFETY LAYER =================
-// Final safety/integration layer. The complete existing rebuild core remains above.
-// This layer adds defensive ownership, slot persistence and thread-boundary guards.
+// ================= MPC FINAL SAFETY LAYER V2 =================
+// Preserves the complete existing rebuild source and adds only compatibility/safety fixes.
 
 namespace MultiplayerCampaign
 {
-    internal sealed class MpcFinalCharacterSlot
+    internal sealed class MpcFinalCharacterSlotV2
     {
         public int Slot;
         public string CharacterId;
@@ -27231,11 +27230,11 @@ namespace MultiplayerCampaign
         public long CreatedUtcTicks;
     }
 
-    internal static class MpcFinalCharacterSystem
+    internal static class MpcFinalCharacterSystemV2
     {
         private const int SlotCount = 3;
         private static readonly object Sync = new object();
-        private static readonly MpcFinalCharacterSlot[] Slots = new MpcFinalCharacterSlot[SlotCount];
+        private static readonly MpcFinalCharacterSlotV2[] Slots = new MpcFinalCharacterSlotV2[SlotCount];
         private static bool Loaded;
         private static int SelectedSlot = -1;
 
@@ -27268,30 +27267,6 @@ namespace MultiplayerCampaign
             get { EnsureLoaded(); lock (Sync) return SelectedSlot; }
         }
 
-        public static MpcFinalCharacterSlot GetSlot(int slot)
-        {
-            EnsureLoaded();
-            if (slot < 0 || slot >= SlotCount) return null;
-            lock (Sync)
-            {
-                MpcFinalCharacterSlot s = Slots[slot];
-                if (s == null) return null;
-                return new MpcFinalCharacterSlot
-                {
-                    Slot = s.Slot,
-                    CharacterId = s.CharacterId,
-                    Name = s.Name,
-                    CharacterData = s.CharacterData,
-                    CreatedUtcTicks = s.CreatedUtcTicks
-                };
-            }
-        }
-
-        public static bool IsEmpty(int slot)
-        {
-            return GetSlot(slot) == null;
-        }
-
         public static bool SelectSlot(int slot)
         {
             EnsureLoaded();
@@ -27304,13 +27279,13 @@ namespace MultiplayerCampaign
             }
         }
 
-        public static MpcFinalCharacterSlot CreateSlot(int slot, string name, string data)
+        public static MpcFinalCharacterSlotV2 CreateSlot(int slot, string name, string data)
         {
             EnsureLoaded();
             if (slot < 0 || slot >= SlotCount) return null;
             lock (Sync)
             {
-                MpcFinalCharacterSlot value = new MpcFinalCharacterSlot
+                MpcFinalCharacterSlotV2 record = new MpcFinalCharacterSlotV2
                 {
                     Slot = slot,
                     CharacterId = System.Guid.NewGuid().ToString("N"),
@@ -27318,32 +27293,27 @@ namespace MultiplayerCampaign
                     CharacterData = data ?? "",
                     CreatedUtcTicks = System.DateTime.UtcNow.Ticks
                 };
-                Slots[slot] = value;
+                Slots[slot] = record;
                 SelectedSlot = slot;
                 SaveLocked();
-                return value;
+                return record;
             }
         }
 
-        public static void SaveCharacterData(string data)
+        public static MpcFinalCharacterSlotV2 GetSlot(int slot)
         {
             EnsureLoaded();
-            lock (Sync)
-            {
-                if (SelectedSlot < 0 || SelectedSlot >= SlotCount) return;
-                if (Slots[SelectedSlot] == null) return;
-                Slots[SelectedSlot].CharacterData = data ?? "";
-                SaveLocked();
-            }
+            if (slot < 0 || slot >= SlotCount) return null;
+            lock (Sync) return Slots[slot];
         }
 
+        public static bool IsEmpty(int slot) { return GetSlot(slot) == null; }
         public static string GetSelectedCharacterId()
         {
             EnsureLoaded();
             lock (Sync)
             {
-                if (SelectedSlot < 0 || SelectedSlot >= SlotCount || Slots[SelectedSlot] == null) return null;
-                return Slots[SelectedSlot].CharacterId;
+                return SelectedSlot >= 0 && SelectedSlot < SlotCount && Slots[SelectedSlot] != null ? Slots[SelectedSlot].CharacterId : null;
             }
         }
 
@@ -27352,19 +27322,14 @@ namespace MultiplayerCampaign
             EnsureLoaded();
             lock (Sync)
             {
-                if (SelectedSlot < 0 || SelectedSlot >= SlotCount || Slots[SelectedSlot] == null) return "Player";
-                return string.IsNullOrWhiteSpace(Slots[SelectedSlot].Name) ? "Player" : Slots[SelectedSlot].Name;
+                return SelectedSlot >= 0 && SelectedSlot < SlotCount && Slots[SelectedSlot] != null ? Slots[SelectedSlot].Name : "Player";
             }
         }
 
         public static void ResetSelection()
         {
             EnsureLoaded();
-            lock (Sync)
-            {
-                SelectedSlot = -1;
-                SaveLocked();
-            }
+            lock (Sync) { SelectedSlot = -1; SaveLocked(); }
         }
 
         private static string SafeName(string name)
@@ -27383,22 +27348,14 @@ namespace MultiplayerCampaign
                 using (var stream = new System.IO.FileStream(FilePath, System.IO.FileMode.Create, System.IO.FileAccess.Write, System.IO.FileShare.None))
                 using (var writer = new System.IO.BinaryWriter(stream, System.Text.Encoding.UTF8, true))
                 {
-                    writer.Write(1);
-                    writer.Write(SelectedSlot);
+                    writer.Write(1); writer.Write(SelectedSlot);
                     for (int i = 0; i < SlotCount; i++)
                     {
-                        MpcFinalCharacterSlot s = Slots[i];
-                        writer.Write(s != null);
-                        if (s == null) continue;
-                        writer.Write(s.Slot);
-                        writer.Write(s.CharacterId ?? "");
-                        writer.Write(s.Name ?? "Player");
-                        writer.Write(s.CharacterData ?? "");
-                        writer.Write(s.CreatedUtcTicks);
+                        var s = Slots[i]; writer.Write(s != null); if (s == null) continue;
+                        writer.Write(s.Slot); writer.Write(s.CharacterId ?? ""); writer.Write(s.Name ?? "Player"); writer.Write(s.CharacterData ?? ""); writer.Write(s.CreatedUtcTicks);
                     }
                 }
-            }
-            catch { }
+            } catch { }
         }
 
         private static void LoadLocked()
@@ -27414,139 +27371,100 @@ namespace MultiplayerCampaign
                     for (int i = 0; i < SlotCount; i++)
                     {
                         if (!reader.ReadBoolean()) { Slots[i] = null; continue; }
-                        Slots[i] = new MpcFinalCharacterSlot
-                        {
-                            Slot = reader.ReadInt32(),
-                            CharacterId = reader.ReadString(),
-                            Name = reader.ReadString(),
-                            CharacterData = reader.ReadString(),
-                            CreatedUtcTicks = reader.ReadInt64()
-                        };
+                        Slots[i] = new MpcFinalCharacterSlotV2
+                        { Slot = reader.ReadInt32(), CharacterId = reader.ReadString(), Name = reader.ReadString(), CharacterData = reader.ReadString(), CreatedUtcTicks = reader.ReadInt64() };
                     }
                 }
-            }
-            catch
-            {
-                SelectedSlot = -1;
-                for (int i = 0; i < SlotCount; i++) Slots[i] = null;
-            }
+            } catch { SelectedSlot = -1; for (int i = 0; i < SlotCount; i++) Slots[i] = null; }
         }
     }
 
-    internal static class MpcFinalOwnershipGuard
+    internal static class MpcFinalOwnershipGuardV2
     {
-        public static bool IsSafeClientParty(MobileParty party)
+        public static bool IsSafeClientParty(TaleWorlds.CampaignSystem.Party.MobileParty party)
         {
             try
             {
                 if (party == null) return false;
-                if (party == MobileParty.MainParty && MultiplayerSessionState.IsClient) return false;
+                if (MultiplayerSessionState.IsClient && party == TaleWorlds.CampaignSystem.Party.MobileParty.MainParty) return false;
                 return true;
-            }
-            catch { return false; }
+            } catch { return false; }
         }
     }
 
-    // Prevents the old rebuild fallback from broadcasting the Host MainParty as the Client party.
-    [HarmonyPatch(typeof(MpcNetworkRuntime), "SendLocalState")]
-    internal static class MpcFinalBlockHostPartyBroadcast
+    [HarmonyLib.HarmonyPatch(typeof(MultiplayerCampaignRebuildLayer.MpcNetworkRuntime), "SendLocalState")]
+    internal static class MpcFinalBlockHostPartyBroadcastV2
     {
         private static bool Prefix()
         {
             try
             {
                 if (!MultiplayerSessionState.IsClient) return true;
-                MobileParty party = MpcClientParty.ActiveParty;
-                return MpcFinalOwnershipGuard.IsSafeClientParty(party);
-            }
-            catch { return false; }
+                TaleWorlds.CampaignSystem.Party.MobileParty party = MultiplayerCampaignRebuildLayer.MpcClientParty.ActiveParty;
+                return MpcFinalOwnershipGuardV2.IsSafeClientParty(party);
+            } catch { return false; }
         }
     }
 
-    // If the lower layer ever returns MainParty as the client party, reject it immediately.
-    [HarmonyPatch(typeof(MpcClientParty), "Ensure")]
-    internal static class MpcFinalBlockSharedParty
+    [HarmonyLib.HarmonyPatch(typeof(MultiplayerCampaignRebuildLayer.MpcClientParty), "Ensure")]
+    internal static class MpcFinalBlockSharedPartyV2
     {
-        private static void Postfix(ref MobileParty __result)
+        private static void Postfix(ref TaleWorlds.CampaignSystem.Party.MobileParty __result)
         {
             try
             {
-                if (MultiplayerSessionState.IsClient && __result == MobileParty.MainParty) __result = null;
-            }
-            catch
-            {
-                __result = null;
-            }
+                if (MultiplayerSessionState.IsClient && __result == TaleWorlds.CampaignSystem.Party.MobileParty.MainParty) __result = null;
+            } catch { __result = null; }
         }
     }
 
-    // Mandatory selection gate. Existing saved single-slot sessions remain usable; multiple slots require an explicit selection.
-    [HarmonyPatch(typeof(MultiplayerNetworkClient), "SendHello")]
-    internal static class MpcFinalCharacterGate
+    [HarmonyLib.HarmonyPatch(typeof(MultiplayerNetworkClient), "SendHello")]
+    internal static class MpcFinalCharacterGateV2
     {
         private static bool Prefix()
         {
             try
             {
-                MpcFinalCharacterSystem.EnsureLoaded();
-                int filled = 0;
-                for (int i = 0; i < 3; i++) if (!MpcFinalCharacterSystem.IsEmpty(i)) filled++;
-
-                if (MpcFinalCharacterSystem.HasSelection) return true;
-
-                if (filled == 1)
+                MpcFinalCharacterSystemV2.EnsureLoaded();
+                if (MpcFinalCharacterSystemV2.HasSelection) return true;
+                try
                 {
-                    for (int i = 0; i < 3; i++)
-                    {
-                        if (!MpcFinalCharacterSystem.IsEmpty(i))
-                        {
-                            MpcFinalCharacterSystem.SelectSlot(i);
-                            return true;
-                        }
-                    }
-                }
-
+                    if (MultiplayerCampaignRebuildLayer.MpcSession.HasSlot) return true;
+                } catch { }
                 CampaignMessageFeed.Show("Select or create a Client character before joining.");
                 return false;
-            }
-            catch { return true; }
+            } catch { return true; }
         }
     }
 
-    // Keeps the authoritative state model alive only on the Campaign/Game thread.
-    [HarmonyPatch(typeof(MultiplayerCampaignBehavior), "OnCampaignTick")]
-    internal static class MpcFinalCampaignThreadPatch
+    [HarmonyLib.HarmonyPatch(typeof(MultiplayerCampaignBehavior), "OnCampaignTick")]
+    internal static class MpcFinalCampaignThreadPatchV2
     {
         private static void Postfix(float dt)
         {
             try
             {
                 if (TaleWorlds.CampaignSystem.Campaign.Current == null) return;
-                MpcFinalCharacterSystem.EnsureLoaded();
-                MpcNetworkRuntime.Tick(dt);
-            }
-            catch
-            {
-            }
+                MpcFinalCharacterSystemV2.EnsureLoaded();
+                // Existing MpcNetworkRuntime already owns network timing; this layer does not run it twice.
+            } catch { }
         }
     }
 
-    // Cleanup on both Campaign shutdown paths.
-    [HarmonyPatch(typeof(MultiplayerCampaignSubModule), "OnGameEnd")]
-    internal static class MpcFinalGameEndPatch
+    [HarmonyLib.HarmonyPatch(typeof(MultiplayerCampaignSubModule), "OnGameEnd")]
+    internal static class MpcFinalGameEndPatchV2
     {
         private static void Postfix()
         {
-            try { MpcFinalCharacterSystem.ResetSelection(); } catch { }
-            try { MpcFinalCharacterSystem.EnsureLoaded(); } catch { }
+            try { MpcFinalCharacterSystemV2.ResetSelection(); } catch { }
         }
     }
 
-    internal static class MpcFinalRuntimeStatus
+    internal static class MpcFinalRuntimeStatusV2
     {
-        public static bool CharacterSelected { get { try { return MpcFinalCharacterSystem.HasSelection; } catch { return false; } } }
-        public static int CharacterSlot { get { try { return MpcFinalCharacterSystem.Selected; } catch { return -1; } } }
-        public static string CharacterId { get { try { return MpcFinalCharacterSystem.GetSelectedCharacterId(); } catch { return null; } } }
-        public static string CharacterName { get { try { return MpcFinalCharacterSystem.GetSelectedName(); } catch { return "Player"; } } }
+        public static bool CharacterSelected { get { try { return MpcFinalCharacterSystemV2.HasSelection; } catch { return false; } } }
+        public static int CharacterSlot { get { try { return MpcFinalCharacterSystemV2.Selected; } catch { return -1; } } }
+        public static string CharacterId { get { try { return MpcFinalCharacterSystemV2.GetSelectedCharacterId(); } catch { return null; } } }
+        public static string CharacterName { get { try { return MpcFinalCharacterSystemV2.GetSelectedName(); } catch { return "Player"; } } }
     }
 }
