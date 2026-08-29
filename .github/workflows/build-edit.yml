@@ -2,96 +2,44 @@ name: Build edit branch
 
 on:
   push:
-    branches:
-      - edit
+    branches: [edit]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
-    if: github.actor != 'github-actions[bot]'
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           ref: edit
+          fetch-depth: 1
 
-      - name: Replace rebuild source with current main source
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Verify rebuild files
         shell: pwsh
         run: |
-          git fetch origin main
-          $source = Join-Path $env:GITHUB_WORKSPACE 'MultiplayerCampaignSubModule.cs'
-          $target = Join-Path $env:GITHUB_WORKSPACE 'rebuild\MultiplayerCampaignSubModule.cs'
-          git show origin/main:MultiplayerCampaignSubModule.cs | Set-Content -Path $target -Encoding utf8
-          Write-Host "Copied main source to rebuild."
-
-      - name: Write repository-local project
-        shell: pwsh
-        run: |
-          @'
-          <Project Sdk="Microsoft.NET.Sdk">
-            <PropertyGroup>
-              <TargetFramework>netstandard2.0</TargetFramework>
-              <AssemblyName>MultiplayerCampaign</AssemblyName>
-              <RootNamespace>MultiplayerCampaign</RootNamespace>
-              <LangVersion>latest</LangVersion>
-              <Nullable>disable</Nullable>
-              <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-              <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-              <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
-              <OutputPath>bin\Debug\netstandard2.0\</OutputPath>
-              <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-              <NoWarn>MSB3277</NoWarn>
-            </PropertyGroup>
-            <ItemGroup>
-              <Reference Include="0Harmony"><HintPath>..\DLLs\0Harmony.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="TaleWorlds.Core"><HintPath>..\DLLs\TaleWorlds.Core.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="TaleWorlds.Library"><HintPath>..\DLLs\TaleWorlds.Library.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="TaleWorlds.Localization"><HintPath>..\DLLs\TaleWorlds.Localization.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="TaleWorlds.ScreenSystem"><HintPath>..\DLLs\TaleWorlds.ScreenSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="TaleWorlds.MountAndBlade"><HintPath>..\DLLs\TaleWorlds.MountAndBlade.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="TaleWorlds.CampaignSystem"><HintPath>..\DLLs\TaleWorlds.CampaignSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="TaleWorlds.Engine"><HintPath>..\DLLs\TaleWorlds.Engine.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="TaleWorlds.ObjectSystem"><HintPath>..\DLLs\TaleWorlds.ObjectSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="TaleWorlds.SaveSystem"><HintPath>..\DLLs\TaleWorlds.SaveSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="TaleWorlds.Engine.GauntletUI"><HintPath>..\DLLs\TaleWorlds.Engine.GauntletUI.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="TaleWorlds.GauntletUI"><HintPath>..\DLLs\TaleWorlds.GauntletUI.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="TaleWorlds.GauntletUI.Data"><HintPath>..\DLLs\TaleWorlds.GauntletUI.Data.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="TaleWorlds.MountAndBlade.View"><HintPath>..\DLLs\TaleWorlds.MountAndBlade.View.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="TaleWorlds.MountAndBlade.ViewModelCollection"><HintPath>..\DLLs\TaleWorlds.MountAndBlade.ViewModelCollection.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-              <Reference Include="SandBox"><HintPath>..\DLLs\SandBox.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-            </ItemGroup>
-          </Project>
-          '@ | Set-Content rebuild\MultiplayerCampaignRebuild.csproj -Encoding utf8
-
-      - name: Keep rebuild directory limited to three source files
-        shell: pwsh
-        run: |
-          $allowed = @('MultiplayerCampaignSubModule.cs','MultiplayerCampaignRebuild.csproj','MultiplayerCampaign.xml')
-          Get-ChildItem rebuild -File -Recurse | ForEach-Object {
-            if ($allowed -notcontains $_.Name) { Remove-Item $_.FullName -Force }
+          $files = @(Get-ChildItem -Path rebuild -File -Recurse | Where-Object { $_.FullName -notmatch '\\bin\\|\\obj\\' })
+          $names = @($files | ForEach-Object { $_.Name })
+          $required = @('MultiplayerCampaignSubModule.cs','MultiplayerCampaignRebuild.csproj','MultiplayerCampaign.xml')
+          foreach ($name in $required) {
+            if ($names -notcontains $name) { throw "Missing rebuild/$name" }
           }
-
-      - name: Commit normalized rebuild source/project
-        shell: pwsh
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add rebuild/MultiplayerCampaignSubModule.cs rebuild/MultiplayerCampaignRebuild.csproj rebuild/MultiplayerCampaign.xml
-          if (git diff --cached --quiet) { Write-Host 'No normalization changes to commit.' } else {
-            git commit -m "Normalize edit rebuild source and project"
-            git push origin edit
-          }
+          if ($names.Count -ne 3) { throw "rebuild must contain exactly 3 files; found $($names.Count)." }
+          Write-Host 'rebuild directory is correct.'
 
       - name: Restore
         run: dotnet restore rebuild\MultiplayerCampaignRebuild.csproj --nologo
 
       - name: Build
-        run: dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity minimal
+        run: dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity normal
 
       - name: Upload DLL
         if: success()
@@ -99,3 +47,4 @@ jobs:
         with:
           name: MultiplayerCampaign-edit-dll
           path: rebuild\bin\Debug\netstandard2.0\MultiplayerCampaign.dll
+          if-no-files-found: error
