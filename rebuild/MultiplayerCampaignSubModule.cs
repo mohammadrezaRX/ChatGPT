@@ -23865,8 +23865,7 @@ public sealed class MultiplayerCampaignFinalBehavior
         CampaignEvents.OnGameLoadedEvent
             .AddNonSerializedListener(
                 this,
-                OnGameLoaded
-            );
+                starter => OnGameLoaded(starter));
     }
 
     private void OnTick(
@@ -23887,7 +23886,7 @@ public sealed class MultiplayerCampaignFinalBehavior
             );
     }
 
-    private void OnGameLoaded()
+    private void OnGameLoaded(CampaignGameStarter starter)
     {
         if (
             Campaign.Current == null)
