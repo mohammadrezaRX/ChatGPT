@@ -31,7 +31,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="MultiplayerCampaignSubModule.cs" />
-    <Compile Include="MpcRebuildRuntimeV2.cs" />
+    <Compile Include="MultiplayerCampaignEnhancements.cs" />
   </ItemGroup>
   <Target Name="CopyBannerlordMod" AfterTargets="Build">
     <MakeDir Directories="E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\Modules\MultiplayerCampaign\bin\Win64_Shipping_Client" />
