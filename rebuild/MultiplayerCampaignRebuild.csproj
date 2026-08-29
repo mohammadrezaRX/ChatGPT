@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <AssemblyName>MultiplayerCampaign</AssemblyName>
@@ -11,23 +12,117 @@
     <OutputPath>bin\Debug\netstandard2.0\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <NoWarn>MSB3277</NoWarn>
+
+    <!-- Prefer repository-local DLLs (CI), otherwise use the user's Desktop cache. -->
+    <BannerlordDllRoot Condition="'$(BannerlordDllRoot)' == '' and Exists('$(ProjectDir)..\DLLs\')">$(ProjectDir)..\DLLs\</BannerlordDllRoot>
+    <BannerlordDllRoot Condition="'$(BannerlordDllRoot)' == '' and Exists('$(ProjectDir)..\..\..\..\MAB DLLs\')">$(ProjectDir)..\..\..\..\MAB DLLs\</BannerlordDllRoot>
+    <BannerlordDllRoot Condition="'$(BannerlordDllRoot)' == ''">$(ProjectDir)..\DLLs\</BannerlordDllRoot>
   </PropertyGroup>
+
   <ItemGroup>
-    <Reference Include="0Harmony"><HintPath>..\DLLs\0Harmony.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.Core"><HintPath>..\DLLs\TaleWorlds.Core.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.Library"><HintPath>..\DLLs\TaleWorlds.Library.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.Localization"><HintPath>..\DLLs\TaleWorlds.Localization.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.ScreenSystem"><HintPath>..\DLLs\TaleWorlds.ScreenSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.MountAndBlade"><HintPath>..\DLLs\TaleWorlds.MountAndBlade.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.CampaignSystem"><HintPath>..\DLLs\TaleWorlds.CampaignSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.Engine"><HintPath>..\DLLs\TaleWorlds.Engine.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.ObjectSystem"><HintPath>..\DLLs\TaleWorlds.ObjectSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.SaveSystem"><HintPath>..\DLLs\TaleWorlds.SaveSystem.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.Engine.GauntletUI"><HintPath>..\DLLs\TaleWorlds.Engine.GauntletUI.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.GauntletUI"><HintPath>..\DLLs\TaleWorlds.GauntletUI.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.GauntletUI.Data"><HintPath>..\DLLs\TaleWorlds.GauntletUI.Data.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.MountAndBlade.View"><HintPath>..\DLLs\TaleWorlds.MountAndBlade.View.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="TaleWorlds.MountAndBlade.ViewModelCollection"><HintPath>..\DLLs\TaleWorlds.MountAndBlade.ViewModelCollection.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
-    <Reference Include="SandBox"><HintPath>..\DLLs\SandBox.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BannerlordDllRoot)0Harmony.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="TaleWorlds.Core">
+      <HintPath>$(BannerlordDllRoot)TaleWorlds.Core.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="TaleWorlds.Library">
+      <HintPath>$(BannerlordDllRoot)TaleWorlds.Library.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="TaleWorlds.Localization">
+      <HintPath>$(BannerlordDllRoot)TaleWorlds.Localization.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="TaleWorlds.ScreenSystem">
+      <HintPath>$(BannerlordDllRoot)TaleWorlds.ScreenSystem.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="TaleWorlds.MountAndBlade">
+      <HintPath>$(BannerlordDllRoot)TaleWorlds.MountAndBlade.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="TaleWorlds.CampaignSystem">
+      <HintPath>$(BannerlordDllRoot)TaleWorlds.CampaignSystem.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="TaleWorlds.Engine">
+      <HintPath>$(BannerlordDllRoot)TaleWorlds.Engine.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="TaleWorlds.ObjectSystem">
+      <HintPath>$(BannerlordDllRoot)TaleWorlds.ObjectSystem.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="TaleWorlds.SaveSystem">
+      <HintPath>$(BannerlordDllRoot)TaleWorlds.SaveSystem.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="TaleWorlds.Engine.GauntletUI">
+      <HintPath>$(BannerlordDllRoot)TaleWorlds.Engine.GauntletUI.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="TaleWorlds.GauntletUI">
+      <HintPath>$(BannerlordDllRoot)TaleWorlds.GauntletUI.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="TaleWorlds.GauntletUI.Data">
+      <HintPath>$(BannerlordDllRoot)TaleWorlds.GauntletUI.Data.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="TaleWorlds.MountAndBlade.View">
+      <HintPath>$(BannerlordDllRoot)TaleWorlds.MountAndBlade.View.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="TaleWorlds.MountAndBlade.ViewModelCollection">
+      <HintPath>$(BannerlordDllRoot)TaleWorlds.MountAndBlade.ViewModelCollection.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+    <Reference Include="SandBox">
+      <HintPath>$(BannerlordDllRoot)SandBox.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
   </ItemGroup>
+
+  <Target Name="VerifyBannerlordReferences" BeforeTargets="ResolveReferences">
+    <ItemGroup>
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)0Harmony.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)TaleWorlds.Core.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)TaleWorlds.Library.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)TaleWorlds.Localization.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)TaleWorlds.ScreenSystem.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)TaleWorlds.MountAndBlade.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)TaleWorlds.CampaignSystem.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)TaleWorlds.Engine.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)TaleWorlds.ObjectSystem.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)TaleWorlds.SaveSystem.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)TaleWorlds.Engine.GauntletUI.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)TaleWorlds.GauntletUI.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)TaleWorlds.GauntletUI.Data.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)TaleWorlds.MountAndBlade.View.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)TaleWorlds.MountAndBlade.ViewModelCollection.dll" />
+      <RequiredBannerlordDll Include="$(BannerlordDllRoot)SandBox.dll" />
+    </ItemGroup>
+    <Error Condition="!Exists('%(RequiredBannerlordDll.Identity)')" Text="Required Bannerlord reference DLL not found: %(RequiredBannerlordDll.Identity)" />
+    <Message Importance="High" Text="Using Bannerlord DLL root: $(BannerlordDllRoot)" />
+  </Target>
+
 </Project>
