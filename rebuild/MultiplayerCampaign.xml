@@ -3,12 +3,13 @@
         <Children>
             <Widget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" Sprite="BlankWhiteSquare" AlphaFactor="0.35">
             </Widget>
+
+            <!-- CHARACTER SLOT UI WILL BE WIRED TO THE VIEW MODEL AFTER THE BUILD BASE IS CLEAN. -->
+
             <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowMain">
                 <Children>
-                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="MULTIPLAYER CAMPAIGN">
-                    </TextWidget>
-                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="40" MarginTop="120" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Text" Text="LAN CAMPAIGN">
-                    </TextWidget>
+                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="MULTIPLAYER CAMPAIGN"></TextWidget>
+                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="40" MarginTop="120" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Text" Text="LAN CAMPAIGN"></TextWidget>
                     <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="520" SuggestedHeight="95" MarginTop="205" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteOpenCreate">
                         <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="CREATE HOST"></TextWidget></Children>
                     </ButtonWidget>
@@ -20,6 +21,7 @@
                     </ButtonWidget>
                 </Children>
             </Widget>
+
             <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowCreate">
                 <Children>
                     <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="CREATE HOST"></TextWidget>
@@ -34,6 +36,7 @@
                     </ButtonWidget>
                 </Children>
             </Widget>
+
             <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowJoin">
                 <Children>
                     <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="JOIN HOST"></TextWidget>
