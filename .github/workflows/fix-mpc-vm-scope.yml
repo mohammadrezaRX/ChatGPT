@@ -1,4 +1,4 @@
-name: Fix MPC VM scope boundary
+name: Fix MPC VM scope and API visibility
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
           ref: mpc-full-rebuild-final
 
-      - name: Repair missing ViewModel closing brace
+      - name: Repair C# source structure
         shell: python
         run: |
           from pathlib import Path
@@ -31,17 +31,17 @@ jobs:
           if marker not in text:
               raise SystemExit('Expected VM/protocol boundary not found; refusing blind edit.')
 
-          # Existing source has only the method-closing brace here. Add the
-          # missing brace that closes MultiplayerCampaignVM before the next
-          # top-level Network Protocol declarations.
           fixed = marker.replace('            }\n        }\n    }\n\n\n    /*\n', '            }\n        }\n    }\n}\n\n\n    /*\n', 1)
-
           if fixed == marker:
               raise SystemExit('Boundary replacement did not occur.')
-
           text = text.replace(marker, fixed, 1)
+
+          # These types are used by public methods in the same assembly.
+          text = text.replace('internal enum NetworkPacketType : byte', 'public enum NetworkPacketType : byte', 1)
+          text = text.replace('public HostClientConnection[] GetClientsSnapshot()', 'internal HostClientConnection[] GetClientsSnapshot()', 1)
+
           p.write_text(text, encoding='utf-8')
-          print('Added missing MultiplayerCampaignVM closing brace.')
+          print('Scope and accessibility repairs completed.')
 
       - name: Commit repair
         shell: bash
@@ -53,5 +53,5 @@ jobs:
             echo "No changes to commit"
             exit 0
           fi
-          git commit -m "Fix MPC ViewModel scope boundary"
+          git commit -m "Repair MPC source scope and API visibility"
           git push origin mpc-full-rebuild-final
