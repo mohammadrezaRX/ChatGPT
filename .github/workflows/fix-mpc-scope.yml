@@ -1,0 +1,103 @@
+name: Fix MPC source structure
+
+on:
+  push:
+    branches:
+      - mpc-full-rebuild-final
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: mpc-full-rebuild-final
+
+      - name: Repair C# source structure
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          path = Path('rebuild/MultiplayerCampaignSubModule.cs')
+          text = path.read_text(encoding='utf-8-sig')
+
+          # 1) The original declaration is extended later in the same file.
+          #    Both declarations therefore must be partial.
+          text, n = re.subn(
+              r'(?m)^public static class RemotePlayerManager\s*$',
+              'public static partial class RemotePlayerManager',
+              text,
+              count=1,
+          )
+
+          # 2) The compiler reported CS1513 immediately before the rebuild
+          #    namespace. Make that boundary explicit instead of changing
+          #    unrelated braces in the 27k-line source.
+          marker = '// ===== MPC REBUILD LAYER 2026 ====='
+          idx = text.find(marker)
+          if idx >= 0:
+              prefix = text[:idx]
+              if not prefix.rstrip().endswith('} }'):
+                  # Ensure the preceding top-level construct is closed.
+                  # This is intentionally conservative: only add one brace
+                  # immediately before the rebuild layer when the visible
+                  # source boundary has an unmatched opening brace.
+                  depth = 0
+                  in_line = False
+                  in_block = False
+                  in_string = False
+                  verbatim = False
+                  escape = False
+                  i = 0
+                  while i < len(prefix):
+                      c = prefix[i]
+                      nchar = prefix[i+1] if i + 1 < len(prefix) else ''
+                      if in_line:
+                          if c == '\n': in_line = False
+                          i += 1; continue
+                      if in_block:
+                          if c == '*' and nchar == '/': in_block = False; i += 2; continue
+                          i += 1; continue
+                      if in_string:
+                          if verbatim:
+                              if c == '"' and nchar == '"': i += 2; continue
+                              if c == '"': in_string = False
+                          else:
+                              if escape: escape = False
+                              elif c == '\\': escape = True
+                              elif c == '"': in_string = False
+                          i += 1; continue
+                      if c == '/' and nchar == '/': in_line = True; i += 2; continue
+                      if c == '/' and nchar == '*': in_block = True; i += 2; continue
+                      if c == '@' and nchar == '"':
+                          in_string = True; verbatim = True; i += 2; continue
+                      if c == '"':
+                          in_string = True; verbatim = False; i += 1; continue
+                      if c == '{': depth += 1
+                      elif c == '}': depth -= 1
+                      i += 1
+                  if depth == 1:
+                      text = prefix.rstrip() + '\n}\n\n' + text[idx:]
+
+          path.write_text(text, encoding='utf-8')
+          print('Source structure repair completed.')
+
+      - name: Commit repaired source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add rebuild/MultiplayerCampaignSubModule.cs .github/workflows/fix-mpc-scope.yml
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Fix MPC C# scope and partial declarations"
+          git push origin mpc-full-rebuild-final
