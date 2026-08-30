@@ -72,4 +72,4 @@ jobs:
           git commit -m 'Reset rebuild to clean original campaign source'
           git push origin HEAD:edit
 
-# clean baseline trigger
+# retrigger: clean baseline is now the first compile gate
