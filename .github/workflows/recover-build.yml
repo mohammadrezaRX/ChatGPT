@@ -1,0 +1,84 @@
+name: Recover and compile edit branch
+
+on:
+  push:
+    branches: [edit]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  recover-build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: edit
+          fetch-depth: 0
+
+      - name: Recover full rebuild source from pre-truncation commit
+        shell: pwsh
+        run: |
+          git show 140d58c6e47ecaffa0904386d20c1a9ac51b93e3:rebuild/MultiplayerCampaignSubModule.cs | Set-Content rebuild\MultiplayerCampaignSubModule.cs -Encoding utf8
+
+      - name: Add required CharacterCreation namespace
+        shell: pwsh
+        run: |
+          $p='rebuild\MultiplayerCampaignSubModule.cs'
+          $s=Get-Content $p -Raw
+          if($s -notmatch '(?m)^using TaleWorlds\.CampaignSystem\.CharacterCreationContent;') {
+            $s='using TaleWorlds.CampaignSystem.CharacterCreationContent;`r`n'+$s
+          }
+          Set-Content $p $s -Encoding utf8
+
+      - name: Download Bannerlord DLLs
+        shell: pwsh
+        run: |
+          $base='https://raw.githubusercontent.com/mohammadrezaRX/ChatGPT/main/DLLs'
+          $names=@('0Harmony.dll','SandBox.dll','TaleWorlds.CampaignSystem.dll','TaleWorlds.Core.dll','TaleWorlds.Engine.GauntletUI.dll','TaleWorlds.Engine.dll','TaleWorlds.GauntletUI.Data.dll','TaleWorlds.GauntletUI.dll','TaleWorlds.Library.dll','TaleWorlds.Localization.dll','TaleWorlds.MountAndBlade.View.dll','TaleWorlds.MountAndBlade.ViewModelCollection.dll','TaleWorlds.MountAndBlade.dll','TaleWorlds.ObjectSystem.dll','TaleWorlds.SaveSystem.dll','TaleWorlds.ScreenSystem.dll')
+          New-Item -ItemType Directory DLLs -Force | Out-Null
+          foreach($n in $names){Invoke-WebRequest -UseBasicParsing "$base/$n" -OutFile "DLLs/$n"}
+
+      - name: Normalize project references
+        shell: pwsh
+        run: |
+          $p='rebuild\MultiplayerCampaignRebuild.csproj'
+          $s=Get-Content $p -Raw
+          $s=$s -replace 'E:\\INSTAL GAME\\Mount & Blade 2 - Bannerlord','..\DLLs'
+          $s=$s -replace '\$\(BannerlordRoot\)','..\DLLs'
+          $s=$s -replace '<HintPath>\.\.\\DLLs\\Modules\\Bannerlord\.Harmony\\bin\\Win64_Shipping_Client\\0Harmony\.dll</HintPath>','<HintPath>..\DLLs\0Harmony.dll</HintPath>'
+          $s=$s -replace '<HintPath>\.\.\\DLLs\\Modules\\Native\\bin\\Win64_Shipping_Client\\TaleWorlds\.MountAndBlade\.View\.dll</HintPath>','<HintPath>..\DLLs\TaleWorlds.MountAndBlade.View.dll</HintPath>'
+          $s=$s -replace '<HintPath>\.\.\\DLLs\\Modules\\SandBox\\bin\\Win64_Shipping_Client\\SandBox\.dll</HintPath>','<HintPath>..\DLLs\SandBox.dll</HintPath>'
+          Set-Content $p $s -Encoding utf8
+
+      - name: Ensure rebuild has exactly three source files
+        shell: pwsh
+        run: |
+          $files=@(Get-ChildItem rebuild -File -Recurse | Where-Object {$_.FullName -notmatch '\\bin\\|\\obj\\'})
+          $allowed=@('rebuild\MultiplayerCampaignSubModule.cs','rebuild\MultiplayerCampaignRebuild.csproj','rebuild\MultiplayerCampaign.xml')
+          if($files.Count -ne 3){throw "Expected 3 rebuild files, found $($files.Count)"}
+          foreach($f in $files){$rel=$f.FullName.Substring((Get-Location).Path.Length+1);if($allowed -notcontains $rel){throw "Unexpected: $rel"}}
+
+      - name: Restore and compile
+        run: |
+          dotnet restore rebuild\MultiplayerCampaignRebuild.csproj --nologo
+          dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity minimal
+
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: MultiplayerCampaign-edit-dll
+          path: rebuild\bin\Debug\netstandard2.0\MultiplayerCampaign.dll
+          if-no-files-found: error
+
+      - name: Commit recovered source
+        shell: pwsh
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add rebuild\MultiplayerCampaignSubModule.cs rebuild\MultiplayerCampaignRebuild.csproj rebuild\MultiplayerCampaign.xml
+          if(git diff --cached --quiet){exit 0}
+          git commit -m 'Recover full rebuild source before compile loop'
+          git push origin HEAD:edit
