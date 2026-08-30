@@ -29,7 +29,7 @@ jobs:
           $p='rebuild\MultiplayerCampaignSubModule.cs'
           $s=Get-Content $p -Raw
           if($s -notmatch '(?m)^using TaleWorlds\.CampaignSystem\.CharacterCreationContent;') {
-            $s='using TaleWorlds.CampaignSystem.CharacterCreationContent;`r`n'+$s
+            $s="using TaleWorlds.CampaignSystem.CharacterCreationContent;`r`n$s"
           }
           Set-Content $p $s -Encoding utf8
 
@@ -82,3 +82,5 @@ jobs:
           if(git diff --cached --quiet){exit 0}
           git commit -m 'Recover full rebuild source before compile loop'
           git push origin HEAD:edit
+
+# retrigger clean compile
