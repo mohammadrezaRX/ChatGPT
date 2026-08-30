@@ -10,19 +10,20 @@ permissions:
 
 jobs:
   build:
-    if: github.actor != 'github-actions[bot]'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout edit
+        uses: actions/checkout@v4
         with:
           ref: edit
           fetch-depth: 1
 
-      - uses: actions/setup-dotnet@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: Download Bannerlord DLLs
+      - name: Download Bannerlord references
         shell: pwsh
         run: |
           $base = 'https://raw.githubusercontent.com/mohammadrezaRX/ChatGPT/main/DLLs'
@@ -35,369 +36,37 @@ jobs:
             'TaleWorlds.ScreenSystem.dll'
           )
           New-Item -ItemType Directory -Force DLLs | Out-Null
-          foreach ($name in $names) { Invoke-WebRequest -UseBasicParsing "$base/$name" -OutFile "DLLs/$name" }
-
-      - name: Replace source with known-good complete revision
-        shell: pwsh
-        run: |
-          $url = 'https://raw.githubusercontent.com/mohammadrezaRX/ChatGPT/2012e47e079005129d9b5b87a28651f53b7e42bb/rebuild/MultiplayerCampaignSubModule.cs'
-          Invoke-WebRequest -UseBasicParsing $url -OutFile 'rebuild\MultiplayerCampaignSubModule.cs'
-
-      - name: Apply reconnect and Party A/B fixes
-        shell: pwsh
-        run: |
-          @'
-from pathlib import Path
-import re
-
-p = Path(r"rebuild\MultiplayerCampaignSubModule.cs")
-s = p.read_text(encoding="utf-8-sig")
-
-def replace_once(old, new, label):
-    global s
-    if old not in s:
-        raise SystemExit(f"pattern not found: {label}")
-    s = s.replace(old, new, 1)
-    print(label)
-
-replace_once(
-'''                if (_connectionRunning)
-                {
-                    return;
-                }
-
-                DisconnectInternal();''',
-'''                if (_connectionRunning && IsConnected)
-                {
-                    return;
-                }
-
-                DisconnectInternal();''',
-"client-connect-guard")
-
-replace_once(
-'''            _connectionRunning =
-                false;
-
-            while (
-                _incoming.TryDequeue(
-                    out _))''',
-'''            _connectionRunning =
-                false;
-
-            try { MultiplayerWorldTransfer.Clear(); } catch { }
-            try { RemotePlayerManager.Clear(); } catch { }
-            try { WorldRevisionState.Clear(); } catch { }
-
-            while (
-                _incoming.TryDequeue(
-                    out _))''',
-"client-cleanup")
-
-replace_once(
-'''                    if (_clients.Count >= 1)
-                    {
-                        SendErrorAndClose(
-                            client,
-                            "Server is full."
-                        );
-
-                        continue;
-                    }''',
-'''                    if (_clients.Count >= 1)
-                    {
-                        for (int i = _clients.Count - 1; i >= 0; i--)
-                        {
-                            HostClientConnection stale = _clients[i];
-                            if (stale == null || !stale.IsConnected)
-                            {
-                                _clients.RemoveAt(i);
-                                try { stale?.Close(); } catch { }
-                            }
-                        }
-
-                        if (_clients.Count >= 1)
-                        {
-                            SendErrorAndClose(
-                                client,
-                                "Server is full."
-                            );
-
-                            continue;
-                        }
-                    }''',
-"host-reclaim-stale")
-
-# Add host unregister to HostClientConnection.Close().
-start = s.find("internal sealed class HostClientConnection")
-if start < 0:
-    raise SystemExit("HostClientConnection not found")
-pos = s.find("public void Close()", start)
-if pos < 0:
-    raise SystemExit("Close not found")
-brace = s.find("{", pos)
-depth = 0
-end = -1
-for i in range(brace, len(s)):
-    if s[i] == "{": depth += 1
-    elif s[i] == "}":
-        depth -= 1
-        if depth == 0:
-            end = i + 1
-            break
-if end < 0:
-    raise SystemExit("Close scope not found")
-close = s[pos:end]
-if "_host?.RemoveClient(this)" not in close:
-    close = close[:-1] + '''
-
-        try
-        {
-            _host?.RemoveClient(this);
-        }
-        catch
-        {
-        }
-    }'''
-    s = s[:pos] + close + s[end:]
-
-replace_once(
-'''                case NetworkPacketType.WorldComplete:
-                    _worldReady = true;
-
-                    MultiplayerWorldTransfer
-                        .HandleWorldComplete(
-                            message.Payload
-                        );
-                    break;''',
-'''                case NetworkPacketType.WorldComplete:
-                    MultiplayerWorldTransfer
-                        .HandleWorldComplete(
-                            message.Payload
-                        );
-                    _worldReady = MultiplayerWorldTransfer.IsComplete;
-                    break;''',
-"world-complete-gate")
-
-replace_once(
-'''            MobileParty party = MpcClientParty.ActiveParty;
-            if (party == null || party == MobileParty.MainParty)
-                party = MobileParty.MainParty;
-
-            if (party == null)
-                return;''',
-'''            MobileParty party = MpcClientParty.ActiveParty;
-            if (party == null || party == MobileParty.MainParty)
-                return;''',
-"client-party-no-host-fallback")
-
-replace_once(
-'''                PartySize = Math.Max(1, Math.Min(10000, CampaignWorld.GetMainPartySize())),''',
-'''                PartySize = Math.Max(1, Math.Min(10000, party.MemberRoster != null ? party.MemberRoster.TotalManCount : 1)),''',
-"client-party-size")
-
-# Replace automatic slot-0 creation with a strict selected-slot requirement.
-pattern = re.compile(r'''        public static void SelectOrCreateIdentityFromCurrentPlayer\(\)\s*\{.*?^        \}\s*\n    \}\s*\n\s*internal sealed class PlayerSyncState''', re.S | re.M)
-replacement = '''        public static void SelectOrCreateIdentityFromCurrentPlayer()
-        {
-            CharacterSlotStore.EnsureLoaded();
-
-            CharacterSlotData selected = null;
-            lock (Sync)
-            {
-                if (SelectedSlot >= 0 && SelectedSlot < 3)
-                    selected = CharacterSlotStore.Get(SelectedSlot);
-            }
-
-            if (selected == null || !selected.IsValid)
-                return;
-
-            lock (Sync)
-            {
-                CharacterId = selected.CharacterId;
-                CharacterName = selected.Name;
-            }
-
-            LocalPlayerState.SetDisplayName(CharacterName);
-        }
-    }
-
-    internal sealed class PlayerSyncState'''
-s, n = pattern.subn(replacement, s, count=1)
-if n != 1:
-    raise SystemExit("strict slot identity patch failed")
-
-# Make VM partial so the UI slot surface can be added without duplicating the main VM.
-if "public sealed class MultiplayerCampaignVM" in s:
-    s = s.replace("public sealed class MultiplayerCampaignVM", "public sealed partial class MultiplayerCampaignVM", 1)
-
-# Add partial VM slot surface only once.
-if "MPC_THREE_CHARACTER_SLOTS_V1" not in s:
-    s += '''
-
-// ============================================================
-// MPC_THREE_CHARACTER_SLOTS_V1
-// ============================================================
-
-namespace MultiplayerCampaign
-{
-    public sealed partial class MultiplayerCampaignVM
-    {
-        private bool _showSlots;
-
-        [DataSourceProperty]
-        public bool ShowSlots
-        {
-            get { return _showSlots; }
-            private set
-            {
-                if (_showSlots == value) return;
-                _showSlots = value;
-                OnPropertyChangedWithValue(value, nameof(ShowSlots));
-            }
-        }
-
-        [DataSourceProperty]
-        public string Slot1Text { get { return BuildSlotText(0); } }
-        [DataSourceProperty]
-        public string Slot2Text { get { return BuildSlotText(1); } }
-        [DataSourceProperty]
-        public string Slot3Text { get { return BuildSlotText(2); } }
-
-        public void ExecuteOpenCharacterSlots()
-        {
-            ShowMain = false;
-            ShowCreate = false;
-            ShowJoin = false;
-            ShowSlots = true;
-            CharacterSlotStore.EnsureLoaded();
-            OnPropertyChanged(nameof(Slot1Text));
-            OnPropertyChanged(nameof(Slot2Text));
-            OnPropertyChanged(nameof(Slot3Text));
-        }
-
-        public void ExecuteSelectSlot1() { SelectSlotForJoin(0); }
-        public void ExecuteSelectSlot2() { SelectSlotForJoin(1); }
-        public void ExecuteSelectSlot3() { SelectSlotForJoin(2); }
-
-        private static string BuildSlotText(int slot)
-        {
-            CharacterSlotData data = CharacterSlotStore.Get(slot);
-            if (data == null || !data.IsValid)
-                return "SLOT " + (slot + 1) + " - EMPTY / CREATE CHARACTER";
-            return "SLOT " + (slot + 1) + " - " + (data.Name ?? "Player");
-        }
-
-        private void SelectSlotForJoin(int slot)
-        {
-            CharacterSlotStore.EnsureLoaded();
-            CharacterSlotData data = CharacterSlotStore.Get(slot);
-            if (data == null || !data.IsValid)
-            {
-                StatusText = "CHARACTER CREATION REQUIRED";
-                return;
-            }
-
-            if (!MpcSession.SelectSlot(slot))
-            {
-                StatusText = "CHARACTER SLOT SELECT FAILED";
-                return;
-            }
-
-            LocalPlayerState.SetDisplayName(MpcSession.Name);
-            ShowSlots = false;
-            ShowJoin = true;
-            ShowCreate = false;
-            ShowMain = false;
-            StatusText = "SLOT " + (slot + 1) + " SELECTED";
-        }
-    }
-}
-'''
-
-if s.count('{') != s.count('}'):
-    raise SystemExit(f"unbalanced braces: {s.count('{')} vs {s.count('}')}")
-
-p.write_text(s, encoding="utf-8")
-'@ | Set-Content patch.py -Encoding utf8
-          python patch.py
-
-      - name: Replace UI with complete three-slot flow
-        shell: pwsh
-        run: |
-          @'
-<Window>
-    <Widget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" Sprite="background_1">
-        <Children>
-            <Widget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" Sprite="BlankWhiteSquare" AlphaFactor="0.35"></Widget>
-            <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowMain">
-                <Children>
-                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="MULTIPLAYER CAMPAIGN"></TextWidget>
-                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="40" MarginTop="120" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Text" Text="LAN CAMPAIGN"></TextWidget>
-                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="520" SuggestedHeight="95" MarginTop="205" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteOpenCreate"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="CREATE HOST"></TextWidget></Children></ButtonWidget>
-                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="520" SuggestedHeight="95" MarginTop="325" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteOpenCharacterSlots"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="JOIN HOST"></TextWidget></Children></ButtonWidget>
-                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="220" SuggestedHeight="65" MarginBottom="55" HorizontalAlignment="Center" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteBack"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="‹ BACK"></TextWidget></Children></ButtonWidget>
-                </Children>
-            </Widget>
-
-            <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowCreate">
-                <Children>
-                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="CREATE HOST"></TextWidget>
-                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="45" MarginTop="185" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Text" Text="START A NEW CAMPAIGN"></TextWidget>
-                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="45" MarginTop="235" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="YOUR CHARACTER NAME WILL BE CHOSEN IN CAMPAIGN"></TextWidget>
-                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="520" SuggestedHeight="95" MarginTop="335" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteStartHost"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="START HOST"></TextWidget></Children></ButtonWidget>
-                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="45" MarginTop="455" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="@StatusText"></TextWidget>
-                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="220" SuggestedHeight="65" MarginBottom="55" HorizontalAlignment="Center" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteBack"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="‹ BACK"></TextWidget></Children></ButtonWidget>
-                </Children>
-            </Widget>
-
-            <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowSlots">
-                <Children>
-                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="50" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="SELECT CHARACTER"></TextWidget>
-                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="650" SuggestedHeight="90" MarginTop="200" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSelectSlot1"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="@Slot1Text"></TextWidget></Children></ButtonWidget>
-                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="650" SuggestedHeight="90" MarginTop="310" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSelectSlot2"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="@Slot2Text"></TextWidget></Children></ButtonWidget>
-                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="650" SuggestedHeight="90" MarginTop="420" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSelectSlot3"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="@Slot3Text"></TextWidget></Children></ButtonWidget>
-                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="40" MarginTop="525" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="EMPTY SLOT = CHARACTER CREATION"></TextWidget>
-                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="220" SuggestedHeight="65" MarginBottom="50" HorizontalAlignment="Center" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteBack"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="‹ BACK"></TextWidget></Children></ButtonWidget>
-                </Children>
-            </Widget>
-
-            <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowJoin">
-                <Children>
-                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="JOIN HOST"></TextWidget>
-                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="600" SuggestedHeight="40" MarginTop="170" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="HOST IP ADDRESS"></TextWidget>
-                    <EditableTextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="600" SuggestedHeight="75" MarginTop="215" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="CustomBattle.Search.TextBox" Text="@IpAddress"></EditableTextWidget>
-                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="520" SuggestedHeight="95" MarginTop="335" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteJoinHost"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="JOIN HOST"></TextWidget></Children></ButtonWidget>
-                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="45" MarginTop="455" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="@StatusText"></TextWidget>
-                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="220" SuggestedHeight="65" MarginBottom="55" HorizontalAlignment="Center" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteBack"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="‹ BACK"></TextWidget></Children></ButtonWidget>
-                </Children>
-            </Widget>
-        </Children>
-    </Widget>
-</Window>
-'@ | Set-Content 'rebuild\MultiplayerCampaign.xml' -Encoding utf8
-
-      - name: Validate exactly three rebuild files
-        shell: pwsh
-        run: |
-          $files = @(Get-ChildItem rebuild -File -Recurse | Where-Object { $_.FullName -notmatch '\\bin\\|\\obj\\' })
-          $allowed = @('rebuild\MultiplayerCampaignSubModule.cs','rebuild\MultiplayerCampaignRebuild.csproj','rebuild\MultiplayerCampaign.xml')
-          if ($files.Count -ne 3) { throw "Expected exactly 3 rebuild files; found $($files.Count)" }
-          foreach ($f in $files) {
-            $rel = $f.FullName.Substring((Get-Location).Path.Length + 1)
-            if ($allowed -notcontains $rel) { throw "Unexpected rebuild file: $rel" }
+          foreach ($name in $names) {
+            Invoke-WebRequest -UseBasicParsing -Uri "$base/$name" -OutFile "DLLs/$name"
           }
 
-      - name: Restore and compile
+      - name: Validate source structure
         shell: pwsh
         run: |
-          dotnet restore rebuild\MultiplayerCampaignRebuild.csproj --nologo
-          dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity minimal
+          $source = Get-Content 'rebuild\MultiplayerCampaignSubModule.cs' -Raw
+          $open = ([regex]::Matches($source, '\{')).Count
+          $close = ([regex]::Matches($source, '\}')).Count
+          if ($open -ne $close) { throw "Unbalanced braces: $open / $close" }
 
-      - name: Upload verified DLL
-        if: success()
+          if ($source -notmatch 'class MultiplayerCampaignSubModule') { throw 'Main submodule missing' }
+          if ($source -notmatch 'class MultiplayerCampaignBehavior') { throw 'Campaign behavior missing' }
+          if ($source -notmatch 'class MultiplayerNetworkClient') { throw 'Network client missing' }
+          if ($source -notmatch 'class MultiplayerCampaignHost') { throw 'Host missing' }
+          if ($source -notmatch 'class MpcClientParty') { throw 'Client party layer missing' }
+          if ($source -notmatch 'class CharacterSlotStore') { throw 'Character slot layer missing' }
+          if ($source -notmatch 'MPC_THREE_CHARACTER_SLOTS_V1') { throw 'Character slot UI layer missing' }
+
+      - name: Restore
+        shell: pwsh
+        run: dotnet restore rebuild\MultiplayerCampaignRebuild.csproj --nologo
+
+      - name: Build
+        shell: pwsh
+        run: dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity minimal
+
+      - name: Publish verified DLL artifact
         uses: actions/upload-artifact@v4
         with:
           name: MultiplayerCampaign-edit-verified
-          path: rebuild\bin\Debug\netstandard2.0\MultiplayerCampaign.dll
+          path: rebuild/bin/Debug/netstandard2.0/MultiplayerCampaign.dll
           if-no-files-found: error
