@@ -43,6 +43,7 @@ jobs:
               <RootNamespace>MultiplayerCampaign</RootNamespace>
               <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
               <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+              <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
             </PropertyGroup>
             <ItemGroup>
               <Compile Include="MultiplayerCampaignSubModule.cs" />
