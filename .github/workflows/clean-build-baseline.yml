@@ -1,6 +1,8 @@
 name: Clean MPC baseline build
 
 on:
+  push:
+    branches: [edit]
   workflow_dispatch:
 
 permissions:
@@ -8,6 +10,7 @@ permissions:
 
 jobs:
   build:
+    if: github.actor != 'github-actions[bot]'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,3 +71,5 @@ jobs:
           if(git diff --cached --quiet){exit 0}
           git commit -m 'Reset rebuild to clean original campaign source'
           git push origin HEAD:edit
+
+# clean baseline trigger
