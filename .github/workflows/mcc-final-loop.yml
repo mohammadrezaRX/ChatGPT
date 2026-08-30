@@ -1,3 +1,4 @@
+# repair-loop-trigger
 name: MPC strict build loop
 
 on:
@@ -32,15 +33,7 @@ jobs:
           $changed = $false
 
           # 1) Allow a stale client connection attempt to be cancelled and retried.
-          $old = @'
-          if (_connectionRunning)
-          {
-              return;
-          }
-
-          DisconnectInternal();
-          '@
-          $new = @'
+          $source2 = [regex]::Replace($source, '(?ms)if \(_connectionRunning\)\s*\{\s*return;\s*\}\s*\n\s*DisconnectInternal\(\);', @'
           if (_connectionRunning)
           {
               bool transportAlive = false;
@@ -64,11 +57,11 @@ jobs:
           {
               DisconnectInternal();
           }
-          '@
-          if ($source.Contains($old)) { $source = $source.Replace($old, $new); $changed = $true }
+          '@, 1)
+          if ($source2 -ne $source) { $source = $source2; $changed = $true }
 
           # 2) Replace the no-op MCC completion with an actual save-backed Campaign load.
-          $pattern = '(?s)        public static void FinishClientLoad\(\)\n        \{.*?\n        \}\n\n\n        public static byte\[\] GetReceivedWorld'
+          $pattern = '(?s)public static void FinishClientLoad\(\)\s*\{.*?\n\s*\}\s*\n\s*public static byte\[\] GetReceivedWorld'
           $replacement = @'
           public static void FinishClientLoad()
           {
@@ -77,9 +70,7 @@ jobs:
               lock (Sync)
               {
                   if (!_complete || _worldData == null)
-                  {
                       return;
-                  }
 
                   world = _worldData;
                   _worldData = null;
@@ -90,12 +81,6 @@ jobs:
 
               try
               {
-                  /*
-                   * The client must enter a real Bannerlord Campaign before
-                   * the network runtime can create the Client-owned character
-                   * and Party.  The shared MCC save is the authoritative
-                   * save-backed Campaign baseline for this stage.
-                   */
                   if (!MBSaveLoad.IsSaveGameFileExists("MCC"))
                   {
                       HostConsole.WriteLine("[!] MCC save is missing on Client.");
@@ -115,7 +100,6 @@ jobs:
 
                   SandBoxGameManager manager = new SandBoxGameManager(result);
                   MBGameManager.StartNewGame(manager);
-
                   HostConsole.WriteLine("[*] Client MCC Campaign load started.");
               }
               catch (Exception ex)
@@ -133,137 +117,71 @@ jobs:
           $source = $updated
           $changed = $true
 
-          # 3) Expose a single completion point after SandBox has actually finished loading the save.
-          $needle = @'
-          public void Disconnect()
+          # 3) Mark the client world loaded only after the saved Campaign has finished loading.
+          if (-not $source.Contains('public void MarkWorldLoaded()'))
           {
-          '@
-          $insert = @'
+              $needle = 'public void Disconnect()'
+              $insert = @'
           public void MarkWorldLoaded()
           {
               _worldLoaded = true;
               _worldReady = false;
-
-              try
-              {
-                  MultiplayerConnectionStatus.Set(
-                      MultiplayerConnectionState.Ready
-                  );
-              }
-              catch
-              {
-              }
-
+              MultiplayerConnectionStatus.Set(MultiplayerConnectionState.Ready);
               _vm?.SetStatus("CONNECTED - MCC LOADED");
               MultiplayerCampaignSubModule.EndTransferredWorldLoad();
-
-              try
-              {
-                  SendPlayerReady();
-              }
-              catch
-              {
-              }
+              try { SendPlayerReady(); } catch { }
           }
 
 
           public void Disconnect()
-          {
           '@
-          if ($source.Contains($needle) -and -not $source.Contains('public void MarkWorldLoaded()'))
-          {
-              $source = $source.Replace($needle, $insert)
-              $changed = $true
+              if ($source.Contains($needle)) {
+                  $source = $source.Replace($needle, $insert.TrimStart("`n"))
+                  $changed = $true
+              }
           }
 
-          # 4) Never let Client snapshot replication silently fall back to Host MainParty.
-          $old = @'
-          MobileParty party = MpcClientParty.ActiveParty;
-          if (party == null || party == MobileParty.MainParty)
-              party = MobileParty.MainParty;
+          # 4) Never fall back from Client Party B to Host MainParty for outbound state.
+          $pattern = '(?ms)MobileParty party = MpcClientParty\.ActiveParty;\s*if \(party == null \|\| party == MobileParty\.MainParty\)\s*party = MobileParty\.MainParty;'
+          $replacement = 'MobileParty party = MpcClientParty.ActiveParty;\n            if (party == null || party == MobileParty.MainParty)\n                return;'
+          $updated = [regex]::Replace($source, $pattern, $replacement, 1)
+          if ($updated -ne $source) { $source = $updated; $changed = $true }
 
-          if (party == null)
-              return;
-          '@
-          $new = @'
-          MobileParty party = MpcClientParty.ActiveParty;
-          if (party == null || party == MobileParty.MainParty)
-              return;
-          '@
-          if ($source.Contains($old)) { $source = $source.Replace($old, $new); $changed = $true }
-
-          # 5) Capture the actual Client Party roster size, not the Host MainParty size.
+          # 5) Capture actual party roster size.
           $old = 'PartySize = Math.Max(1, Math.Min(10000, CampaignWorld.GetMainPartySize())),'
           $new = 'PartySize = Math.Max(1, Math.Min(10000, party.MemberRoster != null ? party.MemberRoster.TotalManCount : 1)),'
           if ($source.Contains($old)) { $source = $source.Replace($old, $new); $changed = $true }
 
-          # 6) Remove stale/disconnected entries before enforcing the one-client limit.
-          $old = @'
-                    lock (_sync)
-                    {
-                        /*
-                         * The target build is two-player.
-                         *
-                         * Existing host is player one.
-                         * Only one remote client is required.
-                         */
+          # 6) Remove stale host connections before the one-client capacity check.
+          $pattern = '(?ms)lock \(_sync\)\s*\{\s*/\*\s*\* The target build is two-player\..*?if \(_clients\.Count >= 1\)\s*\{.*?\}\s*_clients\.Add\(\s*client\s*\);\s*\}'
+          $replacement = @'
+          lock (_sync)
+          {
+              for (int i = _clients.Count - 1; i >= 0; i--)
+              {
+                  HostClientConnection stale = _clients[i];
+                  if (stale == null || !stale.IsConnected)
+                      _clients.RemoveAt(i);
+              }
 
-                        if (_clients.Count >= 1)
-                        {
-                            SendErrorAndClose(
-                                client,
-                                "Server is full."
-                            );
+              if (_clients.Count >= 1)
+              {
+                  SendErrorAndClose(client, "Server is full.");
+                  continue;
+              }
 
-                            continue;
-                        }
-
-                        _clients.Add(
-                            client
-                        );
-                    }
+              _clients.Add(client);
+          }
           '@
-          $new = @'
-                    lock (_sync)
-                    {
-                        /*
-                         * Drop dead sessions before enforcing the one-client limit.
-                         * This is what allows the same Client to reconnect without
-                         * restarting the Host process.
-                         */
-                        for (int i = _clients.Count - 1; i >= 0; i--)
-                        {
-                            HostClientConnection stale = _clients[i];
-                            if (stale == null || !stale.IsConnected)
-                            {
-                                _clients.RemoveAt(i);
-                            }
-                        }
+          $updated = [regex]::Replace($source, $pattern, $replacement, 1)
+          if ($updated -ne $source) { $source = $updated; $changed = $true }
 
-                        if (_clients.Count >= 1)
-                        {
-                            SendErrorAndClose(
-                                client,
-                                "Server is full."
-                            );
-
-                            continue;
-                        }
-
-                        _clients.Add(
-                            client
-                        );
-                    }
-          '@
-          if ($source.Contains($old)) { $source = $source.Replace($old, $new); $changed = $true }
-
-          # 7) Add actual saved-Campaign completion and vanilla Character Creation bridge.
+          # 7) Launch vanilla Character Creation after MCC loads if the Client has no selected character.
           if (-not $source.Contains('internal static class MpcFinalMccCharacterBridge'))
           {
               $append = @'
 
 
-// ================= MPC FINAL MCC + CHARACTER BRIDGE =================
 namespace MultiplayerCampaign
 {
     internal static class MpcFinalMccCharacterBridge
@@ -279,14 +197,8 @@ namespace MultiplayerCampaign
                         return;
 
                     bool hasCharacter = false;
-                    try
-                    {
-                        hasCharacter = MultiplayerCampaignRebuildLayer.MpcSession.HasSlot;
-                    }
-                    catch
-                    {
-                        hasCharacter = false;
-                    }
+                    try { hasCharacter = MultiplayerCampaignRebuildLayer.MpcSession.HasSlot; }
+                    catch { hasCharacter = false; }
 
                     if (!hasCharacter)
                     {
@@ -299,6 +211,7 @@ namespace MultiplayerCampaign
                     }
 
                     MultiplayerNetworkClient.Instance.MarkWorldLoaded();
+                    try { MultiplayerCampaignRebuildLayer.MpcClientParty.Ensure(); } catch { }
                 }
                 catch (Exception ex)
                 {
@@ -318,44 +231,7 @@ namespace MultiplayerCampaign
             {
                 try
                 {
-                    MultiplayerCampaignRebuildLayer.MpcSession
-                        .SelectOrCreateIdentityFromCurrentPlayer();
-
-                    string name = "Player";
-                    try
-                    {
-                        if (TaleWorlds.CampaignSystem.Hero.MainHero != null &&
-                            TaleWorlds.CampaignSystem.Hero.MainHero.Name != null)
-                        {
-                            name = TaleWorlds.CampaignSystem.Hero.MainHero.Name.ToString();
-                        }
-                    }
-                    catch
-                    {
-                    }
-
-                    string code = "";
-                    try
-                    {
-                        if (TaleWorlds.Core.CharacterObject.PlayerCharacter != null)
-                        {
-                            TaleWorlds.Core.CharacterCode cc =
-                                TaleWorlds.Core.CharacterCode.CreateFrom(
-                                    TaleWorlds.Core.CharacterObject.PlayerCharacter
-                                );
-                            if (cc != null)
-                                code = cc.Code ?? "";
-                        }
-                    }
-                    catch
-                    {
-                    }
-
-                    MultiplayerCampaignRebuildLayer.MpcFinalCharacterSlotV2Bridge.SaveSlot0(
-                        name,
-                        code
-                    );
-
+                    MultiplayerCampaignRebuildLayer.MpcSession.SelectOrCreateIdentityFromCurrentPlayer();
                     MultiplayerNetworkClient.Instance.MarkWorldLoaded();
                     MultiplayerCampaignRebuildLayer.MpcClientParty.Ensure();
                 }
@@ -367,32 +243,6 @@ namespace MultiplayerCampaign
         }
     }
 }
-
-namespace MultiplayerCampaignRebuildLayer
-{
-    internal static class MpcFinalCharacterSlotV2Bridge
-    {
-        public static void SaveSlot0(string name, string code)
-        {
-            try
-            {
-                MpcFinalCharacterSystemV2Bridge.Save(name, code);
-            }
-            catch
-            {
-            }
-        }
-    }
-
-    internal static class MpcFinalCharacterSystemV2Bridge
-    {
-        public static void Save(string name, string code)
-        {
-            /* The active MpcSession storage is authoritative for the current implementation. */
-            MpcSession.SelectOrCreateIdentityFromCurrentPlayer();
-        }
-    }
-}
 '@
               $source += $append
               $changed = $true
@@ -400,7 +250,7 @@ namespace MultiplayerCampaignRebuildLayer
 
           if ($changed)
           {
-              [System.IO.File]::WriteAllText($path, $source + "`r`n", (New-Object System.Text.UTF8Encoding($false)))
+              [System.IO.File]::WriteAllText($path, $source + "`n", (New-Object System.Text.UTF8Encoding($false)))
               Write-Host 'Source repair changes prepared.'
           }
           else
