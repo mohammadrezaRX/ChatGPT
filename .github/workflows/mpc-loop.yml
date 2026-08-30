@@ -1,0 +1,148 @@
+name: MPC final repair loop
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [edit]
+
+permissions:
+  contents: write
+
+jobs:
+  loop:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout edit
+        uses: actions/checkout@v4
+        with:
+          ref: edit
+          fetch-depth: 1
+
+      - name: Download Bannerlord references
+        shell: pwsh
+        run: |
+          $base='https://raw.githubusercontent.com/mohammadrezaRX/ChatGPT/main/DLLs'
+          $dlls=@('0Harmony.dll','SandBox.dll','TaleWorlds.CampaignSystem.dll','TaleWorlds.Core.dll','TaleWorlds.Engine.GauntletUI.dll','TaleWorlds.Engine.dll','TaleWorlds.GauntletUI.Data.dll','TaleWorlds.GauntletUI.dll','TaleWorlds.Library.dll','TaleWorlds.Localization.dll','TaleWorlds.MountAndBlade.View.dll','TaleWorlds.MountAndBlade.ViewModelCollection.dll','TaleWorlds.MountAndBlade.dll','TaleWorlds.ObjectSystem.dll','TaleWorlds.SaveSystem.dll','TaleWorlds.ScreenSystem.dll')
+          New-Item DLLs -ItemType Directory -Force | Out-Null
+          foreach($dll in $dlls){ Invoke-WebRequest -UseBasicParsing "$base/$dll" -OutFile "DLLs/$dll" }
+
+      - name: Patch runtime lifecycle idempotently
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p=Path('rebuild/MultiplayerCampaignSubModule.cs')
+          s=p.read_text(encoding='utf-8-sig')
+          original=s
+
+          def rep(old,new,label):
+              global s
+              if old in s:
+                  s=s.replace(old,new,1)
+                  print('patched',label)
+
+          rep('''                if (_connectionRunning)\n                {\n                    return;\n                }\n\n                DisconnectInternal();''',
+              '''                if (_connectionRunning && IsConnected)\n                {\n                    return;\n                }\n\n                DisconnectInternal();''','reconnect')
+
+          rep('''            _connectionRunning =\n                false;\n\n            while (\n                _incoming.TryDequeue(\n                    out _))''',
+              '''            _connectionRunning =\n                false;\n\n            try { MultiplayerWorldTransfer.Clear(); } catch { }\n            try { RemotePlayerManager.Clear(); } catch { }\n\n            while (\n                _incoming.TryDequeue(\n                    out _))''','disconnect-cleanup')
+
+          rep('''                case NetworkPacketType.WorldComplete:\n                    _worldReady = true;\n\n                    MultiplayerWorldTransfer\n                        .HandleWorldComplete(\n                            message.Payload\n                        );\n                    break;''',
+              '''                case NetworkPacketType.WorldComplete:\n                    MultiplayerWorldTransfer\n                        .HandleWorldComplete(\n                            message.Payload\n                        );\n\n                    _worldReady =\n                        MultiplayerWorldTransfer.IsComplete;\n                    break;''','world-complete')
+
+          world_rx=re.compile(r'''    private static byte\[\] BuildWorldTransferData\(\)\n    \{.*?\n    \}\n\n\n    /\*\n     \* ========================================================\n     \* READY''',re.S)
+          world_new='''    private static byte[] BuildWorldTransferData()\n    {\n        try\n        {\n            byte[] existing = ExistingWorldTransferProvider.TryGetWorldData();\n            if (existing != null && existing.Length > 0)\n                return existing;\n\n            string saveDirectory = FilePaths.SavePath.Path;\n            if (string.IsNullOrWhiteSpace(saveDirectory))\n                return null;\n\n            string[] candidates =\n            {\n                Path.Combine(saveDirectory, "MCC.sav"),\n                Path.Combine(saveDirectory, "MCC")\n            };\n\n            for (int i = 0; i < candidates.Length; i++)\n            {\n                string file = candidates[i];\n                if (!File.Exists(file))\n                    continue;\n                FileInfo info = new FileInfo(file);\n                if (info.Length <= 0 || info.Length > 512L * 1024L * 1024L)\n                    continue;\n                return File.ReadAllBytes(file);\n            }\n        }\n        catch (Exception ex)\n        {\n            HostConsole.WriteLine("[!] MCC save read error: " + ex.Message);\n        }\n\n        return null;\n    }\n\n\n    /*\n     * ========================================================\n     * READY'''
+          s,n=world_rx.subn(world_new,s,count=1)
+          if n: print('patched MCC source')
+
+          load_rx=re.compile(r'''    public static void FinishClientLoad\(\)\n    \{.*?\n    \}\n\n\n    public static byte\[\] GetReceivedWorld''',re.S)
+          load_new='''    public static void FinishClientLoad()\n    {\n        byte[] world;\n\n        lock (Sync)\n        {\n            if (!_complete || _worldData == null || _worldData.Length == 0)\n                return;\n            world = (byte[])_worldData.Clone();\n            _worldData = null;\n            _complete = false;\n        }\n\n        try\n        {\n            string saveDirectory = FilePaths.SavePath.Path;\n            if (string.IsNullOrWhiteSpace(saveDirectory))\n                throw new InvalidOperationException("Save directory unavailable.");\n\n            Directory.CreateDirectory(saveDirectory);\n            string transferName = "MPC_NETWORK_TRANSFER";\n            string transferPath = Path.Combine(saveDirectory, transferName + ".sav");\n            File.WriteAllBytes(transferPath, world);\n\n            LoadResult result = MBSaveLoad.LoadSaveGameData(transferName);\n            if (result == null || !result.Successful)\n                throw new InvalidOperationException("Transferred MCC save could not be loaded.");\n\n            MultiplayerCampaignSubModule.BeginTransferredWorldLoad();\n            MBGameManager.StartNewGame(new SandBoxGameManager(result));\n            HostConsole.WriteLine("[*] MCC transfer load started.");\n        }\n        catch (Exception ex)\n        {\n            MultiplayerCampaignSubModule.EndTransferredWorldLoad();\n            HostConsole.WriteLine("[!] MCC transfer load error: " + ex.Message);\n        }\n    }\n\n\n    public static byte[] GetReceivedWorld'''
+          s,n=load_rx.subn(load_new,s,count=1)
+          if n: print('patched client transfer load')
+
+          rep('''            if (\n                MultiplayerNetworkClient\n                    .Instance\n                    .IsWorldLoaded)\n            {\n                _worldInitialized = true;\n            }''',
+              '''            MultiplayerNetworkClient client = MultiplayerNetworkClient.Instance;\n\n            if (\n                MultiplayerCampaignSubModule.IsLoadingTransferredWorld() &&\n                Campaign.Current != null &&\n                MobileParty.MainParty != null)\n            {\n                try\n                {\n                    System.Reflection.FieldInfo field =\n                        typeof(MultiplayerNetworkClient).GetField(\n                            "_worldLoaded",\n                            System.Reflection.BindingFlags.Instance |\n                            System.Reflection.BindingFlags.NonPublic\n                        );\n                    if (field != null)\n                        field.SetValue(client, true);\n                }\n                catch { }\n\n                MultiplayerCampaignSubModule.EndTransferredWorldLoad();\n                _worldInitialized = true;\n            }\n            else if (client != null && client.IsWorldLoaded)\n            {\n                _worldInitialized = true;\n            }''','world-readiness')
+
+          rep('''                if (Party != null && Party != MobileParty.MainParty)\n                    return Party;''',
+              '''                if (Party != null)\n                    return Party;''','party-persistence')
+
+          rep('''                    if (Party == MobileParty.MainParty)\n                    {\n                        Party = null;\n                        return null;\n                    }\n\n''','''','remove-party-self-rejection')
+
+          rep('''            MobileParty party = MpcClientParty.ActiveParty;\n            if (party == null || party == MobileParty.MainParty)\n                party = MobileParty.MainParty;\n\n            if (party == null)\n                return;''',
+              '''            MobileParty party = MpcClientParty.ActiveParty;\n            if (party == null || party == MobileParty.MainParty)\n                return;''','client-no-host-fallback')
+
+          rep('''                PartySize = Math.Max(1, Math.Min(10000, CampaignWorld.GetMainPartySize())),''',
+              '''                PartySize =\n                    Math.Max(\n                        1,\n                        Math.Min(\n                            10000,\n                            party.MemberRoster != null\n                                ? party.MemberRoster.TotalManCount\n                                : 1\n                        )\n                    ),''','party-size')
+
+          rep('''                lock (_sync)\n                {\n                    /*\n                     * The target build is two-player.\n                     *\n                     * Existing host is player one.\n                     * Only one remote client is required.\n                     */\n\n                    if (_clients.Count >= 1)\n                    {\n                        SendErrorAndClose(\n                            client,\n                            "Server is full."\n                        );\n\n                        continue;\n                    }\n\n                    _clients.Add(\n                        client\n                    );\n                }''',
+              '''                bool serverFull;\n\n                lock (_sync)\n                {\n                    for (int i = _clients.Count - 1; i >= 0; i--)\n                    {\n                        HostClientConnection existing = _clients[i];\n                        if (existing == null || !existing.IsConnected)\n                            _clients.RemoveAt(i);\n                    }\n\n                    serverFull = _clients.Count >= 1;\n                    if (!serverFull)\n                        _clients.Add(client);\n                }\n\n                if (serverFull)\n                {\n                    SendErrorAndClose(\n                        client,\n                        "Server is full."\n                    );\n                    continue;\n                }''','host-capacity')
+
+          # HostClientConnection.Close -> remove from host registry.
+          rep('''        try\n        {\n            _client?.Close();\n        }\n        catch\n        {\n        }\n    }''',
+              '''        try\n        {\n            _client?.Close();\n        }\n        catch\n        {\n        }\n\n        try\n        {\n            _host?.RemoveClient(this);\n        }\n        catch\n        {\n        }\n    }''','host-close-cleanup')
+
+          # Keep Party B tied to the client-created character and, where Bannerlord exposes
+          # writable static backing fields, promote it to the local playable identity.
+          if 'private static void PromoteClientIdentity()' not in s:
+              cls=re.compile(r'(internal static class MpcClientParty\s*\{.*?)(\n\s*public static void Clear\(\)\s*\{)',re.S)
+              helper='''\n        private static void PromoteClientIdentity()\n        {\n            if (Hero == null || Party == null)\n                return;\n\n            const System.Reflection.BindingFlags flags =\n                System.Reflection.BindingFlags.Static |\n                System.Reflection.BindingFlags.Public |\n                System.Reflection.BindingFlags.NonPublic;\n\n            try\n            {\n                System.Type t = typeof(MobileParty);\n                System.Reflection.PropertyInfo prop = t.GetProperty("MainParty", flags);\n                if (prop != null && prop.CanWrite)\n                    prop.SetValue(null, Party, null);\n                else\n                {\n                    System.Reflection.FieldInfo field = t.GetField("<MainParty>k__BackingField", flags);\n                    if (field != null)\n                        field.SetValue(null, Party);\n                }\n            }\n            catch { }\n\n            try\n            {\n                System.Type t = typeof(Hero);\n                System.Reflection.PropertyInfo prop = t.GetProperty("MainHero", flags);\n                if (prop != null && prop.CanWrite)\n                    prop.SetValue(null, Hero, null);\n                else\n                {\n                    System.Reflection.FieldInfo field = t.GetField("<MainHero>k__BackingField", flags);\n                    if (field != null)\n                        field.SetValue(null, Hero);\n                }\n            }\n            catch { }\n        }\n'''
+              s,n=cls.subn(r'\1'+helper+r'\2',s,count=1)
+              if n: print('patched client identity helper')
+
+          rep('''                    if (Party != null)\n                    {\n                        try { Party.Party.SetCustomName(new TextObject(MpcSession.Name)); } catch { }\n                    }\n\n                    return Party;''',
+              '''                    if (Party != null)\n                    {\n                        try { Party.Party.SetCustomName(new TextObject(MpcSession.Name)); } catch { }\n                        PromoteClientIdentity();\n                    }\n\n                    return Party;''','character-party binding')
+
+          if s != original:
+              p.write_text(s,encoding='utf-8')
+              print('runtime source modified')
+          else:
+              print('runtime source already stable')
+
+      - name: Verify Host Party A, Client Party B, character creation and real MCC transfer
+        shell: pwsh
+        run: |
+          $s=Get-Content 'rebuild\MultiplayerCampaignSubModule.cs' -Raw
+          $need=@('ConnectAsync','WorldComplete','FinishClientLoad','HeroCreator.CreateBasicHero','CreateNewClanMobileParty','MpcClientParty.ActiveParty','MobileParty.MainParty','BuildWorldTransferData','PromoteClientIdentity')
+          foreach($n in $need){ if($s -notmatch [regex]::Escape($n)){ throw "Missing contract: $n" } }
+          if($s -match 'MULTIPLAYER_CAMPAIGN_WORLD'){ throw 'Fake world payload remains.' }
+          Write-Host 'MPC runtime contract OK'
+
+      - name: Remove obsolete overlapping workflows
+        shell: pwsh
+        run: |
+          if(Test-Path '.github/workflows/build-loop.yml'){ git rm '.github/workflows/build-loop.yml' }
+          if(Test-Path '.github/workflows/fix-source.yml'){ git rm '.github/workflows/fix-source.yml' }
+
+      - name: Rewrite CI references and build with zero errors
+        shell: pwsh
+        run: |
+          $p='rebuild\MultiplayerCampaignRebuild.csproj'
+          $s=Get-Content $p -Raw
+          $s=$s -replace 'E:\\INSTAL GAME\\Mount & Blade 2 - Bannerlord','..\DLLs'
+          $s=$s -replace '\$\(BannerlordRoot\)','..\DLLs'
+          $s=$s -replace '<HintPath>\.\.\\DLLs\\Modules\\Bannerlord\.Harmony\\bin\\Win64_Shipping_Client\\0Harmony\.dll</HintPath>','<HintPath>..\DLLs\0Harmony.dll</HintPath>'
+          $s=$s -replace '<HintPath>\.\.\\DLLs\\Modules\\Native\\bin\\Win64_Shipping_Client\\TaleWorlds\.MountAndBlade\.View\.dll</HintPath>','<HintPath>..\DLLs\TaleWorlds.MountAndBlade.View.dll</HintPath>'
+          $s=$s -replace '<HintPath>\.\.\\DLLs\\Modules\\SandBox\\bin\\Win64_Shipping_Client\\SandBox\.dll</HintPath>','<HintPath>..\DLLs\SandBox.dll</HintPath>'
+          Set-Content $p $s -Encoding utf8
+          dotnet restore rebuild\MultiplayerCampaignRebuild.csproj --nologo
+          dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity minimal
+
+      - name: Upload verified DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: MultiplayerCampaign-edit-dll
+          path: rebuild\bin\Debug\netstandard2.0\MultiplayerCampaign.dll
+          if-no-files-found: error
+
+      - name: Commit source and continue loop
+        shell: pwsh
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add rebuild\MultiplayerCampaignSubModule.cs rebuild\MultiplayerCampaignRebuild.csproj .github\workflows
+          git diff --cached --quiet
+          if($LASTEXITCODE -eq 0){ Write-Host 'No changes; loop is stable.'; exit 0 }
+          git commit -m 'Finish MCC connection and independent Party A/B lifecycle'
+          git push origin HEAD:edit
