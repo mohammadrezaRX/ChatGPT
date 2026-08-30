@@ -1,0 +1,68 @@
+name: Diagnose clean source
+
+on:
+  push:
+    branches: [edit]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: edit
+          fetch-depth: 1
+      - name: Download clean source
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/mohammadrezaRX/ChatGPT/83ef45c4844b6c82fce3838da8cd6e3bf1f349d0/MultiplayerCampaignSubModule.cs' -OutFile 'clean.cs'
+      - name: Brace diagnostic
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('clean.cs')
+          s=p.read_text(encoding='utf-8-sig')
+          stack=[]
+          in_block=in_line=False
+          in_string=None
+          verbatim=False
+          esc=False
+          line=1
+          i=0
+          while i < len(s):
+              c=s[i]; n=s[i+1] if i+1 < len(s) else ''
+              if in_line:
+                  if c=='\n': in_line=False; line+=1
+                  i+=1; continue
+              if in_block:
+                  if c=='*' and n=='/': in_block=False; i+=2; continue
+                  if c=='\n': line+=1
+                  i+=1; continue
+              if in_string:
+                  if verbatim:
+                      if c=='"' and n=='"': i+=2; continue
+                      if c=='"': in_string=None
+                  else:
+                      if esc: esc=False
+                      elif c=='\\': esc=True
+                      elif c=='"': in_string=None
+                  if c=='\n': line+=1
+                  i+=1; continue
+              if c=='/' and n=='/': in_line=True; i+=2; continue
+              if c=='/' and n=='*': in_block=True; i+=2; continue
+              if c=='@' and n=='"': in_string='"'; verbatim=True; i+=2; continue
+              if c=='"': in_string='"'; verbatim=False; i+=1; continue
+              if c=='{': stack.append((line, s.splitlines()[line-1].strip()))
+              elif c=='}':
+                  if stack: stack.pop()
+                  else: print(f'EXTRA }} at line {line}')
+              if c=='\n': line+=1
+              i+=1
+          print('LINES', len(s.splitlines()))
+          print('UNMATCHED_OPEN_BRACES', len(stack))
+          for item in stack[-30:]: print('OPEN', item)
+          if stack: raise SystemExit(1)
