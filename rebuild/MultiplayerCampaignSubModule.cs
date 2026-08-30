@@ -181,7 +181,7 @@ namespace MultiplayerCampaign
     public sealed class MultiplayerCampaignSubModule
         : MBSubModuleBase
     {
-        private const string HostSaveName =
+        internal const string HostSaveName =
             "MCC";
 
         private static MultiplayerCampaignHost _host;
