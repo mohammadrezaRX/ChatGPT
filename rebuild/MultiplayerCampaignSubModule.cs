@@ -27514,3 +27514,4 @@ namespace MultiplayerCampaign
         public static string CharacterName { get { try { return MpcFinalCharacterSystemV2.GetSelectedName(); } catch { return "Player"; } } }
     }
 }
+
