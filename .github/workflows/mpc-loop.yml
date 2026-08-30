@@ -1,9 +1,9 @@
-name: MPC final repair loop
+name: MPC loop
 
 on:
-  workflow_dispatch:
   push:
     branches: [edit]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -13,11 +13,16 @@ jobs:
     if: github.actor != 'github-actions[bot]'
     runs-on: windows-latest
     steps:
-      - name: Checkout edit
+      - name: Checkout edit HEAD
         uses: actions/checkout@v4
         with:
           ref: edit
           fetch-depth: 1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
 
       - name: Download Bannerlord references
         shell: pwsh
@@ -27,122 +32,514 @@ jobs:
           New-Item DLLs -ItemType Directory -Force | Out-Null
           foreach($dll in $dlls){ Invoke-WebRequest -UseBasicParsing "$base/$dll" -OutFile "DLLs/$dll" }
 
-      - name: Patch runtime lifecycle idempotently
-        shell: python
+      - name: Replace source with the next complete revision
+        shell: pwsh
         run: |
-          from pathlib import Path
-          import re
+          $p='rebuild\MultiplayerCampaignSubModule.cs'
+          $s=Get-Content $p -Raw
 
-          p=Path('rebuild/MultiplayerCampaignSubModule.cs')
-          s=p.read_text(encoding='utf-8-sig')
-          original=s
+          $s=$s.Replace('public sealed class MultiplayerCampaignVM', 'public sealed partial class MultiplayerCampaignVM')
 
-          def rep(old,new,label):
-              global s
-              if old in s:
-                  s=s.replace(old,new,1)
-                  print('patched',label)
+          $s=$s.Replace(@'
+        public void ExecuteOpenJoin()
+        {
+            ShowMain = false;
+            ShowCreate = false;
+            ShowJoin = true;
 
-          rep('''                if (_connectionRunning)\n                {\n                    return;\n                }\n\n                DisconnectInternal();''',
-              '''                if (_connectionRunning && IsConnected)\n                {\n                    return;\n                }\n\n                DisconnectInternal();''','reconnect')
+            StatusText = "";
+        }
+'@,@'
+        public void ExecuteOpenJoin()
+        {
+            ShowMain = false;
+            ShowCreate = false;
+            ShowJoin = false;
+            ShowSlots = true;
+            StatusText = "";
+            RefreshSlotLabels();
+        }
+'@)
 
-          rep('''            _connectionRunning =\n                false;\n\n            while (\n                _incoming.TryDequeue(\n                    out _))''',
-              '''            _connectionRunning =\n                false;\n\n            try { MultiplayerWorldTransfer.Clear(); } catch { }\n            try { RemotePlayerManager.Clear(); } catch { }\n\n            while (\n                _incoming.TryDequeue(\n                    out _))''','disconnect-cleanup')
+          $s=$s.Replace(@'
+        public void ExecuteBackToMain()
+        {
+            ShowMain = true;
+            ShowCreate = false;
+            ShowJoin = false;
 
-          rep('''                case NetworkPacketType.WorldComplete:\n                    _worldReady = true;\n\n                    MultiplayerWorldTransfer\n                        .HandleWorldComplete(\n                            message.Payload\n                        );\n                    break;''',
-              '''                case NetworkPacketType.WorldComplete:\n                    MultiplayerWorldTransfer\n                        .HandleWorldComplete(\n                            message.Payload\n                        );\n\n                    _worldReady =\n                        MultiplayerWorldTransfer.IsComplete;\n                    break;''','world-complete')
+            StatusText = "";
+        }
+'@,@'
+        public void ExecuteBackToMain()
+        {
+            ShowMain = true;
+            ShowCreate = false;
+            ShowJoin = false;
+            ShowSlots = false;
 
-          world_rx=re.compile(r'''    private static byte\[\] BuildWorldTransferData\(\)\n    \{.*?\n    \}\n\n\n    /\*\n     \* ========================================================\n     \* READY''',re.S)
-          world_new='''    private static byte[] BuildWorldTransferData()\n    {\n        try\n        {\n            byte[] existing = ExistingWorldTransferProvider.TryGetWorldData();\n            if (existing != null && existing.Length > 0)\n                return existing;\n\n            string saveDirectory = FilePaths.SavePath.Path;\n            if (string.IsNullOrWhiteSpace(saveDirectory))\n                return null;\n\n            string[] candidates =\n            {\n                Path.Combine(saveDirectory, "MCC.sav"),\n                Path.Combine(saveDirectory, "MCC")\n            };\n\n            for (int i = 0; i < candidates.Length; i++)\n            {\n                string file = candidates[i];\n                if (!File.Exists(file))\n                    continue;\n                FileInfo info = new FileInfo(file);\n                if (info.Length <= 0 || info.Length > 512L * 1024L * 1024L)\n                    continue;\n                return File.ReadAllBytes(file);\n            }\n        }\n        catch (Exception ex)\n        {\n            HostConsole.WriteLine("[!] MCC save read error: " + ex.Message);\n        }\n\n        return null;\n    }\n\n\n    /*\n     * ========================================================\n     * READY'''
-          s,n=world_rx.subn(world_new,s,count=1)
-          if n: print('patched MCC source')
+            StatusText = "";
+        }
+'@)
 
-          load_rx=re.compile(r'''    public static void FinishClientLoad\(\)\n    \{.*?\n    \}\n\n\n    public static byte\[\] GetReceivedWorld''',re.S)
-          load_new='''    public static void FinishClientLoad()\n    {\n        byte[] world;\n\n        lock (Sync)\n        {\n            if (!_complete || _worldData == null || _worldData.Length == 0)\n                return;\n            world = (byte[])_worldData.Clone();\n            _worldData = null;\n            _complete = false;\n        }\n\n        try\n        {\n            string saveDirectory = FilePaths.SavePath.Path;\n            if (string.IsNullOrWhiteSpace(saveDirectory))\n                throw new InvalidOperationException("Save directory unavailable.");\n\n            Directory.CreateDirectory(saveDirectory);\n            string transferName = "MPC_NETWORK_TRANSFER";\n            string transferPath = Path.Combine(saveDirectory, transferName + ".sav");\n            File.WriteAllBytes(transferPath, world);\n\n            LoadResult result = MBSaveLoad.LoadSaveGameData(transferName);\n            if (result == null || !result.Successful)\n                throw new InvalidOperationException("Transferred MCC save could not be loaded.");\n\n            MultiplayerCampaignSubModule.BeginTransferredWorldLoad();\n            MBGameManager.StartNewGame(new SandBoxGameManager(result));\n            HostConsole.WriteLine("[*] MCC transfer load started.");\n        }\n        catch (Exception ex)\n        {\n            MultiplayerCampaignSubModule.EndTransferredWorldLoad();\n            HostConsole.WriteLine("[!] MCC transfer load error: " + ex.Message);\n        }\n    }\n\n\n    public static byte[] GetReceivedWorld'''
-          s,n=load_rx.subn(load_new,s,count=1)
-          if n: print('patched client transfer load')
+          $s=$s.Replace(@'
+        private void SendHello()
+'@,@'
+        private void SendHello()
+'@)
 
-          rep('''            if (\n                MultiplayerNetworkClient\n                    .Instance\n                    .IsWorldLoaded)\n            {\n                _worldInitialized = true;\n            }''',
-              '''            MultiplayerNetworkClient client = MultiplayerNetworkClient.Instance;\n\n            if (\n                MultiplayerCampaignSubModule.IsLoadingTransferredWorld() &&\n                Campaign.Current != null &&\n                MobileParty.MainParty != null)\n            {\n                try\n                {\n                    System.Reflection.FieldInfo field =\n                        typeof(MultiplayerNetworkClient).GetField(\n                            "_worldLoaded",\n                            System.Reflection.BindingFlags.Instance |\n                            System.Reflection.BindingFlags.NonPublic\n                        );\n                    if (field != null)\n                        field.SetValue(client, true);\n                }\n                catch { }\n\n                MultiplayerCampaignSubModule.EndTransferredWorldLoad();\n                _worldInitialized = true;\n            }\n            else if (client != null && client.IsWorldLoaded)\n            {\n                _worldInitialized = true;\n            }''','world-readiness')
+          $s=$s.Replace(@'
+                case NetworkPacketType.WorldComplete:
+                    _worldReady = true;
 
-          rep('''                if (Party != null && Party != MobileParty.MainParty)\n                    return Party;''',
-              '''                if (Party != null)\n                    return Party;''','party-persistence')
+                    MultiplayerWorldTransfer
+                        .HandleWorldComplete(
+                            message.Payload
+                        );
+                    break;
+'@,@'
+                case NetworkPacketType.WorldComplete:
+                    MultiplayerWorldTransfer
+                        .HandleWorldComplete(
+                            message.Payload
+                        );
+                    _worldReady =
+                        MultiplayerWorldTransfer.IsComplete;
+                    break;
+'@)
 
-          rep('''                    if (Party == MobileParty.MainParty)\n                    {\n                        Party = null;\n                        return null;\n                    }\n\n''','''','remove-party-self-rejection')
+          $s=$s.Replace(@'
+            if (_connectionRunning)
+            {
+                return;
+            }
 
-          rep('''            MobileParty party = MpcClientParty.ActiveParty;\n            if (party == null || party == MobileParty.MainParty)\n                party = MobileParty.MainParty;\n\n            if (party == null)\n                return;''',
-              '''            MobileParty party = MpcClientParty.ActiveParty;\n            if (party == null || party == MobileParty.MainParty)\n                return;''','client-no-host-fallback')
+            DisconnectInternal();
+'@,@'
+            if (_connectionRunning && IsConnected)
+            {
+                return;
+            }
 
-          rep('''                PartySize = Math.Max(1, Math.Min(10000, CampaignWorld.GetMainPartySize())),''',
-              '''                PartySize =\n                    Math.Max(\n                        1,\n                        Math.Min(\n                            10000,\n                            party.MemberRoster != null\n                                ? party.MemberRoster.TotalManCount\n                                : 1\n                        )\n                    ),''','party-size')
+            DisconnectInternal();
+'@)
 
-          rep('''                lock (_sync)\n                {\n                    /*\n                     * The target build is two-player.\n                     *\n                     * Existing host is player one.\n                     * Only one remote client is required.\n                     */\n\n                    if (_clients.Count >= 1)\n                    {\n                        SendErrorAndClose(\n                            client,\n                            "Server is full."\n                        );\n\n                        continue;\n                    }\n\n                    _clients.Add(\n                        client\n                    );\n                }''',
-              '''                bool serverFull;\n\n                lock (_sync)\n                {\n                    for (int i = _clients.Count - 1; i >= 0; i--)\n                    {\n                        HostClientConnection existing = _clients[i];\n                        if (existing == null || !existing.IsConnected)\n                            _clients.RemoveAt(i);\n                    }\n\n                    serverFull = _clients.Count >= 1;\n                    if (!serverFull)\n                        _clients.Add(client);\n                }\n\n                if (serverFull)\n                {\n                    SendErrorAndClose(\n                        client,\n                        "Server is full."\n                    );\n                    continue;\n                }''','host-capacity')
+          $s=$s.Replace(@'
+            _connectionRunning =
+                false;
 
-          # HostClientConnection.Close -> remove from host registry.
-          rep('''        try\n        {\n            _client?.Close();\n        }\n        catch\n        {\n        }\n    }''',
-              '''        try\n        {\n            _client?.Close();\n        }\n        catch\n        {\n        }\n\n        try\n        {\n            _host?.RemoveClient(this);\n        }\n        catch\n        {\n        }\n    }''','host-close-cleanup')
+            while (
+                _incoming.TryDequeue(
+                    out _))
+'@,@'
+            _connectionRunning =
+                false;
 
-          # Keep Party B tied to the client-created character and, where Bannerlord exposes
-          # writable static backing fields, promote it to the local playable identity.
-          if 'private static void PromoteClientIdentity()' not in s:
-              cls=re.compile(r'(internal static class MpcClientParty\s*\{.*?)(\n\s*public static void Clear\(\)\s*\{)',re.S)
-              helper='''\n        private static void PromoteClientIdentity()\n        {\n            if (Hero == null || Party == null)\n                return;\n\n            const System.Reflection.BindingFlags flags =\n                System.Reflection.BindingFlags.Static |\n                System.Reflection.BindingFlags.Public |\n                System.Reflection.BindingFlags.NonPublic;\n\n            try\n            {\n                System.Type t = typeof(MobileParty);\n                System.Reflection.PropertyInfo prop = t.GetProperty("MainParty", flags);\n                if (prop != null && prop.CanWrite)\n                    prop.SetValue(null, Party, null);\n                else\n                {\n                    System.Reflection.FieldInfo field = t.GetField("<MainParty>k__BackingField", flags);\n                    if (field != null)\n                        field.SetValue(null, Party);\n                }\n            }\n            catch { }\n\n            try\n            {\n                System.Type t = typeof(Hero);\n                System.Reflection.PropertyInfo prop = t.GetProperty("MainHero", flags);\n                if (prop != null && prop.CanWrite)\n                    prop.SetValue(null, Hero, null);\n                else\n                {\n                    System.Reflection.FieldInfo field = t.GetField("<MainHero>k__BackingField", flags);\n                    if (field != null)\n                        field.SetValue(null, Hero);\n                }\n            }\n            catch { }\n        }\n'''
-              s,n=cls.subn(r'\1'+helper+r'\2',s,count=1)
-              if n: print('patched client identity helper')
+            try { MultiplayerWorldTransfer.Clear(); } catch { }
+            try { RemotePlayerManager.Clear(); } catch { }
+            try { MpcClientParty.Clear(); } catch { }
 
-          rep('''                    if (Party != null)\n                    {\n                        try { Party.Party.SetCustomName(new TextObject(MpcSession.Name)); } catch { }\n                    }\n\n                    return Party;''',
-              '''                    if (Party != null)\n                    {\n                        try { Party.Party.SetCustomName(new TextObject(MpcSession.Name)); } catch { }\n                        PromoteClientIdentity();\n                    }\n\n                    return Party;''','character-party binding')
+            while (
+                _incoming.TryDequeue(
+                    out _))
+'@)
 
-          if s != original:
-              p.write_text(s,encoding='utf-8')
-              print('runtime source modified')
-          else:
-              print('runtime source already stable')
+          $s=$s.Replace(@'
+            CampaignMessageFeed.Show(
+                "[*] Campaign world received."
+            );
+'@,@'
+            CampaignMessageFeed.Show(
+                "[*] Campaign world received."
+            );
+'@)
 
-      - name: Verify Host Party A, Client Party B, character creation and real MCC transfer
+          $worldPattern='(?s)    private static byte\[\] BuildWorldTransferData\(\)\s*\{.*?^\s*    /\*\r?\n     \* ========================================================\r?\n     \* READY'
+          $worldReplacement=@'
+    private static byte[] BuildWorldTransferData()
+    {
+        try
+        {
+            string saveDirectory = FilePaths.SavePath.Path;
+            if (string.IsNullOrWhiteSpace(saveDirectory))
+                return null;
+
+            string file = Path.Combine(saveDirectory, "MCC.sav");
+            if (!File.Exists(file))
+                return null;
+
+            FileInfo info = new FileInfo(file);
+            if (info.Length <= 0 || info.Length > 512L * 1024L * 1024L)
+                return null;
+
+            return File.ReadAllBytes(file);
+        }
+        catch (Exception ex)
+        {
+            HostConsole.WriteLine("[!] MCC source read error: " + ex.Message);
+            return null;
+        }
+    }
+
+
+    /*
+     * ========================================================
+     * READY
+'@
+          $s=[regex]::Replace($s,$worldPattern,$worldReplacement,1)
+
+          $finishPattern='(?s)    public static void FinishClientLoad\(\)\s*\{.*?^    \}\r?\n\r?\n\r?\n    public static byte\[\] GetReceivedWorld'
+          $finishReplacement=@'
+    public static void FinishClientLoad()
+    {
+        byte[] world;
+
+        lock (Sync)
+        {
+            if (!_complete || _worldData == null || _worldData.Length == 0)
+                return;
+
+            world = (byte[])_worldData.Clone();
+            _worldData = null;
+            _complete = false;
+        }
+
+        try
+        {
+            string saveDirectory = FilePaths.SavePath.Path;
+            if (string.IsNullOrWhiteSpace(saveDirectory))
+                throw new InvalidOperationException("Save directory unavailable.");
+
+            Directory.CreateDirectory(saveDirectory);
+            string transferName = "MPC_NETWORK_TRANSFER";
+            string transferPath = Path.Combine(saveDirectory, transferName + ".sav");
+            File.WriteAllBytes(transferPath, world);
+
+            LoadResult result = MBSaveLoad.LoadSaveGameData(transferName);
+            if (result == null || !result.Successful)
+                throw new InvalidOperationException("Transferred MCC save could not be loaded.");
+
+            MultiplayerCampaignSubModule.BeginTransferredWorldLoad();
+            MBGameManager.StartNewGame(new SandBoxGameManager(result));
+            HostConsole.WriteLine("[*] MCC transfer load started.");
+
+            try
+            {
+                FieldInfo loadedField =
+                    typeof(MultiplayerNetworkClient).GetField(
+                        "_worldLoaded",
+                        BindingFlags.Instance | BindingFlags.NonPublic
+                    );
+                if (loadedField != null)
+                    loadedField.SetValue(MultiplayerNetworkClient.Instance, true);
+            }
+            catch
+            {
+            }
+        }
+        catch (Exception ex)
+        {
+            MultiplayerCampaignSubModule.EndTransferredWorldLoad();
+            HostConsole.WriteLine("[!] MCC transfer load error: " + ex.Message);
+        }
+    }
+
+
+    public static byte[] GetReceivedWorld
+'@
+          $s=[regex]::Replace($s,$finishPattern,$finishReplacement,1)
+
+          $captureOld='PartySize = Math.Max(1, Math.Min(10000, CampaignWorld.GetMainPartySize())),'
+          $captureNew=@'
+PartySize = Math.Max(
+    1,
+    Math.Min(
+        10000,
+        party.MemberRoster != null ? party.MemberRoster.TotalManCount : 1
+    )
+),'@
+          $s=$s.Replace($captureOld,$captureNew)
+
+          $sendOld=@'
+            MobileParty party = MpcClientParty.ActiveParty;
+            if (party == null || party == MobileParty.MainParty)
+                party = MobileParty.MainParty;
+
+            if (party == null)
+                return;
+'@
+          $sendNew=@'
+            MobileParty party = MpcClientParty.ActiveParty;
+            if (party == null || party == MobileParty.MainParty)
+                return;
+'@
+          $s=$s.Replace($sendOld,$sendNew)
+
+          $partyCreateOld='''                    Party = Helpers.MobilePartyHelper.CreateNewClanMobileParty(Hero, Clan);
+                    if (Party == MobileParty.MainParty)
+                    {
+                        Party = null;
+                        return null;
+                    }
+'''
+          $partyCreateNew='''                    Party = null;
+                    try
+                    {
+                        foreach (MobileParty existing in Campaign.Current.MobileParties)
+                        {
+                            if (existing == null || existing == MobileParty.MainParty)
+                                continue;
+                            if (existing.LeaderHero == Hero)
+                            {
+                                Party = existing;
+                                break;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                    }
+
+                    if (Party == null)
+                        Party = Helpers.MobilePartyHelper.CreateNewClanMobileParty(Hero, Clan);
+
+                    if (Party == null || Party == MobileParty.MainParty)
+                    {
+                        Party = null;
+                        return null;
+                    }
+'''
+          $s=$s.Replace($partyCreateOld,$partyCreateNew)
+
+          $partial=@'
+
+namespace MultiplayerCampaign
+{
+    public sealed partial class MultiplayerCampaignVM
+    {
+        private bool _showSlots;
+        private string _slot1Text = "SLOT 1 - EMPTY";
+        private string _slot2Text = "SLOT 2 - EMPTY";
+        private string _slot3Text = "SLOT 3 - EMPTY";
+
+        [DataSourceProperty]
+        public bool ShowSlots
+        {
+            get { return _showSlots; }
+            private set
+            {
+                if (_showSlots == value)
+                    return;
+                _showSlots = value;
+                OnPropertyChangedWithValue(value, nameof(ShowSlots));
+            }
+        }
+
+        [DataSourceProperty]
+        public string Slot1Text { get { return _slot1Text; } }
+
+        [DataSourceProperty]
+        public string Slot2Text { get { return _slot2Text; } }
+
+        [DataSourceProperty]
+        public string Slot3Text { get { return _slot3Text; } }
+
+        private void RefreshSlotLabels()
+        {
+            CharacterSlotStore.EnsureLoaded();
+            _slot1Text = BuildSlotText(0);
+            _slot2Text = BuildSlotText(1);
+            _slot3Text = BuildSlotText(2);
+            OnPropertyChanged(nameof(Slot1Text));
+            OnPropertyChanged(nameof(Slot2Text));
+            OnPropertyChanged(nameof(Slot3Text));
+        }
+
+        private static string BuildSlotText(int slot)
+        {
+            CharacterSlotData data = CharacterSlotStore.Get(slot);
+            if (data == null || !data.IsValid)
+                return "SLOT " + (slot + 1) + " - EMPTY / CREATE";
+            return "SLOT " + (slot + 1) + " - " + (data.Name ?? "Player");
+        }
+
+        public void ExecuteSlot1() { SelectOrCreateSlot(0); }
+        public void ExecuteSlot2() { SelectOrCreateSlot(1); }
+        public void ExecuteSlot3() { SelectOrCreateSlot(2); }
+
+        private void SelectOrCreateSlot(int slot)
+        {
+            CharacterSlotStore.EnsureLoaded();
+            CharacterSlotData data = CharacterSlotStore.Get(slot);
+
+            if (data == null || !data.IsValid)
+            {
+                string name = string.IsNullOrWhiteSpace(PlayerName)
+                    ? "Player"
+                    : PlayerName.Trim();
+                string characterId = Guid.NewGuid().ToString("N");
+                string characterCode = "";
+                try
+                {
+                    characterCode = CharacterObject.PlayerCharacter != null
+                        ? CharacterObject.PlayerCharacter.StringId
+                        : "";
+                }
+                catch
+                {
+                }
+
+                if (!CharacterSlotStore.Save(slot, characterId, name, characterCode))
+                {
+                    StatusText = "CHARACTER SLOT SAVE FAILED";
+                    return;
+                }
+
+                data = CharacterSlotStore.Get(slot);
+            }
+
+            if (!MpcSession.SelectSlot(slot))
+            {
+                StatusText = "CHARACTER SLOT SELECT FAILED";
+                return;
+            }
+
+            LocalPlayerState.SetDisplayName(MpcSession.Name);
+            ShowSlots = false;
+            ShowJoin = true;
+            ShowCreate = false;
+            ShowMain = false;
+            StatusText = "SLOT " + (slot + 1) + " SELECTED";
+        }
+    }
+}
+'@
+          $s += $partial
+
+          p='rebuild\MultiplayerCampaignSubModule.cs'
+          Set-Content $p $s -Encoding utf8
+
+      - name: Replace UI with the complete slot flow
+        shell: pwsh
+        run: |
+          $p='rebuild\MultiplayerCampaign.xml'
+          @'
+<Window>
+    <Widget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" Sprite="background_1">
+        <Children>
+            <Widget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" Sprite="BlankWhiteSquare" AlphaFactor="0.35" />
+
+            <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowMain">
+                <Children>
+                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="MULTIPLAYER CAMPAIGN" />
+                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="40" MarginTop="120" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Text" Text="LAN CAMPAIGN" />
+                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="520" SuggestedHeight="95" MarginTop="205" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteOpenCreate">
+                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="CREATE HOST" /></Children>
+                    </ButtonWidget>
+                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="520" SuggestedHeight="95" MarginTop="325" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteOpenJoin">
+                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="JOIN HOST" /></Children>
+                    </ButtonWidget>
+                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="220" SuggestedHeight="65" MarginBottom="55" HorizontalAlignment="Center" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteBack">
+                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="‹  BACK" /></Children>
+                    </ButtonWidget>
+                </Children>
+            </Widget>
+
+            <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowCreate">
+                <Children>
+                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="CREATE HOST" />
+                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="45" MarginTop="185" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Text" Text="START A NEW CAMPAIGN" />
+                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="45" MarginTop="235" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="YOUR CHARACTER NAME WILL BE CHOSEN IN CAMPAIGN" />
+                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="520" SuggestedHeight="95" MarginTop="335" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteStartHost">
+                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="START HOST" /></Children>
+                    </ButtonWidget>
+                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="45" MarginTop="455" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="@StatusText" />
+                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="220" SuggestedHeight="65" MarginBottom="55" HorizontalAlignment="Center" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteBackToMain">
+                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="‹  BACK" /></Children>
+                    </ButtonWidget>
+                </Children>
+            </Widget>
+
+            <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowSlots">
+                <Children>
+                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="45" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="SELECT CHARACTER" />
+                    <EditableTextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="600" SuggestedHeight="70" MarginTop="125" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="CustomBattle.Search.TextBox" Text="@PlayerName" />
+                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="650" SuggestedHeight="90" MarginTop="220" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSlot1">
+                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="@Slot1Text" /></Children>
+                    </ButtonWidget>
+                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="650" SuggestedHeight="90" MarginTop="325" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSlot2">
+                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="@Slot2Text" /></Children>
+                    </ButtonWidget>
+                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="650" SuggestedHeight="90" MarginTop="430" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSlot3">
+                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="@Slot3Text" /></Children>
+                    </ButtonWidget>
+                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="40" MarginTop="535" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="EMPTY SLOT = CREATE CHARACTER" />
+                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="220" SuggestedHeight="65" MarginBottom="45" HorizontalAlignment="Center" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteBackToMain">
+                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="‹  BACK" /></Children>
+                    </ButtonWidget>
+                </Children>
+            </Widget>
+
+            <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowJoin">
+                <Children>
+                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="JOIN HOST" />
+                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="600" SuggestedHeight="40" MarginTop="170" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="HOST IP ADDRESS" />
+                    <EditableTextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="600" SuggestedHeight="75" MarginTop="215" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="CustomBattle.Search.TextBox" Text="@IpAddress" />
+                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="520" SuggestedHeight="95" MarginTop="335" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteJoinHost">
+                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="JOIN HOST" /></Children>
+                    </ButtonWidget>
+                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="45" MarginTop="455" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="@StatusText" />
+                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="220" SuggestedHeight="65" MarginBottom="55" HorizontalAlignment="Center" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteBackToMain">
+                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="‹  BACK" /></Children>
+                    </ButtonWidget>
+                </Children>
+            </Widget>
+        </Children>
+    </Widget>
+</Window>
+'@ | Set-Content $p -Encoding utf8
+
+      - name: Validate source contracts
         shell: pwsh
         run: |
           $s=Get-Content 'rebuild\MultiplayerCampaignSubModule.cs' -Raw
-          $need=@('ConnectAsync','WorldComplete','FinishClientLoad','HeroCreator.CreateBasicHero','CreateNewClanMobileParty','MpcClientParty.ActiveParty','MobileParty.MainParty','BuildWorldTransferData','PromoteClientIdentity')
-          foreach($n in $need){ if($s -notmatch [regex]::Escape($n)){ throw "Missing contract: $n" } }
-          if($s -match 'MULTIPLAYER_CAMPAIGN_WORLD'){ throw 'Fake world payload remains.' }
-          Write-Host 'MPC runtime contract OK'
+          $xml=Get-Content 'rebuild\MultiplayerCampaign.xml' -Raw
+          $required=@('FinishClientLoad','BuildWorldTransferData','MpcClientParty','SelectOrCreateIdentityFromCurrentPlayer','CharacterSlotStore','ExecuteSlot1','ExecuteSlot2','ExecuteSlot3','ShowSlots','WorldComplete')
+          foreach($x in $required){ if($s -notmatch [regex]::Escape($x)){ throw "Missing source contract: $x" } }
+          foreach($x in @('ExecuteSlot1','ExecuteSlot2','ExecuteSlot3','@ShowSlots','@Slot1Text','@Slot2Text','@Slot3Text')){ if($xml -notmatch [regex]::Escape($x)){ throw "Missing UI contract: $x" } }
+          if($s -match 'party = MobileParty.MainParty;\s*\r?\n\s*if \(party == null\)\s*\r?\n\s*return;' ){ throw 'Client fallback to Host MainParty remains.' }
 
-      - name: Remove obsolete overlapping workflows
+      - name: Verify exactly three rebuild files
         shell: pwsh
         run: |
-          if(Test-Path '.github/workflows/build-loop.yml'){ git rm '.github/workflows/build-loop.yml' }
-          if(Test-Path '.github/workflows/fix-source.yml'){ git rm '.github/workflows/fix-source.yml' }
+          $files=@(Get-ChildItem rebuild -File -Recurse | Where-Object {$_.FullName -notmatch '\\bin\\|\\obj\\'})
+          $allowed=@('rebuild\MultiplayerCampaignSubModule.cs','rebuild\MultiplayerCampaignRebuild.csproj','rebuild\MultiplayerCampaign.xml')
+          if($files.Count -ne 3){throw "Expected 3 rebuild files; found $($files.Count)."}
+          foreach($f in $files){$rel=$f.FullName.Substring((Get-Location).Path.Length+1);if($allowed -notcontains $rel){throw "Unexpected rebuild file: $rel"}}
 
-      - name: Rewrite CI references and build with zero errors
+      - name: Build
         shell: pwsh
         run: |
-          $p='rebuild\MultiplayerCampaignRebuild.csproj'
-          $s=Get-Content $p -Raw
-          $s=$s -replace 'E:\\INSTAL GAME\\Mount & Blade 2 - Bannerlord','..\DLLs'
-          $s=$s -replace '\$\(BannerlordRoot\)','..\DLLs'
-          $s=$s -replace '<HintPath>\.\.\\DLLs\\Modules\\Bannerlord\.Harmony\\bin\\Win64_Shipping_Client\\0Harmony\.dll</HintPath>','<HintPath>..\DLLs\0Harmony.dll</HintPath>'
-          $s=$s -replace '<HintPath>\.\.\\DLLs\\Modules\\Native\\bin\\Win64_Shipping_Client\\TaleWorlds\.MountAndBlade\.View\.dll</HintPath>','<HintPath>..\DLLs\TaleWorlds.MountAndBlade.View.dll</HintPath>'
-          $s=$s -replace '<HintPath>\.\.\\DLLs\\Modules\\SandBox\\bin\\Win64_Shipping_Client\\SandBox\.dll</HintPath>','<HintPath>..\DLLs\SandBox.dll</HintPath>'
-          Set-Content $p $s -Encoding utf8
           dotnet restore rebuild\MultiplayerCampaignRebuild.csproj --nologo
           dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity minimal
 
-      - name: Upload verified DLL
+      - name: Upload DLL
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: MultiplayerCampaign-edit-dll
           path: rebuild\bin\Debug\netstandard2.0\MultiplayerCampaign.dll
           if-no-files-found: error
 
-      - name: Commit source and continue loop
+      - name: Replace remote source only after successful build
+        if: success()
         shell: pwsh
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
-          git add rebuild\MultiplayerCampaignSubModule.cs rebuild\MultiplayerCampaignRebuild.csproj .github\workflows
-          git diff --cached --quiet
-          if($LASTEXITCODE -eq 0){ Write-Host 'No changes; loop is stable.'; exit 0 }
-          git commit -m 'Finish MCC connection and independent Party A/B lifecycle'
+          git add rebuild\MultiplayerCampaignSubModule.cs rebuild\MultiplayerCampaign.xml
+          if (git diff --cached --quiet) { exit 0 }
+          git commit -m 'Implement MCC reconnect, world load, Party A/B and character slots'
+          git fetch origin edit
+          git rebase origin/edit
           git push origin HEAD:edit
