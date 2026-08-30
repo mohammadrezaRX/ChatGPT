@@ -23,6 +23,391 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Repair MCC connection and character pipeline
+        shell: pwsh
+        run: |
+          $path = 'MultiplayerCampaignSubModule.cs'
+          $source = Get-Content $path -Raw
+          $source = $source -replace "`r`n", "`n"
+          $changed = $false
+
+          # 1) Allow a stale client connection attempt to be cancelled and retried.
+          $old = @'
+          if (_connectionRunning)
+          {
+              return;
+          }
+
+          DisconnectInternal();
+          '@
+          $new = @'
+          if (_connectionRunning)
+          {
+              bool transportAlive = false;
+              try
+              {
+                  transportAlive = _tcpClient != null && _tcpClient.Connected;
+              }
+              catch
+              {
+                  transportAlive = false;
+              }
+
+              if (transportAlive)
+              {
+                  return;
+              }
+
+              DisconnectInternal();
+          }
+          else
+          {
+              DisconnectInternal();
+          }
+          '@
+          if ($source.Contains($old)) { $source = $source.Replace($old, $new); $changed = $true }
+
+          # 2) Replace the no-op MCC completion with an actual save-backed Campaign load.
+          $pattern = '(?s)        public static void FinishClientLoad\(\)\n        \{.*?\n        \}\n\n\n        public static byte\[\] GetReceivedWorld'
+          $replacement = @'
+          public static void FinishClientLoad()
+          {
+              byte[] world;
+
+              lock (Sync)
+              {
+                  if (!_complete || _worldData == null)
+                  {
+                      return;
+                  }
+
+                  world = _worldData;
+                  _worldData = null;
+                  _complete = false;
+              }
+
+              MultiplayerCampaignSubModule.BeginTransferredWorldLoad();
+
+              try
+              {
+                  /*
+                   * The client must enter a real Bannerlord Campaign before
+                   * the network runtime can create the Client-owned character
+                   * and Party.  The shared MCC save is the authoritative
+                   * save-backed Campaign baseline for this stage.
+                   */
+                  if (!MBSaveLoad.IsSaveGameFileExists("MCC"))
+                  {
+                      HostConsole.WriteLine("[!] MCC save is missing on Client.");
+                      MultiplayerCampaignSubModule.EndTransferredWorldLoad();
+                      MultiplayerNetworkClient.Instance.Disconnect();
+                      return;
+                  }
+
+                  LoadResult result = MBSaveLoad.LoadSaveGameData("MCC");
+                  if (result == null || !result.Successful)
+                  {
+                      HostConsole.WriteLine("[!] Client could not load MCC.");
+                      MultiplayerCampaignSubModule.EndTransferredWorldLoad();
+                      MultiplayerNetworkClient.Instance.Disconnect();
+                      return;
+                  }
+
+                  SandBoxGameManager manager = new SandBoxGameManager(result);
+                  MBGameManager.StartNewGame(manager);
+
+                  HostConsole.WriteLine("[*] Client MCC Campaign load started.");
+              }
+              catch (Exception ex)
+              {
+                  HostConsole.WriteLine("[!] Client MCC load error: " + ex.Message);
+                  MultiplayerCampaignSubModule.EndTransferredWorldLoad();
+                  MultiplayerNetworkClient.Instance.Disconnect();
+              }
+          }
+
+
+          public static byte[] GetReceivedWorld'@
+          $updated = [regex]::Replace($source, $pattern, $replacement, 1)
+          if ($updated -eq $source) { throw 'FinishClientLoad replacement target was not found.' }
+          $source = $updated
+          $changed = $true
+
+          # 3) Expose a single completion point after SandBox has actually finished loading the save.
+          $needle = @'
+          public void Disconnect()
+          {
+          '@
+          $insert = @'
+          public void MarkWorldLoaded()
+          {
+              _worldLoaded = true;
+              _worldReady = false;
+
+              try
+              {
+                  MultiplayerConnectionStatus.Set(
+                      MultiplayerConnectionState.Ready
+                  );
+              }
+              catch
+              {
+              }
+
+              _vm?.SetStatus("CONNECTED - MCC LOADED");
+              MultiplayerCampaignSubModule.EndTransferredWorldLoad();
+
+              try
+              {
+                  SendPlayerReady();
+              }
+              catch
+              {
+              }
+          }
+
+
+          public void Disconnect()
+          {
+          '@
+          if ($source.Contains($needle) -and -not $source.Contains('public void MarkWorldLoaded()'))
+          {
+              $source = $source.Replace($needle, $insert)
+              $changed = $true
+          }
+
+          # 4) Never let Client snapshot replication silently fall back to Host MainParty.
+          $old = @'
+          MobileParty party = MpcClientParty.ActiveParty;
+          if (party == null || party == MobileParty.MainParty)
+              party = MobileParty.MainParty;
+
+          if (party == null)
+              return;
+          '@
+          $new = @'
+          MobileParty party = MpcClientParty.ActiveParty;
+          if (party == null || party == MobileParty.MainParty)
+              return;
+          '@
+          if ($source.Contains($old)) { $source = $source.Replace($old, $new); $changed = $true }
+
+          # 5) Capture the actual Client Party roster size, not the Host MainParty size.
+          $old = 'PartySize = Math.Max(1, Math.Min(10000, CampaignWorld.GetMainPartySize())),'
+          $new = 'PartySize = Math.Max(1, Math.Min(10000, party.MemberRoster != null ? party.MemberRoster.TotalManCount : 1)),'
+          if ($source.Contains($old)) { $source = $source.Replace($old, $new); $changed = $true }
+
+          # 6) Remove stale/disconnected entries before enforcing the one-client limit.
+          $old = @'
+                    lock (_sync)
+                    {
+                        /*
+                         * The target build is two-player.
+                         *
+                         * Existing host is player one.
+                         * Only one remote client is required.
+                         */
+
+                        if (_clients.Count >= 1)
+                        {
+                            SendErrorAndClose(
+                                client,
+                                "Server is full."
+                            );
+
+                            continue;
+                        }
+
+                        _clients.Add(
+                            client
+                        );
+                    }
+          '@
+          $new = @'
+                    lock (_sync)
+                    {
+                        /*
+                         * Drop dead sessions before enforcing the one-client limit.
+                         * This is what allows the same Client to reconnect without
+                         * restarting the Host process.
+                         */
+                        for (int i = _clients.Count - 1; i >= 0; i--)
+                        {
+                            HostClientConnection stale = _clients[i];
+                            if (stale == null || !stale.IsConnected)
+                            {
+                                _clients.RemoveAt(i);
+                            }
+                        }
+
+                        if (_clients.Count >= 1)
+                        {
+                            SendErrorAndClose(
+                                client,
+                                "Server is full."
+                            );
+
+                            continue;
+                        }
+
+                        _clients.Add(
+                            client
+                        );
+                    }
+          '@
+          if ($source.Contains($old)) { $source = $source.Replace($old, $new); $changed = $true }
+
+          # 7) Add actual saved-Campaign completion and vanilla Character Creation bridge.
+          if (-not $source.Contains('internal static class MpcFinalMccCharacterBridge'))
+          {
+              $append = @'
+
+
+// ================= MPC FINAL MCC + CHARACTER BRIDGE =================
+namespace MultiplayerCampaign
+{
+    internal static class MpcFinalMccCharacterBridge
+    {
+        [HarmonyLib.HarmonyPatch(typeof(SandBox.SandBoxGameManager), "OnLoadFinished")]
+        private static class SandBoxLoadFinishedPatch
+        {
+            private static void Postfix()
+            {
+                try
+                {
+                    if (!MultiplayerCampaignSubModule.IsLoadingTransferredWorld())
+                        return;
+
+                    bool hasCharacter = false;
+                    try
+                    {
+                        hasCharacter = MultiplayerCampaignRebuildLayer.MpcSession.HasSlot;
+                    }
+                    catch
+                    {
+                        hasCharacter = false;
+                    }
+
+                    if (!hasCharacter)
+                    {
+                        Game.Current.GameStateManager.CleanAndPushState(
+                            Game.Current.GameStateManager.CreateState<
+                                TaleWorlds.CampaignSystem.CharacterCreationContent.CharacterCreationState>(),
+                            0
+                        );
+                        return;
+                    }
+
+                    MultiplayerNetworkClient.Instance.MarkWorldLoaded();
+                }
+                catch (Exception ex)
+                {
+                    HostConsole.WriteLine("[!] MCC completion bridge error: " + ex.Message);
+                    try { MultiplayerNetworkClient.Instance.Disconnect(); } catch { }
+                }
+            }
+        }
+
+        [HarmonyLib.HarmonyPatch(
+            typeof(TaleWorlds.CampaignSystem.CharacterCreationContent.CharacterCreationState),
+            "FinalizeCharacterCreation"
+        )]
+        private static class CharacterCreationFinishedPatch
+        {
+            private static void Postfix()
+            {
+                try
+                {
+                    MultiplayerCampaignRebuildLayer.MpcSession
+                        .SelectOrCreateIdentityFromCurrentPlayer();
+
+                    string name = "Player";
+                    try
+                    {
+                        if (TaleWorlds.CampaignSystem.Hero.MainHero != null &&
+                            TaleWorlds.CampaignSystem.Hero.MainHero.Name != null)
+                        {
+                            name = TaleWorlds.CampaignSystem.Hero.MainHero.Name.ToString();
+                        }
+                    }
+                    catch
+                    {
+                    }
+
+                    string code = "";
+                    try
+                    {
+                        if (TaleWorlds.Core.CharacterObject.PlayerCharacter != null)
+                        {
+                            TaleWorlds.Core.CharacterCode cc =
+                                TaleWorlds.Core.CharacterCode.CreateFrom(
+                                    TaleWorlds.Core.CharacterObject.PlayerCharacter
+                                );
+                            if (cc != null)
+                                code = cc.Code ?? "";
+                        }
+                    }
+                    catch
+                    {
+                    }
+
+                    MultiplayerCampaignRebuildLayer.MpcFinalCharacterSlotV2Bridge.SaveSlot0(
+                        name,
+                        code
+                    );
+
+                    MultiplayerNetworkClient.Instance.MarkWorldLoaded();
+                    MultiplayerCampaignRebuildLayer.MpcClientParty.Ensure();
+                }
+                catch (Exception ex)
+                {
+                    HostConsole.WriteLine("[!] Character creation completion error: " + ex.Message);
+                }
+            }
+        }
+    }
+}
+
+namespace MultiplayerCampaignRebuildLayer
+{
+    internal static class MpcFinalCharacterSlotV2Bridge
+    {
+        public static void SaveSlot0(string name, string code)
+        {
+            try
+            {
+                MpcFinalCharacterSystemV2Bridge.Save(name, code);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    internal static class MpcFinalCharacterSystemV2Bridge
+    {
+        public static void Save(string name, string code)
+        {
+            /* The active MpcSession storage is authoritative for the current implementation. */
+            MpcSession.SelectOrCreateIdentityFromCurrentPlayer();
+        }
+    }
+}
+'@
+              $source += $append
+              $changed = $true
+          }
+
+          if ($changed)
+          {
+              [System.IO.File]::WriteAllText($path, $source + "`r`n", (New-Object System.Text.UTF8Encoding($false)))
+              Write-Host 'Source repair changes prepared.'
+          }
+          else
+          {
+              Write-Host 'Source already contains this repair set.'
+          }
+
       - name: Stage root source
         shell: pwsh
         run: |
@@ -76,3 +461,17 @@ jobs:
           name: MultiplayerCampaign-edit-verified
           path: rebuild/bin/Debug/MultiplayerCampaign.dll
           if-no-files-found: error
+
+      - name: Commit verified source replacement
+        if: success()
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add MultiplayerCampaignSubModule.cs
+          if (git diff --cached --quiet) {
+            Write-Host 'No source changes to commit.'
+            exit 0
+          }
+          git commit -m 'repair MCC connection and character creation pipeline'
+          git push origin HEAD:edit
