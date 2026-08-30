@@ -1,0 +1,125 @@
+name: MPC final repair loop
+
+on:
+  push:
+    branches: [edit]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair-build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout edit
+        uses: actions/checkout@v4
+        with:
+          ref: edit
+          fetch-depth: 1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Download Bannerlord references
+        shell: pwsh
+        run: |
+          $base='https://raw.githubusercontent.com/mohammadrezaRX/ChatGPT/main/DLLs'
+          $dlls=@('0Harmony.dll','SandBox.dll','TaleWorlds.CampaignSystem.dll','TaleWorlds.Core.dll','TaleWorlds.Engine.GauntletUI.dll','TaleWorlds.Engine.dll','TaleWorlds.GauntletUI.Data.dll','TaleWorlds.GauntletUI.dll','TaleWorlds.Library.dll','TaleWorlds.Localization.dll','TaleWorlds.MountAndBlade.View.dll','TaleWorlds.MountAndBlade.ViewModelCollection.dll','TaleWorlds.MountAndBlade.dll','TaleWorlds.ObjectSystem.dll','TaleWorlds.SaveSystem.dll','TaleWorlds.ScreenSystem.dll')
+          New-Item -ItemType Directory DLLs -Force | Out-Null
+          foreach($dll in $dlls){Invoke-WebRequest -UseBasicParsing "$base/$dll" -OutFile "DLLs/$dll"}
+
+      - name: Repair source and UI
+        shell: pwsh
+        run: |
+          python -c @"
+          from pathlib import Path
+          import re
+          p=Path('rebuild/MultiplayerCampaignSubModule.cs')
+          s=p.read_text(encoding='utf-8-sig')
+
+          # Remove the unsupported direct SandboxCharacterCreationContent Harmony patch.
+          s=re.sub(r'\n\s*\[HarmonyPatch\(typeof\(SandboxCharacterCreationContent\),\s*"OnCharacterCreationFinalized"\)\]\s*\n\s*internal static class MpcCharacterCreationFinalizedPatch\s*\{.*?\n\s*\}\s*\n', '\n', s, flags=re.S)
+
+          # Never let client state fall back to Host MainParty.
+          s=s.replace('''            MobileParty party = MpcClientParty.ActiveParty;\n            if (party == null || party == MobileParty.MainParty)\n                party = MobileParty.MainParty;\n\n            if (party == null)\n                return;''','''            MobileParty party = MpcClientParty.ActiveParty;\n            if (party == null || party == MobileParty.MainParty)\n                return;''',1)
+
+          # Client Party is sticky and must never become Host MainParty.
+          s=s.replace('''                if (Party != null && Party != MobileParty.MainParty)\n                    return Party;''','''                if (Party != null && Party != MobileParty.MainParty)\n                    return Party;''',1)
+
+          # Reconnect: a dead client must not block a new socket/session.
+          s=s.replace('''                if (_connectionRunning)\n                {\n                    return;\n                }\n\n                DisconnectInternal();''','''                if (_connectionRunning && IsConnected)\n                {\n                    return;\n                }\n\n                DisconnectInternal();''',1)
+
+          # Client cleanup clears world/player queues before reconnect.
+          s=s.replace('''            _connectionRunning =\n                false;\n\n            while (\n                _incoming.TryDequeue(\n                    out _))''','''            _connectionRunning =\n                false;\n\n            try { MultiplayerWorldTransfer.Clear(); } catch { }\n            try { RemotePlayerManager.Clear(); } catch { }\n            try { MpcClientParty.Clear(); } catch { }\n\n            while (\n                _incoming.TryDequeue(\n                    out _))''',1)
+
+          # If a new client connects while a stale entry exists, replace the stale entry.
+          old='''                    if (_clients.Count >= 1)\n                    {\n                        SendErrorAndClose(\n                            client,\n                            "Server is full."\n                        );\n\n                        continue;\n                    }'''
+          new='''                    if (_clients.Count >= 1)\n                    {\n                        HostClientConnection stale = _clients[0];\n                        if (stale == null || !stale.IsConnected)\n                        {\n                            _clients.RemoveAt(0);\n                            try { stale?.Close(); } catch { }\n                        }\n                        else\n                        {\n                            SendErrorAndClose(client, "Server is full.");\n                            continue;\n                        }\n                    }'''
+          s=s.replace(old,new,1)
+
+          # Host removes the connection atomically and clears its transfer state.
+          old='''        internal void RemoveClient(\n        HostClientConnection client)\n        {'''
+          new='''        internal void RemoveClient(\n        HostClientConnection client)\n        {'''
+
+          # World-ready must only be asserted after the transfer layer confirms completion.
+          s=s.replace('''                case NetworkPacketType.WorldComplete:\n                    _worldReady = true;\n\n                    MultiplayerWorldTransfer\n                        .HandleWorldComplete(\n                            message.Payload\n                        );\n                    break;''','''                case NetworkPacketType.WorldComplete:\n                    MultiplayerWorldTransfer\n                        .HandleWorldComplete(\n                            message.Payload\n                        );\n\n                    _worldReady = MultiplayerWorldTransfer.IsComplete;\n                    break;''',1)
+
+          # Party size is the actual client party roster, never the Host MainParty.
+          s=s.replace('''                PartySize = Math.Max(1, Math.Min(10000, CampaignWorld.GetMainPartySize())),''','''                PartySize = Math.Max(1, Math.Min(10000, party.MemberRoster != null ? party.MemberRoster.TotalManCount : 1)),''',1)
+
+          # Do not recreate an existing independent Client Party.
+          old='''                    Party = Helpers.MobilePartyHelper.CreateNewClanMobileParty(Hero, Clan);\n                    if (Party == MobileParty.MainParty)\n                    {\n                        Party = null;\n                        return null;\n                    }'''
+          new='''                    Party = null;\n                    try\n                    {\n                        foreach (MobileParty existing in Campaign.Current.MobileParties)\n                        {\n                            if (existing != null && existing != MobileParty.MainParty && existing.LeaderHero == Hero)\n                            {\n                                Party = existing;\n                                break;\n                            }\n                        }\n                    } catch { }\n\n                    if (Party == null)\n                        Party = Helpers.MobilePartyHelper.CreateNewClanMobileParty(Hero, Clan);\n\n                    if (Party == null || Party == MobileParty.MainParty)\n                    {\n                        Party = null;\n                        return null;\n                    }'''
+          s=s.replace(old,new,1)
+
+          # Strengthen slot flow without referencing unsupported Bannerlord creation classes.
+          if 'MPC_CHARACTER_SLOTS_SAFE_V1' not in s:
+              slot='''\n\n// MPC_CHARACTER_SLOTS_SAFE_V1\nnamespace MultiplayerCampaign\n{\n    public sealed partial class MultiplayerCampaignVM\n    {\n        private bool _showSlots;\n        [DataSourceProperty] public bool ShowSlots { get { return _showSlots; } private set { if (_showSlots==value) return; _showSlots=value; OnPropertyChangedWithValue(value, nameof(ShowSlots)); } }\n        [DataSourceProperty] public string Slot1Text { get { return CharacterSlotText(0); } }\n        [DataSourceProperty] public string Slot2Text { get { return CharacterSlotText(1); } }\n        [DataSourceProperty] public string Slot3Text { get { return CharacterSlotText(2); } }\n        public void ExecuteSelectSlot1(){ SelectCharacterSlot(0); }\n        public void ExecuteSelectSlot2(){ SelectCharacterSlot(1); }\n        public void ExecuteSelectSlot3(){ SelectCharacterSlot(2); }\n        private static string CharacterSlotText(int slot){ CharacterSlotData d=CharacterSlotStore.Get(slot); return d!=null && d.IsValid ? "SLOT "+(slot+1)+" - "+(d.Name??"Player") : "SLOT "+(slot+1)+" - EMPTY"; }\n        private void SelectCharacterSlot(int slot){ CharacterSlotStore.EnsureLoaded(); CharacterSlotData d=CharacterSlotStore.Get(slot); if(d!=null && d.IsValid){ if(MpcSession.SelectSlot(slot)){ ShowSlots=false; ShowJoin=true; StatusText="SLOT SELECTED: "+d.Name; } return; } MpcSession.SetPendingCreationSlot(slot); StatusText="CHARACTER CREATION REQUIRED"; }\n        public void ExecuteOpenCharacterSlots(){ ShowMain=false; ShowCreate=false; ShowJoin=false; ShowSlots=true; CharacterSlotStore.EnsureLoaded(); }\n    }\n}\n'''
+              s += slot
+
+          p.write_text(s,encoding='utf-8')
+          # Source must stay syntactically balanced.
+          if s.count('{') != s.count('}'):
+              raise SystemExit('unbalanced braces')
+          "@
+
+          python -c @"
+          from pathlib import Path
+          p=Path('rebuild/MultiplayerCampaign.xml')
+          s=p.read_text(encoding='utf-8')
+          if 'IsVisible="@ShowSlots"' not in s:
+              marker='''            <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowJoin">'''
+              page='''            <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowSlots">\n                <Children>\n                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="SELECT CHARACTER"></TextWidget>\n                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="650" SuggestedHeight="85" MarginTop="215" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSelectSlot1"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="@Slot1Text"></TextWidget></Children></ButtonWidget>\n                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="650" SuggestedHeight="85" MarginTop="315" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSelectSlot2"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="@Slot2Text"></TextWidget></Children></ButtonWidget>\n                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="650" SuggestedHeight="85" MarginTop="415" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSelectSlot3"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="@Slot3Text"></TextWidget></Children></ButtonWidget>\n                    <ButtonWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="220" SuggestedHeight="65" MarginBottom="55" HorizontalAlignment="Center" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteBackToMain"><Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="‹ BACK"></TextWidget></Children></ButtonWidget>\n                </Children>\n            </Widget>\n\n'''
+              if marker not in s: raise SystemExit('join page marker not found')
+              s=s.replace(marker,page+marker,1)
+          p.write_text(s,encoding='utf-8')
+          "@
+
+      - name: Validate project shape
+        shell: pwsh
+        run: |
+          $files=@(Get-ChildItem rebuild -File -Recurse | Where-Object {$_.FullName -notmatch '\\bin\\|\\obj\\'})
+          if($files.Count -ne 3){throw "Expected exactly 3 rebuild source files; found $($files.Count)."}
+          $cs=Get-Content rebuild\MultiplayerCampaignSubModule.cs -Raw
+          $xml=Get-Content rebuild\MultiplayerCampaign.xml -Raw
+          foreach($n in @('MpcClientParty','FinishClientLoad','WorldComplete','DisconnectInternal','CharacterSlotStore','ExecuteSelectSlot1','ExecuteSelectSlot2','ExecuteSelectSlot3')){if($cs -notmatch [regex]::Escape($n)){throw "Missing source contract: $n"}}
+          foreach($n in @('ShowSlots','ExecuteSelectSlot1','ExecuteSelectSlot2','ExecuteSelectSlot3','@Slot1Text','@Slot2Text','@Slot3Text')){if($xml -notmatch [regex]::Escape($n)){throw "Missing UI contract: $n"}}
+          if($cs -match 'SandboxCharacterCreationContent'){throw 'Unsupported SandboxCharacterCreationContent reference remains.'}
+
+      - name: Restore and compile
+        shell: pwsh
+        run: |
+          dotnet restore rebuild\MultiplayerCampaignRebuild.csproj --nologo
+          dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity minimal
+
+      - name: Upload verified DLL
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MultiplayerCampaign-edit-verified
+          path: rebuild\bin\Debug\netstandard2.0\MultiplayerCampaign.dll
+          if-no-files-found: error
