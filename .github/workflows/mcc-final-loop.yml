@@ -23,7 +23,11 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Stage source
+      - name: Apply MCC repair stage
+        shell: pwsh
+        run: python .\repair-mcc.py
+
+      - name: Stage root source
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force rebuild | Out-Null
@@ -68,7 +72,12 @@ jobs:
 
       - name: Build
         shell: pwsh
-        run: dotnet build rebuild\CI.csproj --no-restore --nologo --verbosity minimal
+        run: dotnet build rebuild\CI.csproj --no-restore --nologo --verbosity normal
+
+      - name: Remove temporary repair script
+        if: success()
+        shell: pwsh
+        run: Remove-Item 'repair-mcc.py' -Force
 
       - name: Upload verified DLL
         if: success()
@@ -77,3 +86,17 @@ jobs:
           name: MultiplayerCampaign-edit-verified
           path: rebuild/bin/Debug/MultiplayerCampaign.dll
           if-no-files-found: error
+
+      - name: Commit verified source replacement
+        if: success()
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add MultiplayerCampaignSubModule.cs
+          if (git diff --cached --quiet) {
+            Write-Host 'No source changes to commit.'
+            exit 0
+          }
+          git commit -m 'repair MCC and character join stage'
+          git push origin HEAD:edit
