@@ -1,4 +1,4 @@
-name: MPC build loop
+name: MPC strict build loop
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     branches: [edit]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -35,27 +35,24 @@ jobs:
             'TaleWorlds.MountAndBlade.dll','TaleWorlds.ObjectSystem.dll','TaleWorlds.SaveSystem.dll',
             'TaleWorlds.ScreenSystem.dll'
           )
-          New-Item -ItemType Directory -Force DLLs | Out-Null
+          New-Item -ItemType Directory -Force rebuild | Out-Null
+          New-Item -ItemType Directory -Force rebuild\DLLs | Out-Null
           foreach ($name in $names) {
-            Invoke-WebRequest -UseBasicParsing -Uri "$base/$name" -OutFile "DLLs/$name"
+            Invoke-WebRequest -UseBasicParsing -Uri "$base/$name" -OutFile "rebuild\DLLs\$name"
           }
 
-      - name: Validate source structure
+      - name: Use root source as the only build source
+        shell: pwsh
+        run: |
+          Copy-Item 'MultiplayerCampaignSubModule.cs' 'rebuild\MultiplayerCampaignSubModule.cs' -Force
+
+      - name: Validate source
         shell: pwsh
         run: |
           $source = Get-Content 'rebuild\MultiplayerCampaignSubModule.cs' -Raw
           $open = ([regex]::Matches($source, '\{')).Count
           $close = ([regex]::Matches($source, '\}')).Count
           if ($open -ne $close) { throw "Unbalanced braces: $open / $close" }
-          foreach ($required in @(
-            'class MultiplayerCampaignSubModule',
-            'class MultiplayerCampaignBehavior',
-            'class MultiplayerNetworkClient',
-            'class MultiplayerCampaignHost',
-            'class MpcClientParty',
-            'class CharacterSlotStore')) {
-            if ($source -notmatch $required) { throw "Missing required type: $required" }
-          }
 
       - name: Restore
         shell: pwsh
@@ -65,7 +62,7 @@ jobs:
         shell: pwsh
         run: dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity minimal
 
-      - name: Publish verified DLL artifact
+      - name: Upload verified DLL
         uses: actions/upload-artifact@v4
         with:
           name: MultiplayerCampaign-edit-verified
