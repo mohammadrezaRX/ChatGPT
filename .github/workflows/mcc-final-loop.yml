@@ -52,16 +52,13 @@ jobs:
           </Project>
           '@ | Set-Content 'rebuild\CI.csproj' -Encoding UTF8
 
-      - name: Validate source structure
+      - name: Validate braces
         shell: pwsh
         run: |
           $source = Get-Content 'rebuild\MultiplayerCampaignSubModule.cs' -Raw
           $open = ([regex]::Matches($source, '\{')).Count
           $close = ([regex]::Matches($source, '\}')).Count
           if ($open -ne $close) { throw "Unbalanced braces: $open / $close" }
-          if ($source -match '(?m)^using\s+MultiplayerCampaign;\s*$' -and $source -match '(?m)^namespace\s+MultiplayerCampaign\RebuildLayer') {
-            Write-Host 'Nested rebuild namespace/import detected; continuing to compiler diagnostics.'
-          }
 
       - name: Restore
         shell: pwsh
