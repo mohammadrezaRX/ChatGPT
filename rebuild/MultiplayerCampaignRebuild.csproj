@@ -12,8 +12,8 @@
     <OutputPath>bin\Debug\netstandard2.0\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <NoWarn>MSB3277</NoWarn>
+    <MpcLoopRevision>Reconnect-PartyAB-CharacterSlots</MpcLoopRevision>
 
-    <!-- Prefer repository-local DLLs (CI), otherwise use the user's Desktop cache. -->
     <BannerlordDllRoot Condition="'$(BannerlordDllRoot)' == '' and Exists('$(ProjectDir)..\DLLs\')">$(ProjectDir)..\DLLs\</BannerlordDllRoot>
     <BannerlordDllRoot Condition="'$(BannerlordDllRoot)' == '' and Exists('$(ProjectDir)..\..\..\..\MAB DLLs\')">$(ProjectDir)..\..\..\..\MAB DLLs\</BannerlordDllRoot>
     <BannerlordDllRoot Condition="'$(BannerlordDllRoot)' == ''">$(ProjectDir)..\DLLs\</BannerlordDllRoot>
@@ -126,8 +126,3 @@
   </Target>
 
 </Project>
-
-
-
-
-
