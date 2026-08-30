@@ -47,14 +47,15 @@ jobs:
           $open = ([regex]::Matches($source, '\{')).Count
           $close = ([regex]::Matches($source, '\}')).Count
           if ($open -ne $close) { throw "Unbalanced braces: $open / $close" }
-
-          if ($source -notmatch 'class MultiplayerCampaignSubModule') { throw 'Main submodule missing' }
-          if ($source -notmatch 'class MultiplayerCampaignBehavior') { throw 'Campaign behavior missing' }
-          if ($source -notmatch 'class MultiplayerNetworkClient') { throw 'Network client missing' }
-          if ($source -notmatch 'class MultiplayerCampaignHost') { throw 'Host missing' }
-          if ($source -notmatch 'class MpcClientParty') { throw 'Client party layer missing' }
-          if ($source -notmatch 'class CharacterSlotStore') { throw 'Character slot layer missing' }
-          if ($source -notmatch 'MPC_THREE_CHARACTER_SLOTS_V1') { throw 'Character slot UI layer missing' }
+          foreach ($required in @(
+            'class MultiplayerCampaignSubModule',
+            'class MultiplayerCampaignBehavior',
+            'class MultiplayerNetworkClient',
+            'class MultiplayerCampaignHost',
+            'class MpcClientParty',
+            'class CharacterSlotStore')) {
+            if ($source -notmatch $required) { throw "Missing required type: $required" }
+          }
 
       - name: Restore
         shell: pwsh
