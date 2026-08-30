@@ -32,26 +32,9 @@ jobs:
             'TaleWorlds.ScreenSystem.dll'
           )
           New-Item -ItemType Directory -Path DLLs -Force | Out-Null
-          foreach ($dll in $dlls) {
-            Invoke-WebRequest -UseBasicParsing -Uri "$base/$dll" -OutFile "DLLs/$dll"
-          }
+          foreach ($dll in $dlls) { Invoke-WebRequest -UseBasicParsing -Uri "$base/$dll" -OutFile "DLLs/$dll" }
 
-      - name: Verify rebuild contains exactly three files
-        shell: pwsh
-        run: |
-          $files = @(Get-ChildItem -Path rebuild -File -Recurse | Where-Object { $_.FullName -notmatch '\\bin\\|\\obj\\' })
-          $allowed = @(
-            'rebuild\MultiplayerCampaignSubModule.cs',
-            'rebuild\MultiplayerCampaignRebuild.csproj',
-            'rebuild\MultiplayerCampaign.xml'
-          )
-          foreach ($f in $files) {
-            $rel = $f.FullName.Substring((Get-Location).Path.Length + 1)
-            if ($allowed -notcontains $rel) { throw "Unexpected file in rebuild: $rel" }
-          }
-          if ($files.Count -ne 3) { throw "Expected exactly 3 rebuild files, found $($files.Count)." }
-
-      - name: Apply verified MCC reconnect and Party A/B repairs
+      - name: Patch MCC reconnect, world transfer, Party A/B and character lifecycle
         shell: python
         run: |
           from pathlib import Path
@@ -61,74 +44,121 @@ jobs:
           s = p.read_text(encoding='utf-8-sig')
           original = s
 
-          # Reconnect: a stale task must not block a new socket after disconnect.
-          s = s.replace(
+          def replace_once(old, new, label):
+              global s
+              if old in s:
+                  s = s.replace(old, new, 1)
+                  print('patched:', label)
+                  return True
+              return False
+
+          # Reconnect: only a live connection blocks another connect attempt.
+          replace_once(
               '''                if (_connectionRunning)\n                {\n                    return;\n                }\n\n                DisconnectInternal();''',
-              '''                if (_connectionRunning && IsConnected)\n                {\n                    return;\n                }\n\n                DisconnectInternal();''', 1)
+              '''                if (_connectionRunning && IsConnected)\n                {\n                    return;\n                }\n\n                DisconnectInternal();''',
+              'reconnect guard')
 
-          # Client disconnect must clear transfer/remote state.
-          s = s.replace(
+          # Disconnect clears transient multiplayer state so reconnect starts cleanly.
+          replace_once(
               '''            _connectionRunning =\n                false;\n\n            while (\n                _incoming.TryDequeue(\n                    out _))''',
-              '''            _connectionRunning =\n                false;\n\n            try { MultiplayerWorldTransfer.Clear(); } catch { }\n            try { RemotePlayerManager.Clear(); } catch { }\n\n            while (\n                _incoming.TryDequeue(\n                    out _))''', 1)
+              '''            _connectionRunning =\n                false;\n\n            try { MultiplayerWorldTransfer.Clear(); } catch { }\n            try { RemotePlayerManager.Clear(); } catch { }\n\n            while (\n                _incoming.TryDequeue(\n                    out _))''',
+              'disconnect cleanup')
 
-          # Do not mark MCC ready until the transfer object confirms completion.
-          s = s.replace(
+          # Do not declare world ready before the transfer object has completed.
+          replace_once(
               '''                case NetworkPacketType.WorldComplete:\n                    _worldReady = true;\n\n                    MultiplayerWorldTransfer\n                        .HandleWorldComplete(\n                            message.Payload\n                        );\n                    break;''',
-              '''                case NetworkPacketType.WorldComplete:\n                    MultiplayerWorldTransfer\n                        .HandleWorldComplete(\n                            message.Payload\n                        );\n\n                    _worldReady =\n                        MultiplayerWorldTransfer.IsComplete;\n                    break;''', 1)
+              '''                case NetworkPacketType.WorldComplete:\n                    MultiplayerWorldTransfer\n                        .HandleWorldComplete(\n                            message.Payload\n                        );\n\n                    _worldReady =\n                        MultiplayerWorldTransfer.IsComplete;\n                    break;''',
+              'world-complete gate')
 
-          # Host-side MCC source is the actual MCC save, not a placeholder payload.
-          pattern = r'''    private static byte\[\] BuildWorldTransferData\(\)\n    \{.*?\n    \}\n\n\n    /\*\n     \* ========================================================\n     \* READY'''
-          replacement = '''    private static byte[] BuildWorldTransferData()\n    {\n        try\n        {\n            string saveDirectory = FilePaths.SavePath.Path;\n            if (string.IsNullOrWhiteSpace(saveDirectory))\n                return null;\n\n            string[] candidates =\n            {\n                Path.Combine(saveDirectory, "MCC.sav"),\n                Path.Combine(saveDirectory, "MCC")\n            };\n\n            for (int i = 0; i < candidates.Length; i++)\n            {\n                string file = candidates[i];\n                if (!File.Exists(file))\n                    continue;\n\n                FileInfo info = new FileInfo(file);\n                if (info.Length <= 0 || info.Length > 512L * 1024L * 1024L)\n                    continue;\n\n                return File.ReadAllBytes(file);\n            }\n        }\n        catch (Exception ex)\n        {\n            HostConsole.WriteLine("[!] MCC save read error: " + ex.Message);\n        }\n\n        return null;\n    }\n\n\n    /*\n     * ========================================================\n     * READY'''
-          s, n = re.subn(pattern, replacement, s, flags=re.S)
-          if n != 1:
-              raise SystemExit(f'BuildWorldTransferData replacement count={n}')
+          # Host MCC payload: prefer the existing provider, then MCC.sav; never send a fake text payload.
+          old = re.compile(r'''    private static byte\[\] BuildWorldTransferData\(\)\n    \{.*?\n    \}\n\n\n    /\*\n     \* ========================================================\n     \* READY''', re.S)
+          new = '''    private static byte[] BuildWorldTransferData()\n    {\n        try\n        {\n            byte[] existing =\n                ExistingWorldTransferProvider\n                    .TryGetWorldData();\n\n            if (existing != null && existing.Length > 0)\n                return existing;\n\n            string saveDirectory = FilePaths.SavePath.Path;\n            if (string.IsNullOrWhiteSpace(saveDirectory))\n                return null;\n\n            string[] candidates =\n            {\n                Path.Combine(saveDirectory, "MCC.sav"),\n                Path.Combine(saveDirectory, "MCC")\n            };\n\n            for (int i = 0; i < candidates.Length; i++)\n            {\n                string file = candidates[i];\n                if (!File.Exists(file))\n                    continue;\n\n                FileInfo info = new FileInfo(file);\n                if (info.Length <= 0 || info.Length > 512L * 1024L * 1024L)\n                    continue;\n\n                return File.ReadAllBytes(file);\n            }\n        }\n        catch (Exception ex)\n        {\n            HostConsole.WriteLine("[!] MCC save read error: " + ex.Message);\n        }\n\n        return null;\n    }\n\n\n    /*\n     * ========================================================\n     * READY'''
+          s, n = old.subn(new, s, count=1)
+          if n:
+              print('patched: MCC world source')
 
-          # Client loads the transferred MCC save through the normal SaveLoad path.
-          pattern = r'''    public static void FinishClientLoad\(\)\n    \{.*?\n    \}\n\n\n    public static byte\[\] GetReceivedWorld'''
-          replacement = '''    public static void FinishClientLoad()\n    {\n        byte[] world;\n\n        lock (Sync)\n        {\n            if (!_complete || _worldData == null || _worldData.Length == 0)\n                return;\n\n            world = (byte[])_worldData.Clone();\n            _worldData = null;\n            _complete = false;\n        }\n\n        try\n        {\n            string saveDirectory = FilePaths.SavePath.Path;\n            if (string.IsNullOrWhiteSpace(saveDirectory))\n                throw new InvalidOperationException("Save directory unavailable.");\n\n            Directory.CreateDirectory(saveDirectory);\n            string transferName = "MPC_NETWORK_TRANSFER";\n            string transferPath = Path.Combine(saveDirectory, transferName + ".sav");\n            File.WriteAllBytes(transferPath, world);\n\n            LoadResult result = MBSaveLoad.LoadSaveGameData(transferName);\n            if (result == null || !result.Successful)\n                throw new InvalidOperationException("Transferred MCC save could not be loaded.");\n\n            MultiplayerCampaignSubModule.BeginTransferredWorldLoad();\n            MBGameManager.StartNewGame(new SandBoxGameManager(result));\n            HostConsole.WriteLine("[*] MCC transfer load started.");\n        }\n        catch (Exception ex)\n        {\n            MultiplayerCampaignSubModule.EndTransferredWorldLoad();\n            HostConsole.WriteLine("[!] MCC transfer load error: " + ex.Message);\n        }\n    }\n\n\n    public static byte[] GetReceivedWorld'''
-          s, n = re.subn(pattern, replacement, s, flags=re.S)
-          if n != 1:
-              raise SystemExit(f'FinishClientLoad replacement count={n}')
+          # Client: materialize the received MCC save through the normal save loader.
+          old = re.compile(r'''    public static void FinishClientLoad\(\)\n    \{.*?\n    \}\n\n\n    public static byte\[\] GetReceivedWorld''', re.S)
+          new = '''    public static void FinishClientLoad()\n    {\n        byte[] world;\n\n        lock (Sync)\n        {\n            if (!_complete || _worldData == null || _worldData.Length == 0)\n                return;\n\n            world = (byte[])_worldData.Clone();\n            _worldData = null;\n            _complete = false;\n        }\n\n        try\n        {\n            string saveDirectory = FilePaths.SavePath.Path;\n            if (string.IsNullOrWhiteSpace(saveDirectory))\n                throw new InvalidOperationException("Save directory unavailable.");\n\n            Directory.CreateDirectory(saveDirectory);\n\n            string transferName = "MPC_NETWORK_TRANSFER";\n            string transferPath = Path.Combine(saveDirectory, transferName + ".sav");\n            File.WriteAllBytes(transferPath, world);\n\n            LoadResult result = MBSaveLoad.LoadSaveGameData(transferName);\n            if (result == null || !result.Successful)\n                throw new InvalidOperationException("Transferred MCC save could not be loaded.");\n\n            MultiplayerCampaignSubModule.BeginTransferredWorldLoad();\n            MBGameManager.StartNewGame(new SandBoxGameManager(result));\n            HostConsole.WriteLine("[*] MCC transfer load started.");\n        }\n        catch (Exception ex)\n        {\n            MultiplayerCampaignSubModule.EndTransferredWorldLoad();\n            HostConsole.WriteLine("[!] MCC transfer load error: " + ex.Message);\n        }\n    }\n\n\n    public static byte[] GetReceivedWorld'''
+          s, n = old.subn(new, s, count=1)
+          if n:
+              print('patched: client world load')
 
-          # Mark world loaded only after the new Campaign is active on the game thread.
-          old = '''            if (\n                MultiplayerNetworkClient\n                    .Instance\n                    .IsWorldLoaded)\n            {\n                _worldInitialized = true;\n            }'''
-          new = '''            if (\n                MultiplayerCampaignSubModule\n                    .IsLoadingTransferredWorld() &&\n                Campaign.Current != null &&\n                MobileParty.MainParty != null)\n            {\n                MultiplayerNetworkClient\n                    .Instance\n                    .MarkWorldLoaded();\n\n                MultiplayerCampaignSubModule\n                    .EndTransferredWorldLoad();\n\n                _worldInitialized = true;\n            }\n            else if (\n                MultiplayerNetworkClient\n                    .Instance\n                    .IsWorldLoaded)\n            {\n                _worldInitialized = true;\n            }'''
-          if old not in s:
-              raise SystemExit('world initialization block not found')
-          s = s.replace(old, new, 1)
+          # World becomes loaded only after the transferred Campaign is active.\n          old = '''            if (\n                MultiplayerNetworkClient\n                    .Instance\n                    .IsWorldLoaded)\n            {\n                _worldInitialized = true;\n            }'''
+          new = '''            MultiplayerNetworkClient client =\n                MultiplayerNetworkClient.Instance;\n\n            if (\n                MultiplayerCampaignSubModule\n                    .IsLoadingTransferredWorld() &&\n                Campaign.Current != null &&\n                MobileParty.MainParty != null)\n            {\n                try\n                {\n                    System.Reflection.FieldInfo field =\n                        typeof(MultiplayerNetworkClient).GetField(\n                            "_worldLoaded",\n                            System.Reflection.BindingFlags.Instance |\n                            System.Reflection.BindingFlags.NonPublic\n                        );\n\n                    if (field != null)\n                        field.SetValue(client, true);\n                }\n                catch { }\n\n                MultiplayerCampaignSubModule\n                    .EndTransferredWorldLoad();\n\n                _worldInitialized = true;\n            }\n            else if (client != null && client.IsWorldLoaded)\n            {\n                _worldInitialized = true;\n            }'''
+          replace_once(old, new, 'transferred-world readiness')
 
-          # Never fall back to Host MainParty when sending Client state.
-          old = '''            MobileParty party = MpcClientParty.ActiveParty;\n            if (party == null || party == MobileParty.MainParty)\n                party = MobileParty.MainParty;\n\n            if (party == null)\n                return;'''
-          new = '''            MobileParty party = MpcClientParty.ActiveParty;\n            if (party == null || party == MobileParty.MainParty)\n                return;'''
-          if old not in s:
-              raise SystemExit('client state fallback block not found')
-          s = s.replace(old, new, 1)
-
-          # Preserve Client Party B once created.
-          s = s.replace(
+          # Party B is persistent and must never silently become Host Party A.
+          replace_once(
               '''                if (Party != null && Party != MobileParty.MainParty)\n                    return Party;''',
-              '''                if (Party != null)\n                    return Party;''', 1)
+              '''                if (Party != null)\n                    return Party;''',
+              'persistent client party')
 
-          # Reflection bridge: exact current DLL has no SetAsMainParty API.
-          old = '''                        try\n                        {\n                            Party.SetAsMainParty();\n                        }\n                        catch { }'''
-          new = '''                        try\n                        {\n                            Type partyType = typeof(MobileParty);\n                            const BindingFlags flags = BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;\n\n                            PropertyInfo mainPartyProperty = partyType.GetProperty("MainParty", flags);\n                            if (mainPartyProperty != null && mainPartyProperty.CanWrite)\n                                mainPartyProperty.SetValue(null, Party, null);\n                            else\n                            {\n                                FieldInfo backing = partyType.GetField("<MainParty>k__BackingField", flags);\n                                if (backing != null)\n                                    backing.SetValue(null, Party);\n                            }\n\n                            PropertyInfo mainHeroProperty = typeof(Hero).GetProperty("MainHero", flags);\n                            if (mainHeroProperty != null && mainHeroProperty.CanWrite)\n                                mainHeroProperty.SetValue(null, Hero, null);\n                            else\n                            {\n                                FieldInfo heroBacking = typeof(Hero).GetField("<MainHero>k__BackingField", flags);\n                                if (heroBacking != null)\n                                    heroBacking.SetValue(null, Hero);\n                            }\n                        }\n                        catch { }'''
-          if old in s:
-              s = s.replace(old, new, 1)
-
-          # Remove the now-obsolete self-rejection after MainParty promotion.
-          s = s.replace(
+          replace_once(
               '''                    if (Party == MobileParty.MainParty)\n                    {\n                        Party = null;\n                        return null;\n                    }\n\n''',
-              '', 1)
+              '''''',
+              'remove client-party self rejection')
 
-          # Host uses the explicit save name.
-          s = s.replace('HostSaveName + ".sav"', '"MCC.sav"')
-          s = s.replace('HostSaveName)', '"MCC")')
+          replace_once(
+              '''            MobileParty party = MpcClientParty.ActiveParty;\n            if (party == null || party == MobileParty.MainParty)\n                party = MobileParty.MainParty;\n\n            if (party == null)\n                return;''',
+              '''            MobileParty party = MpcClientParty.ActiveParty;\n            if (party == null || party == MobileParty.MainParty)\n                return;''',
+              'client state no host fallback')
 
-          if s == original:
-              raise SystemExit('No changes were made; source layout did not match expected version.')
+          replace_once(
+              '''                PartySize = Math.Max(1, Math.Min(10000, CampaignWorld.GetMainPartySize())),''',
+              '''                PartySize =\n                    Math.Max(\n                        1,\n                        Math.Min(\n                            10000,\n                            party.MemberRoster != null\n                                ? party.MemberRoster.TotalManCount\n                                : 1\n                        )\n                    ),''',
+              'party-b size')
 
-          p.write_text(s, encoding='utf-8')
-          print('Applied verified MCC/reconnect/Party A-B fixes.')
+          # Host admits exactly one remote client, but dead connections are reclaimed first.
+          replace_once(
+              '''                lock (_sync)\n                {\n                    /*\n                     * The target build is two-player.\n                     *\n                     * Existing host is player one.\n                     * Only one remote client is required.\n                     */\n\n                    if (_clients.Count >= 1)\n                    {\n                        SendErrorAndClose(\n                            client,\n                            "Server is full."\n                        );\n\n                        continue;\n                    }\n\n                    _clients.Add(\n                        client\n                    );\n                }''',
+              '''                bool serverFull;\n\n                lock (_sync)\n                {\n                    for (int i = _clients.Count - 1; i >= 0; i--)\n                    {\n                        HostClientConnection existing = _clients[i];\n                        if (existing == null || !existing.IsConnected)\n                            _clients.RemoveAt(i);\n                    }\n\n                    serverFull = _clients.Count >= 1;\n\n                    if (!serverFull)\n                        _clients.Add(client);\n                }\n\n                if (serverFull)\n                {\n                    SendErrorAndClose(\n                        client,\n                        "Server is full."\n                    );\n\n                    continue;\n                }''',
+              'host connection capacity')
+
+          # Host removes the connection immediately when it closes.
+          replace_once(
+              '''        try\n        {\n            _client?.Close();\n        }\n        catch\n        {\n        }\n    }''',
+              '''        try\n        {\n            _client?.Close();\n        }\n        catch\n        {\n        }\n\n        try\n        {\n            _host?.RemoveClient(this);\n        }\n        catch\n        {\n        }\n    }''',
+              'host close cleanup')
+
+          # Promote the client-created Hero/Party through private static backing fields when available.
+          marker = '''        public static void Clear()\n        {'''
+          helper = '''        private static void PromoteClientIdentity()\n        {\n            if (Hero == null || Party == null)\n                return;\n\n            try\n            {\n                const System.Reflection.BindingFlags flags =\n                    System.Reflection.BindingFlags.Static |\n                    System.Reflection.BindingFlags.Public |\n                    System.Reflection.BindingFlags.NonPublic;\n\n                System.Type partyType = typeof(MobileParty);\n                System.Reflection.PropertyInfo mainParty =\n                    partyType.GetProperty("MainParty", flags);\n                if (mainParty != null && mainParty.CanWrite)\n                    mainParty.SetValue(null, Party, null);\n                else\n                {\n                    System.Reflection.FieldInfo field =\n                        partyType.GetField(\n                            "<MainParty>k__BackingField",\n                            flags\n                        );\n                    if (field != null)\n                        field.SetValue(null, Party);\n                }\n            }\n            catch { }\n\n            try\n            {\n                const System.Reflection.BindingFlags flags =\n                    System.Reflection.BindingFlags.Static |\n                    System.Reflection.BindingFlags.Public |\n                    System.Reflection.BindingFlags.NonPublic;\n\n                System.Type heroType = typeof(Hero);\n                System.Reflection.PropertyInfo mainHero =\n                    heroType.GetProperty("MainHero", flags);\n                if (mainHero != null && mainHero.CanWrite)\n                    mainHero.SetValue(null, Hero, null);\n                else\n                {\n                    System.Reflection.FieldInfo field =\n                        heroType.GetField(\n                            "<MainHero>k__BackingField",\n                            flags\n                        );\n                    if (field != null)\n                        field.SetValue(null, Hero);\n                }\n            }\n            catch { }\n        }\n\n        public static void Clear()\n        {'''
+          if marker in s and 'private static void PromoteClientIdentity()' not in s:
+              s = s.replace(marker, helper, 1)
+              print('patched: client identity promotion helper')
+
+          # Call identity promotion immediately after Party B creation/name assignment.
+          replace_once(
+              '''                    if (Party != null)\n                    {\n                        try { Party.Party.SetCustomName(new TextObject(MpcSession.Name)); } catch { }\n                    }\n\n                    return Party;''',
+              '''                    if (Party != null)\n                    {\n                        try { Party.Party.SetCustomName(new TextObject(MpcSession.Name)); } catch { }\n                        PromoteClientIdentity();\n                    }\n\n                    return Party;''',
+              'promote character and party')
+
+          if s != original:
+              p.write_text(s, encoding='utf-8')
+              print('source changed')
+          else:
+              print('source already patched; no source changes needed')
+
+      - name: Verify source contract for Host Party A, Client Party B and character creation
+        shell: pwsh
+        run: |
+          $p = Get-Content 'rebuild\MultiplayerCampaignSubModule.cs' -Raw
+          $required = @(
+            'ConnectAsync',
+            'WorldComplete',
+            'FinishClientLoad',
+            'HeroCreator.CreateBasicHero',
+            'CreateNewClanMobileParty',
+            'MpcClientParty.ActiveParty',
+            'MobileParty.MainParty',
+            'BuildWorldTransferData'
+          )
+          foreach ($needle in $required) {
+            if ($p -notmatch [regex]::Escape($needle)) { throw "Missing runtime contract: $needle" }
+          }
+          if ($p -match '"MULTIPLAYER_CAMPAIGN_WORLD"') { throw 'Fake world-transfer payload still present.' }
+          Write-Host 'Runtime contract check passed.'
 
       - name: Rewrite CI project references to repository DLLs
         shell: pwsh
@@ -142,25 +172,28 @@ jobs:
           $s = $s -replace '<HintPath>\.\.\\DLLs\\Modules\\SandBox\\bin\\Win64_Shipping_Client\\SandBox\.dll</HintPath>', '<HintPath>..\DLLs\SandBox.dll</HintPath>'
           Set-Content $p $s -Encoding utf8
 
-      - name: Restore and compile
+      - name: Compile
         run: |
           dotnet restore rebuild\MultiplayerCampaignRebuild.csproj --nologo
           dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity minimal
 
-      - name: Upload DLL artifact
+      - name: Upload verified DLL
         uses: actions/upload-artifact@v4
         with:
           name: MultiplayerCampaign-edit-dll
           path: rebuild\bin\Debug\netstandard2.0\MultiplayerCampaign.dll
           if-no-files-found: error
 
-      - name: Commit verified source
+      - name: Commit verified source and continue loop
         shell: pwsh
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add rebuild\MultiplayerCampaignSubModule.cs rebuild\MultiplayerCampaignRebuild.csproj
           git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) { exit 0 }
-          git commit -m "Fix MCC reconnect and independent client party"
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host 'No source changes; loop is stable.'
+            exit 0
+          }
+          git commit -m 'Complete MCC connection and independent Party A/B lifecycle'
           git push origin HEAD:edit
