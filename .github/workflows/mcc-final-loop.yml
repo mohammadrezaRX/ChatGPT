@@ -74,5 +74,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MultiplayerCampaign-edit-verified
-          path: rebuild/bin/Debug/netstandard2.0/MultiplayerCampaign.dll
+          path: rebuild/bin/Debug/MultiplayerCampaign.dll
           if-no-files-found: error
