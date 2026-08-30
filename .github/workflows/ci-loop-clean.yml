@@ -1,0 +1,116 @@
+name: MPC clean compile loop
+
+on:
+  push:
+    branches: [edit]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: edit
+          fetch-depth: 1
+
+      - name: Download Bannerlord DLLs
+        shell: pwsh
+        run: |
+          $base = 'https://raw.githubusercontent.com/mohammadrezaRX/ChatGPT/main/DLLs'
+          $dlls = @(
+            '0Harmony.dll','SandBox.dll','TaleWorlds.CampaignSystem.dll','TaleWorlds.Core.dll',
+            'TaleWorlds.Engine.GauntletUI.dll','TaleWorlds.Engine.dll','TaleWorlds.GauntletUI.Data.dll',
+            'TaleWorlds.GauntletUI.dll','TaleWorlds.Library.dll','TaleWorlds.Localization.dll',
+            'TaleWorlds.MountAndBlade.View.dll','TaleWorlds.MountAndBlade.ViewModelCollection.dll',
+            'TaleWorlds.MountAndBlade.dll','TaleWorlds.ObjectSystem.dll','TaleWorlds.SaveSystem.dll',
+            'TaleWorlds.ScreenSystem.dll'
+          )
+          New-Item -ItemType Directory -Path DLLs -Force | Out-Null
+          foreach ($dll in $dlls) {
+            Invoke-WebRequest -UseBasicParsing -Uri "$base/$dll" -OutFile "DLLs/$dll"
+          }
+
+      - name: Patch only verified compile defects
+        shell: pwsh
+        run: |
+          $p = 'rebuild\MultiplayerCampaignSubModule.cs'
+          $s = Get-Content $p -Raw
+
+          $s = $s.Replace(
+            'private const string HostSaveName =',
+            'internal const string HostSaveName =',
+            [System.StringComparison]::Ordinal)
+
+          $s = $s.Replace(
+            'Path.Combine(saveDirectory, HostSaveName + ".sav")',
+            'Path.Combine(saveDirectory, MultiplayerCampaignSubModule.HostSaveName + ".sav")',
+            [System.StringComparison]::Ordinal)
+
+          $s = $s.Replace(
+            'Path.Combine(saveDirectory, HostSaveName)',
+            'Path.Combine(saveDirectory, MultiplayerCampaignSubModule.HostSaveName)',
+            [System.StringComparison]::Ordinal)
+
+          $s = $s.Replace(
+            '                        try { Party.SetAsMainParty(); } catch { }\r\n',
+            '',
+            [System.StringComparison]::Ordinal)
+          $s = $s.Replace(
+            '                        try { Party.SetAsMainParty(); } catch { }\n',
+            '',
+            [System.StringComparison]::Ordinal)
+
+          Set-Content $p $s -Encoding utf8
+
+      - name: Verify rebuild contains exactly three files
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem rebuild -File -Recurse | Where-Object { $_.FullName -notmatch '\\bin\\|\\obj\\' })
+          $allowed = @(
+            'rebuild\MultiplayerCampaignSubModule.cs',
+            'rebuild\MultiplayerCampaignRebuild.csproj',
+            'rebuild\MultiplayerCampaign.xml'
+          )
+          foreach ($f in $files) {
+            $rel = $f.FullName.Substring((Get-Location).Path.Length + 1)
+            if ($allowed -notcontains $rel) { throw "Unexpected rebuild file: $rel" }
+          }
+          if ($files.Count -ne 3) { throw "Expected exactly 3 rebuild files, found $($files.Count)." }
+
+      - name: Restore and compile
+        run: |
+          dotnet restore rebuild\MultiplayerCampaignRebuild.csproj --nologo
+          dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity minimal
+
+      - name: Verify runtime contracts
+        shell: pwsh
+        run: |
+          $s = Get-Content 'rebuild\MultiplayerCampaignSubModule.cs' -Raw
+          $required = @(
+            'LoadHostCampaign',
+            'ConnectAsync',
+            'WorldComplete',
+            'FinishClientLoad',
+            'MpcClientParty',
+            'HeroCreator.CreateBasicHero',
+            'CreateNewClanMobileParty',
+            'NetworkPacketType',
+            'MultiplayerNetworkClient',
+            'MultiplayerCampaignBehavior'
+          )
+          foreach ($x in $required) {
+            if ($s -notmatch [regex]::Escape($x)) { throw "Missing contract: $x" }
+          }
+          if ($s -match 'party = MobileParty.MainParty;') { throw 'Forbidden client fallback to Host MainParty remains.' }
+
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: MultiplayerCampaign-edit-dll
+          path: rebuild\bin\Debug\netstandard2.0\MultiplayerCampaign.dll
+          if-no-files-found: error
