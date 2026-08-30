@@ -1,0 +1,210 @@
+name: MPC final repair loop
+
+on:
+  push:
+    branches: [edit]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  final-loop:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout edit
+        uses: actions/checkout@v4
+        with:
+          ref: edit
+          fetch-depth: 1
+
+      - name: Download Bannerlord DLL references
+        shell: pwsh
+        run: |
+          $base = 'https://raw.githubusercontent.com/mohammadrezaRX/ChatGPT/main/DLLs'
+          $dlls = @(
+            '0Harmony.dll','SandBox.dll','TaleWorlds.CampaignSystem.dll','TaleWorlds.Core.dll',
+            'TaleWorlds.Engine.GauntletUI.dll','TaleWorlds.Engine.dll','TaleWorlds.GauntletUI.Data.dll',
+            'TaleWorlds.GauntletUI.dll','TaleWorlds.Library.dll','TaleWorlds.Localization.dll',
+            'TaleWorlds.MountAndBlade.View.dll','TaleWorlds.MountAndBlade.ViewModelCollection.dll',
+            'TaleWorlds.MountAndBlade.dll','TaleWorlds.ObjectSystem.dll','TaleWorlds.SaveSystem.dll',
+            'TaleWorlds.ScreenSystem.dll'
+          )
+          New-Item -ItemType Directory -Path DLLs -Force | Out-Null
+          foreach ($dll in $dlls) {
+            Invoke-WebRequest -UseBasicParsing -Uri "$base/$dll" -OutFile "DLLs/$dll"
+          }
+
+      - name: Apply deterministic source repair
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p = Path('rebuild/MultiplayerCampaignSubModule.cs')
+          s = p.read_text(encoding='utf-8-sig')
+          original = s
+
+          def once(old, new, label):
+              global s
+              if old in s:
+                  s = s.replace(old, new, 1)
+                  print('patched', label)
+
+          # Host MCC constant visibility.
+          once('private const string HostSaveName =',
+               'internal const string HostSaveName =',
+               'HostSaveName visibility')
+
+          # Never silently replace Client Party B with Host MainParty.
+          once('''            MobileParty party = MpcClientParty.ActiveParty;\n            if (party == null || party == MobileParty.MainParty)\n                party = MobileParty.MainParty;\n\n            if (party == null)\n                return;''',
+               '''            MobileParty party = MpcClientParty.ActiveParty;\n            if (party == null || party == MobileParty.MainParty)\n                return;''',
+               'no client host fallback')
+
+          # Existing-client party survives subsequent ticks.
+          once('''                if (Party != null && Party != MobileParty.MainParty)\n                    return Party;''',
+               '''                if (Party != null)\n                    return Party;''',
+               'persistent Party B')
+
+          # Reconnect should only be blocked by a live connection.
+          once('''                if (_connectionRunning)\n                {\n                    return;\n                }\n\n                DisconnectInternal();''',
+               '''                if (_connectionRunning && IsConnected)\n                {\n                    return;\n                }\n\n                DisconnectInternal();''',
+               'reconnect guard')
+
+          # Clean transfer and remote state on disconnect.
+          once('''            _connectionRunning =\n                false;\n\n            while (\n                _incoming.TryDequeue(\n                    out _))''',
+               '''            _connectionRunning =\n                false;\n\n            try { MultiplayerWorldTransfer.Clear(); } catch { }\n            try { RemotePlayerManager.Clear(); } catch { }\n\n            while (\n                _incoming.TryDequeue(\n                    out _))''',
+               'disconnect cleanup')
+
+          # WorldComplete must only make the ready flag true after transfer validation.
+          once('''                case NetworkPacketType.WorldComplete:\n                    _worldReady = true;\n\n                    MultiplayerWorldTransfer\n                        .HandleWorldComplete(\n                            message.Payload\n                        );\n                    break;''',
+               '''                case NetworkPacketType.WorldComplete:\n                    MultiplayerWorldTransfer\n                        .HandleWorldComplete(\n                            message.Payload\n                        );\n\n                    _worldReady =\n                        MultiplayerWorldTransfer.IsComplete;\n                    break;''',
+               'world complete gate')
+
+          # Mandatory character slot state.
+          s = s.replace('''        private static int SelectedSlot = -1;\n        private static string CharacterId = "";''',
+                        '''        private static int SelectedSlot = -1;\n        private static int PendingSlot = -1;\n        private static string CharacterId = "";''', 1)
+
+          marker = '''        public static int Slot\n        {\n            get { lock (Sync) { return SelectedSlot; } }\n        }'''
+          add = '''        public static int Slot\n        {\n            get { lock (Sync) { return SelectedSlot; } }\n        }\n\n        public static int PendingCreationSlot\n        {\n            get { lock (Sync) { return PendingSlot; } }\n        }\n\n        public static void SetPendingCreationSlot(int slot)\n        {\n            if (slot < 0 || slot >= 3)\n                return;\n            lock (Sync)\n            {\n                PendingSlot = slot;\n                SelectedSlot = slot;\n            }\n        }'''
+          if marker in s and 'PendingCreationSlot' not in s:
+              s = s.replace(marker, add, 1)
+
+          # Replace automatic slot-0 creation with a hard requirement for a selected slot.
+          start = s.find('        public static void SelectOrCreateIdentityFromCurrentPlayer()')
+          if start >= 0:
+              body_end = s.find('\n    }\n\n    internal sealed class PlayerSyncState', start)
+              if body_end > start:
+                  replacement = '''        public static bool TryLoadSelectedIdentity()\n        {\n            CharacterSlotStore.EnsureLoaded();\n            CharacterSlotData selected = null;\n\n            lock (Sync)\n            {\n                if (SelectedSlot >= 0 && SelectedSlot < 3)\n                    selected = CharacterSlotStore.Get(SelectedSlot);\n            }\n\n            if (selected == null || !selected.IsValid)\n                return false;\n\n            lock (Sync)\n            {\n                CharacterId = selected.CharacterId;\n                CharacterName = selected.Name;\n                PendingSlot = -1;\n            }\n\n            LocalPlayerState.SetDisplayName(CharacterName);\n            return true;\n        }\n\n        public static bool SaveCurrentPlayerToPendingSlot()\n        {\n            int slot;\n            lock (Sync) { slot = PendingSlot; }\n            if (slot < 0 || slot >= 3)\n                return false;\n\n            string id = \"mpc-character-\" + Guid.NewGuid().ToString(\"N\");\n            string name = \"Player\";\n            string code = \"\";\n\n            try\n            {\n                if (CharacterObject.PlayerCharacter != null)\n                {\n                    name = CharacterObject.PlayerCharacter.Name != null\n                        ? CharacterObject.PlayerCharacter.Name.ToString()\n                        : \"Player\";\n                    CharacterCode cc = CharacterCode.CreateFrom(CharacterObject.PlayerCharacter);\n                    if (cc != null)\n                        code = cc.Code ?? \"\";\n                }\n            }\n            catch { }\n\n            if (!CharacterSlotStore.Save(slot, id, name, code))\n                return false;\n\n            lock (Sync)\n            {\n                SelectedSlot = slot;\n                CharacterId = id;\n                CharacterName = name;\n                PendingSlot = -1;\n            }\n\n            LocalPlayerState.SetDisplayName(name);\n            return true;\n        }'''
+                  s = s[:start] + replacement + s[body_end:]
+
+          # Start native Bannerlord character creation for an empty slot.
+          if 'private static void LaunchMpcCharacterCreation()' not in s:
+              hook_marker = '''    internal static class MpcRebuildPatches\n    {'''
+              helper = '''    internal static class MpcCharacterCreationFlow\n    {\n        public static void Launch(int slot)\n        {\n            if (slot < 0 || slot >= 3 || Game.Current == null)\n                return;\n\n            MpcSession.SetPendingCreationSlot(slot);\n\n            try\n            {\n                CharacterCreationState state =\n                    Game.Current.GameStateManager.CreateState<CharacterCreationState>();\n\n                Game.Current.GameStateManager.CleanAndPushState(state, 0);\n            }\n            catch\n            {\n            }\n        }\n    }\n\n    [HarmonyPatch(typeof(SandboxCharacterCreationContent), "OnCharacterCreationFinalized")]\n    internal static class MpcCharacterCreationFinalizedPatch\n    {\n        private static void Postfix()\n        {\n            try\n            {\n                MpcSession.SaveCurrentPlayerToPendingSlot();\n            }\n            catch\n            {\n            }\n        }\n    }\n\n    internal static class MpcRebuildPatches\n    {'''
+              if hook_marker in s:
+                  s = s.replace(hook_marker, helper, 1)
+
+          # Client Party cannot be created unless a slot was explicitly selected.
+          once('''            MpcSession.SelectOrCreateIdentityFromCurrentPlayer();''',
+               '''            if (!MpcSession.HasSlot && !MpcSession.TryLoadSelectedIdentity())\n                return null;''',
+               'mandatory client slot')
+
+          # Join command must refuse connection without a selected slot.
+          old = '''            if (\n                string.IsNullOrWhiteSpace(\n                    PlayerName))\n            {\n                StatusText =\n                    "PLAYER NAME REQUIRED";\n\n                return;\n            }'''
+          new = '''            if (\n                string.IsNullOrWhiteSpace(\n                    PlayerName))\n            {\n                StatusText =\n                    "PLAYER NAME REQUIRED";\n\n                return;\n            }\n\n            if (!MpcSession.HasSlot)\n            {\n                StatusText =\n                    "SELECT CHARACTER SLOT";\n\n                ExecuteOpenJoin();\n                return;\n            }'''
+          once(old, new, 'join requires slot')
+
+          # Host hello does not auto-create a client slot.
+          once('''                    MpcSession.SelectOrCreateIdentityFromCurrentPlayer();''',
+               '''                    if (!MpcSession.HasSlot && !MpcSession.TryLoadSelectedIdentity())\n                        return true;''',
+               'hello slot requirement')
+
+          # Add VM slot properties and commands after ShowJoin property.
+          if 'public bool ShowSlots' not in s:
+              marker = '''        public bool ShowJoin\n        {\n            get\n            {\n                return _showJoin;\n            }'''
+              if marker in s:
+                  insert = '''        public bool ShowSlots\n        {\n            get;\n            private set;\n        }\n\n        [DataSourceProperty]\n        public string Slot1Text\n        {\n            get\n            {\n                CharacterSlotData d = CharacterSlotStore.Get(0);\n                return d != null && d.IsValid ? "SLOT 1  -  " + d.Name : "SLOT 1  -  EMPTY";\n            }\n        }\n\n        [DataSourceProperty]\n        public string Slot2Text\n        {\n            get\n            {\n                CharacterSlotData d = CharacterSlotStore.Get(1);\n                return d != null && d.IsValid ? "SLOT 2  -  " + d.Name : "SLOT 2  -  EMPTY";\n            }\n        }\n\n        [DataSourceProperty]\n        public string Slot3Text\n        {\n            get\n            {\n                CharacterSlotData d = CharacterSlotStore.Get(2);\n                return d != null && d.IsValid ? "SLOT 3  -  " + d.Name : "SLOT 3  -  EMPTY";\n            }\n        }\n\n        public void ExecuteSelectSlot1() { SelectSlot(0); }\n        public void ExecuteSelectSlot2() { SelectSlot(1); }\n        public void ExecuteSelectSlot3() { SelectSlot(2); }\n\n        private void SelectSlot(int slot)\n        {\n            CharacterSlotData data = CharacterSlotStore.Get(slot);\n            if (data != null && data.IsValid)\n            {\n                if (MpcSession.SelectSlot(slot))\n                {\n                    ShowSlots = false;\n                    ShowJoin = true;\n                    StatusText = "SLOT SELECTED: " + data.Name;\n                }\n                return;\n            }\n\n            MpcCharacterCreationFlow.Launch(slot);\n            StatusText = "CHARACTER CREATION";\n        }\n\n'''
+                  # Insert before ShowJoin property declaration.
+                  s = s.replace('''        [DataSourceProperty]\n        public bool ShowJoin''', insert + '''        [DataSourceProperty]\n        public bool ShowJoin''', 1)
+
+          # Open join now opens slot selector.
+          once('''        public void ExecuteOpenJoin()\n        {\n            ShowMain = false;\n            ShowCreate = false;\n            ShowJoin = true;\n\n            StatusText = "";\n        }''',
+               '''        public void ExecuteOpenJoin()\n        {\n            ShowMain = false;\n            ShowCreate = false;\n            ShowJoin = !MpcSession.HasSlot;\n            ShowSlots = true;\n\n            CharacterSlotStore.EnsureLoaded();\n            StatusText = MpcSession.HasSlot ? "SELECT CHARACTER SLOT" : "SELECT CHARACTER SLOT";\n        }''',
+               'open slot selector')
+
+          if s != original:
+              p.write_text(s, encoding='utf-8')
+              print('source changed')
+          else:
+              print('source unchanged')
+
+      - name: Write three-slot UI
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('rebuild/MultiplayerCampaign.xml')
+          s = p.read_text(encoding='utf-8')
+          if 'IsVisible="@ShowSlots"' not in s:
+              marker = '''            <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowJoin">'''
+              page = '''            <Widget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="950" SuggestedHeight="760" HorizontalAlignment="Center" VerticalAlignment="Center" Sprite="frame_001_9" IsVisible="@ShowSlots">\n                <Children>\n                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="SELECT CHARACTER"></TextWidget>\n                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="45" MarginTop="140" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="CHOOSE A CHARACTER SLOT BEFORE JOINING"></TextWidget>\n\n                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="650" SuggestedHeight="85" MarginTop="215" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSelectSlot1">\n                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="@Slot1Text"></TextWidget></Children>\n                    </ButtonWidget>\n                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="650" SuggestedHeight="85" MarginTop="315" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSelectSlot2">\n                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="@Slot2Text"></TextWidget></Children>\n                    </ButtonWidget>\n                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="650" SuggestedHeight="85" MarginTop="415" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSelectSlot3">\n                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="@Slot3Text"></TextWidget></Children>\n                    </ButtonWidget>\n                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="45" MarginTop="525" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="EMPTY SLOT OPENS CHARACTER CREATION"></TextWidget>\n                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="220" SuggestedHeight="65" MarginBottom="55" HorizontalAlignment="Center" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteBackToMain">\n                        <Children><TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="‹  BACK"></TextWidget></Children>\n                    </ButtonWidget>\n                </Children>\n            </Widget>\n\n'''
+              if marker in s:
+                  s = s.replace(marker, page + marker, 1)
+          p.write_text(s, encoding='utf-8')
+
+      - name: Verify three-file rebuild and feature contract
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem rebuild -File -Recurse | Where-Object { $_.FullName -notmatch '\\bin\\|\\obj\\' })
+          $allowed = @('rebuild\MultiplayerCampaignSubModule.cs','rebuild\MultiplayerCampaignRebuild.csproj','rebuild\MultiplayerCampaign.xml')
+          if ($files.Count -ne 3) { throw "Expected exactly 3 rebuild files, found $($files.Count)." }
+          foreach ($f in $files) {
+            $rel = $f.FullName.Substring((Get-Location).Path.Length + 1)
+            if ($allowed -notcontains $rel) { throw "Unexpected rebuild file: $rel" }
+          }
+          $cs = Get-Content rebuild\MultiplayerCampaignSubModule.cs -Raw
+          $xml = Get-Content rebuild\MultiplayerCampaign.xml -Raw
+          foreach ($x in @('CharacterSlotStore','PendingCreationSlot','SaveCurrentPlayerToPendingSlot','CharacterCreationState','ExecuteSelectSlot1','ExecuteSelectSlot2','ExecuteSelectSlot3','MpcClientParty','LoadHostCampaign','WorldComplete','FinishClientLoad')) {
+            if ($cs -notmatch [regex]::Escape($x)) { throw "Missing source contract: $x" }
+          }
+          foreach ($x in @('ShowSlots','ExecuteSelectSlot1','ExecuteSelectSlot2','ExecuteSelectSlot3','@Slot1Text','@Slot2Text','@Slot3Text')) {
+            if ($xml -notmatch [regex]::Escape($x)) { throw "Missing UI contract: $x" }
+          }
+          if ($cs -match 'party = MobileParty\.MainParty;') { throw 'Client MainParty fallback still exists.' }
+          if ($cs -match 'SetAsMainParty\(\)') { throw 'Invalid SetAsMainParty API still exists.' }
+          Write-Host 'Feature contract passed.'
+
+      - name: Rewrite CI references to repository DLLs
+        shell: pwsh
+        run: |
+          $p = 'rebuild\MultiplayerCampaignRebuild.csproj'
+          $s = Get-Content $p -Raw
+          $s = $s -replace 'E:\\INSTAL GAME\\Mount & Blade 2 - Bannerlord', '..\DLLs'
+          $s = $s -replace '\$\(BannerlordRoot\)', '..\DLLs'
+          $s = $s -replace '<HintPath>\.\.\\DLLs\\Modules\\Bannerlord\.Harmony\\bin\\Win64_Shipping_Client\\0Harmony\.dll</HintPath>', '<HintPath>..\DLLs\0Harmony.dll</HintPath>'
+          $s = $s -replace '<HintPath>\.\.\\DLLs\\Modules\\Native\\bin\\Win64_Shipping_Client\\TaleWorlds\.MountAndBlade\.View\.dll</HintPath>', '<HintPath>..\DLLs\TaleWorlds.MountAndBlade.View.dll</HintPath>'
+          $s = $s -replace '<HintPath>\.\.\\DLLs\\Modules\\SandBox\\bin\\Win64_Shipping_Client\\SandBox\.dll</HintPath>', '<HintPath>..\DLLs\SandBox.dll</HintPath>'
+          Set-Content $p $s -Encoding utf8
+
+      - name: Restore and compile
+        run: |
+          dotnet restore rebuild\MultiplayerCampaignRebuild.csproj --nologo
+          dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity minimal
+
+      - name: Upload verified DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: MultiplayerCampaign-edit-dll
+          path: rebuild\bin\Debug\netstandard2.0\MultiplayerCampaign.dll
+          if-no-files-found: error
+
+      - name: Commit verified source and UI
+        shell: pwsh
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add rebuild\MultiplayerCampaignSubModule.cs rebuild\MultiplayerCampaignRebuild.csproj rebuild\MultiplayerCampaign.xml
+          if (git diff --cached --quiet) { exit 0 }
+          git commit -m 'Stabilize MCC reconnect and client character slots'
+          git push origin HEAD:edit
