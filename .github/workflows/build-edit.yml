@@ -12,7 +12,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Checkout edit
+      - name: Checkout edit HEAD
         uses: actions/checkout@v4
         with:
           ref: edit
@@ -23,66 +23,32 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Verify rebuild contains exactly three source files
+      - name: Verify rebuild has only the three requested files
         shell: pwsh
         run: |
-          $files = @(Get-ChildItem -Path rebuild -File -Recurse | Where-Object { $_.FullName -notmatch '\\bin\\|\\obj\\' })
-          $allowed = @(
-            'rebuild\MultiplayerCampaignSubModule.cs',
-            'rebuild\MultiplayerCampaignRebuild.csproj',
-            'rebuild\MultiplayerCampaign.xml'
-          )
+          $files = @(Get-ChildItem rebuild -File -Recurse | Where-Object { $_.FullName -notmatch '\\bin\\|\\obj\\' })
+          $allowed = @('rebuild\MultiplayerCampaignSubModule.cs','rebuild\MultiplayerCampaignRebuild.csproj','rebuild\MultiplayerCampaign.xml')
+          if ($files.Count -ne 3) { throw "Expected exactly 3 rebuild files; found $($files.Count)." }
           foreach ($f in $files) {
             $rel = $f.FullName.Substring((Get-Location).Path.Length + 1)
-            if ($allowed -notcontains $rel) { throw "Unexpected file in rebuild: $rel" }
+            if ($allowed -notcontains $rel) { throw "Unexpected rebuild file: $rel" }
           }
-          if ($files.Count -ne 3) { throw "Expected 3 rebuild files, found $($files.Count)." }
 
-      - name: Download Bannerlord DLL references
+      - name: Download Bannerlord references
         shell: pwsh
         run: |
           $base = 'https://raw.githubusercontent.com/mohammadrezaRX/ChatGPT/main/DLLs'
-          $dlls = @(
-            '0Harmony.dll','SandBox.dll','TaleWorlds.CampaignSystem.dll','TaleWorlds.Core.dll',
-            'TaleWorlds.Engine.GauntletUI.dll','TaleWorlds.Engine.dll','TaleWorlds.GauntletUI.Data.dll',
-            'TaleWorlds.GauntletUI.dll','TaleWorlds.Library.dll','TaleWorlds.Localization.dll',
-            'TaleWorlds.MountAndBlade.View.dll','TaleWorlds.MountAndBlade.ViewModelCollection.dll',
-            'TaleWorlds.MountAndBlade.dll','TaleWorlds.ObjectSystem.dll','TaleWorlds.SaveSystem.dll',
-            'TaleWorlds.ScreenSystem.dll'
-          )
-          New-Item -ItemType Directory -Path DLLs -Force | Out-Null
-          foreach ($dll in $dlls) {
-            Invoke-WebRequest -UseBasicParsing -Uri "$base/$dll" -OutFile "DLLs/$dll"
-          }
+          $dlls = @('0Harmony.dll','SandBox.dll','TaleWorlds.CampaignSystem.dll','TaleWorlds.Core.dll','TaleWorlds.Engine.GauntletUI.dll','TaleWorlds.Engine.dll','TaleWorlds.GauntletUI.Data.dll','TaleWorlds.GauntletUI.dll','TaleWorlds.Library.dll','TaleWorlds.Localization.dll','TaleWorlds.MountAndBlade.View.dll','TaleWorlds.MountAndBlade.ViewModelCollection.dll','TaleWorlds.MountAndBlade.dll','TaleWorlds.ObjectSystem.dll','TaleWorlds.SaveSystem.dll','TaleWorlds.ScreenSystem.dll')
+          New-Item -ItemType Directory DLLs -Force | Out-Null
+          foreach ($dll in $dlls) { Invoke-WebRequest -UseBasicParsing -Uri "$base/$dll" -OutFile "DLLs/$dll" }
 
       - name: Restore
         run: dotnet restore rebuild\MultiplayerCampaignRebuild.csproj --nologo
 
-      - name: Diagnose C# type scope
-        shell: pwsh
-        run: |
-          $path = 'rebuild\MultiplayerCampaignSubModule.cs'
-          $lines = Get-Content $path
-          $depth = 0
-          $targets = @('RemotePlayerManager','NetworkPacketType','NetworkMessage','MultiplayerNetworkClient','MultiplayerCampaignHostExtensions','MultiplayerCampaignBehavior','MultiplayerCampaignSubModule')
-          for ($n = 0; $n -lt $lines.Count; $n++) {
-            $line = $lines[$n]
-            foreach ($t in $targets) {
-              if ($line -match "\b(class|enum|struct|interface)\s+$t\b") {
-                Write-Host ("TYPE line={0} depth={1}: {2}" -f ($n + 1), $depth, $line.Trim())
-              }
-            }
-            $code = $line -replace '"(?:\\.|[^"])*"','""' -replace '//.*$',''
-            $opens = ([regex]::Matches($code,'\{')).Count
-            $closes = ([regex]::Matches($code,'\}')).Count
-            $depth += $opens - $closes
-          }
-          Write-Host "FINAL BRACE DEPTH=$depth"
+      - name: Compile
+        run: dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity minimal
 
-      - name: Build corrected edit source
-        run: dotnet build rebuild\MultiplayerCampaignRebuild.csproj --no-restore --nologo --verbosity normal
-
-      - name: Upload compiled DLL
+      - name: Upload DLL
         if: success()
         uses: actions/upload-artifact@v4
         with:
