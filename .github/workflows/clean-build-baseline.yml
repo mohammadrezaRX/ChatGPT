@@ -50,6 +50,36 @@ jobs:
           $files=@(Get-ChildItem rebuild -File -Recurse | Where-Object {$_.FullName -notmatch '\\bin\\|\\obj\\'})
           if($files.Count -ne 3){throw "Expected exactly 3 rebuild files, found $($files.Count)"}
 
+      - name: Diagnose braces
+        shell: pwsh
+        run: |
+          $p='rebuild\MultiplayerCampaignSubModule.cs'
+          $s=Get-Content $p -Raw
+          $lines=$s -split "`r?`n"
+          $stack=New-Object System.Collections.Generic.List[object]
+          $block=$false; $str=$false; $verb=$false; $esc=$false
+          for($li=0;$li -lt $lines.Count;$li++){
+            $line=$lines[$li]
+            for($i=0;$i -lt $line.Length;$i++){
+              $c=$line[$i]; $n=if($i+1 -lt $line.Length){$line[$i+1]}else{[char]0}
+              if($block){if($c -eq '*' -and $n -eq '/'){ $block=$false; $i++ }; continue}
+              if($str){
+                if($verb){if($c -eq '"' -and $n -eq '"'){$i++;continue};if($c -eq '"'){$str=$false}}
+                else{if($esc){$esc=$false}elseif($c -eq '\\'){$esc=$true}elseif($c -eq '"'){$str=$false}}
+                continue
+              }
+              if($c -eq '/' -and $n -eq '/') { break }
+              if($c -eq '/' -and $n -eq '*') { $block=$true; $i++; continue }
+              if($c -eq '@' -and $n -eq '"') { $str=$true; $verb=$true; $i++; continue }
+              if($c -eq '"') { $str=$true; $verb=$false; continue }
+              if($c -eq '{') { $stack.Add([pscustomobject]@{Line=$li+1;Text=$line.Trim()}) }
+              elseif($c -eq '}') { if($stack.Count){$stack.RemoveAt($stack.Count-1)}else{throw "Extra } at line $($li+1)"} }
+            }
+          }
+          Write-Host "Unclosed braces: $($stack.Count)"
+          $stack | Select-Object -Last 20 | Format-Table -AutoSize
+          if($stack.Count){throw 'Brace mismatch'}
+
       - name: Restore and compile
         run: |
           dotnet restore rebuild\MultiplayerCampaignRebuild.csproj --nologo
@@ -72,4 +102,4 @@ jobs:
           git commit -m 'Reset rebuild to clean original campaign source'
           git push origin HEAD:edit
 
-# retrigger: clean baseline is now the first compile gate
+# clean baseline diagnostic gate
