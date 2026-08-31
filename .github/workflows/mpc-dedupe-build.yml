@@ -3,6 +3,8 @@ name: MPC Deduplicate Build
 on:
   push:
     branches: [edit]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
@@ -68,7 +70,7 @@ jobs:
         run: dotnet build rebuild\CI.csproj --no-restore --nologo --verbosity normal
 
       - name: Promote compiled source to root and commit
-        if: success()
+        if: success() && github.event_name == 'push'
         shell: pwsh
         run: |
           Copy-Item 'rebuild\MultiplayerCampaignSubModule.cs' 'MultiplayerCampaignSubModule.cs' -Force
