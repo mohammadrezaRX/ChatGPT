@@ -1,152 +1,167 @@
-name: MPC strict build loop
+name: MultiplayerCampaign Build
 
 on:
   workflow_dispatch:
   push:
-    branches: [edit]
-    paths-ignore:
-      - BUILD_ERRORS.txt
-      - BUILD_OUTPUT.txt
+    branches:
+      - edit
 
 permissions:
   contents: write
 
 jobs:
   build:
+    name: Build MultiplayerCampaign
     runs-on: windows-latest
+
     steps:
-      - name: Checkout edit
+      - name: Checkout edit branch
         uses: actions/checkout@v4
         with:
           ref: edit
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: Apply MCC repair stage
-        shell: pwsh
-        run: python .\repair-mcc.py
-
-      - name: Stage root source
+      - name: Show repository structure
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force rebuild | Out-Null
-          Copy-Item 'MultiplayerCampaignSubModule.cs' 'rebuild\MultiplayerCampaignSubModule.cs' -Force
+          Write-Host "===== REPOSITORY ====="
+          Get-ChildItem -Recurse -File |
+            Where-Object {
+              $_.FullName -notmatch '\\.git\\'
+            } |
+            Select-Object FullName
 
-      - name: Create CI reference project
+      - name: Check source file
         shell: pwsh
         run: |
-          $xml = @'
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <Nullable>disable</Nullable>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <AssemblyName>MultiplayerCampaign</AssemblyName>
-    <RootNamespace>MultiplayerCampaign</RootNamespace>
-    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-  </PropertyGroup>
-  <ItemGroup>
-    <Compile Include="MultiplayerCampaignSubModule.cs" />
-    <PackageReference Include="Bannerlord.ReferenceAssemblies" Version="1.3.12.104914" />
-    <PackageReference Include="Lib.Harmony.Ref" Version="2.3.4" />
-  </ItemGroup>
-</Project>
-'@
-          [System.IO.File]::WriteAllText('rebuild\CI.csproj', $xml, [System.Text.UTF8Encoding]::new($false))
+          if (!(Test-Path "rebuild\MultiplayerCampaignSubModule.cs")) {
+            Write-Error "rebuild\MultiplayerCampaignSubModule.cs NOT FOUND"
+            exit 1
+          }
 
-      - name: Validate braces
+          Write-Host "Source found:"
+          Get-Item "rebuild\MultiplayerCampaignSubModule.cs" |
+            Format-List FullName,Length
+
+      - name: Check project
         shell: pwsh
         run: |
-          $source = Get-Content 'rebuild\MultiplayerCampaignSubModule.cs' -Raw
-          $open = ([regex]::Matches($source, '\{')).Count
-          $close = ([regex]::Matches($source, '\}')).Count
-          if ($open -ne $close) { throw "Unbalanced braces: $open / $close" }
+          if (!(Test-Path "rebuild\MultiplayerCampaignRebuild.csproj")) {
+            Write-Error "rebuild\MultiplayerCampaignRebuild.csproj NOT FOUND"
+            exit 1
+          }
+
+          Write-Host "Project found:"
+          Get-Item "rebuild\MultiplayerCampaignRebuild.csproj" |
+            Format-List FullName,Length
 
       - name: Restore
         shell: pwsh
-        run: dotnet restore rebuild\CI.csproj --nologo
+        run: |
+          dotnet restore "rebuild\MultiplayerCampaignRebuild.csproj" `
+            --verbosity normal
 
-      - name: Build with complete diagnostics
+      - name: Build
+        id: build
         shell: pwsh
         continue-on-error: true
-        id: compile
         run: |
-          $ErrorActionPreference = 'Continue'
-          dotnet build rebuild\CI.csproj --no-restore --nologo --verbosity diagnostic 2>&1 | Tee-Object -FilePath BUILD_OUTPUT.txt
+          dotnet build "rebuild\MultiplayerCampaignRebuild.csproj" `
+            --configuration Release `
+            --no-restore `
+            --verbosity diagnostic `
+            2>&1 | Tee-Object -FilePath "BUILD_OUTPUT.txt"
+
           $exitCode = $LASTEXITCODE
-          "BUILD_EXIT_CODE=$exitCode" | Out-File BUILD_OUTPUT.txt -Append -Encoding utf8
+
+          Write-Host ""
+          Write-Host "======================================"
+          Write-Host "BUILD EXIT CODE: $exitCode"
+          Write-Host "======================================"
+
+          "BUILD_EXIT_CODE=$exitCode" |
+            Out-File "BUILD_RESULT.txt" -Encoding utf8
+
           exit $exitCode
 
-      - name: Extract exact compiler errors
+      - name: Extract compiler errors
         if: always()
         shell: pwsh
         run: |
-          if (Test-Path BUILD_OUTPUT.txt) {
-            Select-String -Path BUILD_OUTPUT.txt -Pattern 'error CS[0-9]+|Build FAILED|Build succeeded|[0-9]+ Error\(s\)|[0-9]+ Warning\(s\)' | ForEach-Object { $_.Line } | Set-Content BUILD_ERRORS.txt
-            if (-not (Test-Path BUILD_ERRORS.txt) -or (Get-Item BUILD_ERRORS.txt).Length -eq 0) {
-              'No compiler error summary found. Full output is in BUILD_OUTPUT.txt.' | Set-Content BUILD_ERRORS.txt
-            }
+          if (Test-Path "BUILD_OUTPUT.txt") {
+
+            Select-String `
+              -Path "BUILD_OUTPUT.txt" `
+              -Pattern `
+                "error CS[0-9]+", `
+                "warning CS[0-9]+", `
+                "Build FAILED", `
+                "Build succeeded", `
+                "[0-9]+ Error\(s\)", `
+                "[0-9]+ Warning\(s\)" |
+              ForEach-Object {
+                $_.Line
+              } |
+              Set-Content "BUILD_ERRORS.txt" -Encoding utf8
+
           } else {
-            'Build output was not produced.' | Set-Content BUILD_ERRORS.txt
+
+            "BUILD_OUTPUT.txt was not generated." |
+              Set-Content "BUILD_ERRORS.txt" -Encoding utf8
+
           }
 
-      - name: Upload complete build diagnostics
+      - name: Print compiler errors
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host ""
+          Write-Host "======================================"
+          Write-Host "COMPILER ERROR SUMMARY"
+          Write-Host "======================================"
+
+          if (Test-Path "BUILD_ERRORS.txt") {
+            Get-Content "BUILD_ERRORS.txt"
+          }
+
+          Write-Host ""
+          Write-Host "======================================"
+          Write-Host "BUILD RESULT"
+          Write-Host "======================================"
+
+          if (Test-Path "BUILD_RESULT.txt") {
+            Get-Content "BUILD_RESULT.txt"
+          }
+
+      - name: Upload complete diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: MultiplayerCampaign-build-diagnostics-${{ github.run_number }}
+          name: MultiplayerCampaign-Build-${{ github.run_number }}
           path: |
             BUILD_OUTPUT.txt
             BUILD_ERRORS.txt
+            BUILD_RESULT.txt
           if-no-files-found: warn
 
-      - name: Publish diagnostics to edit branch
-        if: always()
+      - name: Fail if compilation failed
+        if: steps.build.outcome == 'failure'
         shell: pwsh
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add BUILD_OUTPUT.txt BUILD_ERRORS.txt
-          if (-not (git diff --cached --quiet)) {
-            git commit -m "CI: persist build diagnostics [skip ci]"
-            git push origin HEAD:edit
-          }
+          Write-Error "BUILD FAILED"
+          exit 1
 
-      - name: Fail workflow when compiler fails
-        if: steps.compile.outcome == 'failure'
-        shell: pwsh
-        run: exit 1
-
-      - name: Remove temporary repair script
-        if: success()
-        shell: pwsh
-        run: Remove-Item 'repair-mcc.py' -Force
-
-      - name: Upload verified DLL
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: MultiplayerCampaign-edit-verified
-          path: rebuild/bin/Debug/MultiplayerCampaign.dll
-          if-no-files-found: error
-
-      - name: Commit verified source replacement
+      - name: Build successful
         if: success()
         shell: pwsh
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add MultiplayerCampaignSubModule.cs
-          if (git diff --cached --quiet) {
-            Write-Host 'No source changes to commit.'
-            exit 0
-          }
-          git commit -m 'repair MCC and character join stage'
-          git push origin HEAD:edit
+          Write-Host ""
+          Write-Host "======================================"
+          Write-Host "BUILD SUCCESS"
+          Write-Host "ERRORS = 0"
+          Write-Host "======================================"
