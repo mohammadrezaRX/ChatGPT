@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [edit]
+    paths-ignore:
+      - BUILD_ERRORS.txt
+      - BUILD_OUTPUT.txt
 
 permissions:
   contents: write
@@ -70,9 +73,56 @@ jobs:
         shell: pwsh
         run: dotnet restore rebuild\CI.csproj --nologo
 
-      - name: Build
+      - name: Build with complete diagnostics
         shell: pwsh
-        run: dotnet build rebuild\CI.csproj --no-restore --nologo --verbosity normal
+        continue-on-error: true
+        id: compile
+        run: |
+          $ErrorActionPreference = 'Continue'
+          dotnet build rebuild\CI.csproj --no-restore --nologo --verbosity diagnostic 2>&1 | Tee-Object -FilePath BUILD_OUTPUT.txt
+          $exitCode = $LASTEXITCODE
+          "BUILD_EXIT_CODE=$exitCode" | Out-File BUILD_OUTPUT.txt -Append -Encoding utf8
+          exit $exitCode
+
+      - name: Extract exact compiler errors
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path BUILD_OUTPUT.txt) {
+            Select-String -Path BUILD_OUTPUT.txt -Pattern 'error CS[0-9]+|Build FAILED|Build succeeded|[0-9]+ Error\(s\)|[0-9]+ Warning\(s\)' | ForEach-Object { $_.Line } | Set-Content BUILD_ERRORS.txt
+            if (-not (Test-Path BUILD_ERRORS.txt) -or (Get-Item BUILD_ERRORS.txt).Length -eq 0) {
+              'No compiler error summary found. Full output is in BUILD_OUTPUT.txt.' | Set-Content BUILD_ERRORS.txt
+            }
+          } else {
+            'Build output was not produced.' | Set-Content BUILD_ERRORS.txt
+          }
+
+      - name: Upload complete build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MultiplayerCampaign-build-diagnostics-${{ github.run_number }}
+          path: |
+            BUILD_OUTPUT.txt
+            BUILD_ERRORS.txt
+          if-no-files-found: warn
+
+      - name: Publish diagnostics to edit branch
+        if: always()
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add BUILD_OUTPUT.txt BUILD_ERRORS.txt
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "CI: persist build diagnostics [skip ci]"
+            git push origin HEAD:edit
+          }
+
+      - name: Fail workflow when compiler fails
+        if: steps.compile.outcome == 'failure'
+        shell: pwsh
+        run: exit 1
 
       - name: Remove temporary repair script
         if: success()
