@@ -15,36 +15,44 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout edit
         uses: actions/checkout@v4
         with:
           ref: edit
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
+      - name: Import Bannerlord DLLs from main
+        shell: pwsh
+        run: |
+          git fetch origin main --depth=1
+          git checkout origin/main -- DLLs
+          if (!(Test-Path "DLLs")) {
+            Write-Error "DLLs directory from main was not imported"
+            exit 1
+          }
+          Write-Host "Imported DLLs from main:"
+          Get-ChildItem DLLs -File | Select-Object Name,Length
+
       - name: Locate project
         shell: pwsh
         run: |
-          Write-Host "=== PROJECT FILES ==="
           Get-ChildItem -Recurse -Filter *.csproj |
             ForEach-Object { Write-Host $_.FullName }
 
       - name: Restore
         shell: pwsh
         run: |
-          dotnet restore rebuild/MultiplayerCampaignRebuild.csproj `
-            --verbosity normal
+          dotnet restore rebuild/MultiplayerCampaignRebuild.csproj --verbosity normal
 
       - name: Build
         shell: pwsh
         run: |
-          dotnet build rebuild/MultiplayerCampaignRebuild.csproj `
-            --configuration Release `
-            --no-restore `
-            --verbosity diagnostic
+          dotnet build rebuild/MultiplayerCampaignRebuild.csproj --configuration Release --no-restore --verbosity diagnostic
 
       - name: Verify
         shell: pwsh
@@ -53,7 +61,6 @@ jobs:
             Write-Error "BUILD FAILED"
             exit 1
           }
-
           Write-Host "================================"
           Write-Host "BUILD SUCCESS"
           Write-Host "ERRORS = 0"
