@@ -7,6 +7,7 @@ using SandBox;
 using TaleWorlds.Core;
 using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem;
+using TaleWorlds.SaveSystem.Load;
 
 namespace MultiplayerCampaign
 {
