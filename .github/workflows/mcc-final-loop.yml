@@ -61,3 +61,4 @@ jobs:
           Write-Host "BUILD SUCCESS"
           Write-Host "ERRORS = 0"
           Write-Host "================================"
+          Write-Host "Connection/world-transfer recovery revision active"
