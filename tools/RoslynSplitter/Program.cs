@@ -3,12 +3,14 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Text;
 
-if (args.Length < 2)
-    throw new ArgumentException("Usage: RoslynSplitter <source.cs> <output-dir>");
+if (args.Length < 3)
+    throw new ArgumentException("Usage: RoslynSplitter <source.cs> <split-dir> <main-output-dir>");
 
 var sourcePath = Path.GetFullPath(args[0]);
-var outputDir = Path.GetFullPath(args[1]);
-Directory.CreateDirectory(outputDir);
+var splitDir = Path.GetFullPath(args[1]);
+var mainDir = Path.GetFullPath(args[2]);
+Directory.CreateDirectory(splitDir);
+Directory.CreateDirectory(mainDir);
 
 var source = await File.ReadAllTextAsync(sourcePath, Encoding.UTF8);
 var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest));
@@ -24,13 +26,13 @@ if (diagnostics.Count > 0)
 }
 
 var compileHeader = new StringBuilder();
-foreach (var e in root.ChildNodes())
+foreach (var node in root.ChildNodes())
 {
-    if (e is ExternAliasDirectiveSyntax || e is UsingDirectiveSyntax)
-        compileHeader.AppendLine(e.ToFullString());
+    if (node is ExternAliasDirectiveSyntax || node is UsingDirectiveSyntax)
+        compileHeader.Append(node.ToFullString());
 }
 
-foreach (var f in Directory.EnumerateFiles(outputDir, "*.cs", SearchOption.TopDirectoryOnly))
+foreach (var f in Directory.EnumerateFiles(splitDir, "*.cs", SearchOption.TopDirectoryOnly))
     File.Delete(f);
 
 var written = new List<string>();
@@ -41,6 +43,7 @@ void WriteType(string typeText, string? namespaceName, string fileName)
     var sb = new StringBuilder();
     sb.Append(compileHeader);
     sb.AppendLine();
+
     if (!string.IsNullOrWhiteSpace(namespaceName))
     {
         sb.Append("namespace ").Append(namespaceName).AppendLine();
@@ -55,9 +58,12 @@ void WriteType(string typeText, string? namespaceName, string fileName)
         sb.AppendLine();
     }
 
-    var path = Path.Combine(outputDir, fileName);
-    File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
-    written.Add(Path.GetFileName(path));
+    var outputPath = fileName.Equals("MultiplayerCampaignSubModule.cs", StringComparison.OrdinalIgnoreCase)
+        ? Path.Combine(mainDir, fileName)
+        : Path.Combine(splitDir, fileName);
+
+    File.WriteAllText(outputPath, sb.ToString(), new UTF8Encoding(false));
+    written.Add(Path.GetRelativePath(Path.GetDirectoryName(mainDir)!, outputPath));
 }
 
 void VisitMembers(IEnumerable<MemberDeclarationSyntax> members, string? namespaceName)
@@ -67,24 +73,26 @@ void VisitMembers(IEnumerable<MemberDeclarationSyntax> members, string? namespac
         switch (member)
         {
             case NamespaceDeclarationSyntax ns:
-                var nsName = ns.Name.ToString();
-                VisitMembers(ns.Members, nsName);
+                VisitMembers(ns.Members, ns.Name.ToString());
                 break;
 
             case FileScopedNamespaceDeclarationSyntax fns:
-                var fnsName = fns.Name.ToString();
-                VisitMembers(fns.Members, fnsName);
+                VisitMembers(fns.Members, fns.Name.ToString());
                 break;
 
             case BaseTypeDeclarationSyntax baseType:
+            {
                 var identifier = GetTypeIdentifier(baseType);
                 if (identifier == null)
                     continue;
-                var fileName = identifier == mainTypeName
+
+                var fileName = identifier.Equals(mainTypeName, StringComparison.Ordinal)
                     ? "MultiplayerCampaignSubModule.cs"
                     : "Mpc_" + Sanitize(identifier) + ".cs";
+
                 WriteType(member.ToFullString(), namespaceName, fileName);
                 break;
+            }
 
             case DelegateDeclarationSyntax del:
                 WriteType(member.ToFullString(), namespaceName, "Mpc_" + Sanitize(del.Identifier.Text) + ".cs");
@@ -113,15 +121,15 @@ static string Sanitize(string name)
 
 VisitMembers(root.ChildNodes().OfType<MemberDeclarationSyntax>(), null);
 
-if (!written.Any(x => x.Equals("MultiplayerCampaignSubModule.cs", StringComparison.OrdinalIgnoreCase)))
+if (!written.Any(x => x.EndsWith("MultiplayerCampaignSubModule.cs", StringComparison.OrdinalIgnoreCase)))
     throw new InvalidOperationException("Main MultiplayerCampaignSubModule type was not found.");
 
 var report = new StringBuilder();
-report.AppendLine("Roslyn lossless type split");
+report.AppendLine("Roslyn syntax-tree split");
 report.AppendLine("Types written: " + written.Count);
-foreach (var w in written.OrderBy(x => x))
-    report.AppendLine(w);
+foreach (var item in written.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+    report.AppendLine(item.Replace('\\', '/'));
 
-await File.WriteAllTextAsync(Path.Combine(outputDir, "REFACTOR_MAP.txt"), report.ToString(), new UTF8Encoding(false));
+await File.WriteAllTextAsync(Path.Combine(mainDir, "REFACTOR_MAP.txt"), report.ToString(), new UTF8Encoding(false));
 Console.WriteLine(report.ToString());
 return 0;
