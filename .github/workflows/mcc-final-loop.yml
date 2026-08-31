@@ -1,167 +1,60 @@
-name: MultiplayerCampaign Build
+name: MPC Build
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - edit
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
-    name: Build MultiplayerCampaign
+    name: Build MPC
     runs-on: windows-latest
 
     steps:
-      - name: Checkout edit branch
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: edit
-          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
-      - name: Show repository structure
+      - name: Locate project
         shell: pwsh
         run: |
-          Write-Host "===== REPOSITORY ====="
-          Get-ChildItem -Recurse -File |
-            Where-Object {
-              $_.FullName -notmatch '\\.git\\'
-            } |
-            Select-Object FullName
-
-      - name: Check source file
-        shell: pwsh
-        run: |
-          if (!(Test-Path "rebuild\MultiplayerCampaignSubModule.cs")) {
-            Write-Error "rebuild\MultiplayerCampaignSubModule.cs NOT FOUND"
-            exit 1
-          }
-
-          Write-Host "Source found:"
-          Get-Item "rebuild\MultiplayerCampaignSubModule.cs" |
-            Format-List FullName,Length
-
-      - name: Check project
-        shell: pwsh
-        run: |
-          if (!(Test-Path "rebuild\MultiplayerCampaignRebuild.csproj")) {
-            Write-Error "rebuild\MultiplayerCampaignRebuild.csproj NOT FOUND"
-            exit 1
-          }
-
-          Write-Host "Project found:"
-          Get-Item "rebuild\MultiplayerCampaignRebuild.csproj" |
-            Format-List FullName,Length
+          Write-Host "=== PROJECT FILES ==="
+          Get-ChildItem -Recurse -Filter *.csproj |
+            ForEach-Object { Write-Host $_.FullName }
 
       - name: Restore
         shell: pwsh
         run: |
-          dotnet restore "rebuild\MultiplayerCampaignRebuild.csproj" `
+          dotnet restore rebuild/MultiplayerCampaignRebuild.csproj `
             --verbosity normal
 
       - name: Build
-        id: build
         shell: pwsh
-        continue-on-error: true
         run: |
-          dotnet build "rebuild\MultiplayerCampaignRebuild.csproj" `
+          dotnet build rebuild/MultiplayerCampaignRebuild.csproj `
             --configuration Release `
             --no-restore `
-            --verbosity diagnostic `
-            2>&1 | Tee-Object -FilePath "BUILD_OUTPUT.txt"
+            --verbosity diagnostic
 
-          $exitCode = $LASTEXITCODE
-
-          Write-Host ""
-          Write-Host "======================================"
-          Write-Host "BUILD EXIT CODE: $exitCode"
-          Write-Host "======================================"
-
-          "BUILD_EXIT_CODE=$exitCode" |
-            Out-File "BUILD_RESULT.txt" -Encoding utf8
-
-          exit $exitCode
-
-      - name: Extract compiler errors
-        if: always()
+      - name: Verify
         shell: pwsh
         run: |
-          if (Test-Path "BUILD_OUTPUT.txt") {
-
-            Select-String `
-              -Path "BUILD_OUTPUT.txt" `
-              -Pattern `
-                "error CS[0-9]+", `
-                "warning CS[0-9]+", `
-                "Build FAILED", `
-                "Build succeeded", `
-                "[0-9]+ Error\(s\)", `
-                "[0-9]+ Warning\(s\)" |
-              ForEach-Object {
-                $_.Line
-              } |
-              Set-Content "BUILD_ERRORS.txt" -Encoding utf8
-
-          } else {
-
-            "BUILD_OUTPUT.txt was not generated." |
-              Set-Content "BUILD_ERRORS.txt" -Encoding utf8
-
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "BUILD FAILED"
+            exit 1
           }
 
-      - name: Print compiler errors
-        if: always()
-        shell: pwsh
-        run: |
-          Write-Host ""
-          Write-Host "======================================"
-          Write-Host "COMPILER ERROR SUMMARY"
-          Write-Host "======================================"
-
-          if (Test-Path "BUILD_ERRORS.txt") {
-            Get-Content "BUILD_ERRORS.txt"
-          }
-
-          Write-Host ""
-          Write-Host "======================================"
-          Write-Host "BUILD RESULT"
-          Write-Host "======================================"
-
-          if (Test-Path "BUILD_RESULT.txt") {
-            Get-Content "BUILD_RESULT.txt"
-          }
-
-      - name: Upload complete diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: MultiplayerCampaign-Build-${{ github.run_number }}
-          path: |
-            BUILD_OUTPUT.txt
-            BUILD_ERRORS.txt
-            BUILD_RESULT.txt
-          if-no-files-found: warn
-
-      - name: Fail if compilation failed
-        if: steps.build.outcome == 'failure'
-        shell: pwsh
-        run: |
-          Write-Error "BUILD FAILED"
-          exit 1
-
-      - name: Build successful
-        if: success()
-        shell: pwsh
-        run: |
-          Write-Host ""
-          Write-Host "======================================"
+          Write-Host "================================"
           Write-Host "BUILD SUCCESS"
           Write-Host "ERRORS = 0"
-          Write-Host "======================================"
+          Write-Host "================================"
