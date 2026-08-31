@@ -9,25 +9,75 @@ permissions:
 
 jobs:
   dedupe-build:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: edit
+          fetch-depth: 1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
 
       - name: Run deduplication
-        run: python3 .github/scripts/dedupe_mpc.py
+        shell: pwsh
+        run: python .github/scripts/dedupe_mpc.py
 
-      - name: Build MPC
-        run: dotnet build rebuild/MultiplayerCampaignRebuild.csproj --configuration Release --no-restore
-
-      - name: Commit corrected source
+      - name: Create CI reference project
+        shell: pwsh
         run: |
+          $xml = @'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>MultiplayerCampaign</AssemblyName>
+    <RootNamespace>MultiplayerCampaign</RootNamespace>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="MultiplayerCampaignSubModule.cs" />
+    <PackageReference Include="Bannerlord.ReferenceAssemblies" Version="1.3.12.104914" />
+    <PackageReference Include="Lib.Harmony.Ref" Version="2.3.4" />
+  </ItemGroup>
+</Project>
+'@
+          [IO.File]::WriteAllText('rebuild\CI.csproj', $xml, [Text.UTF8Encoding]::new($false))
+
+      - name: Validate braces
+        shell: pwsh
+        run: |
+          $source = Get-Content 'rebuild\MultiplayerCampaignSubModule.cs' -Raw
+          $open = ([regex]::Matches($source, '\{')).Count
+          $close = ([regex]::Matches($source, '\}')).Count
+          if ($open -ne $close) { throw "Unbalanced braces: $open / $close" }
+
+      - name: Restore
+        shell: pwsh
+        run: dotnet restore rebuild\CI.csproj --nologo
+
+      - name: Build
+        shell: pwsh
+        run: dotnet build rebuild\CI.csproj --no-restore --nologo --verbosity normal
+
+      - name: Promote compiled source to root and commit
+        if: success()
+        shell: pwsh
+        run: |
+          Copy-Item 'rebuild\MultiplayerCampaignSubModule.cs' 'MultiplayerCampaignSubModule.cs' -Force
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add rebuild/MultiplayerCampaignSubModule.cs
-          if git diff --cached --quiet; then
-            echo 'No source changes after deduplication.'
-          else
-            git commit -m 'refactor: remove duplicated MPC layers'
+          git add MultiplayerCampaignSubModule.cs
+          if (git diff --cached --quiet) {
+            Write-Host 'No source changes to promote.'
+          } else {
+            git commit -m 'refactor: promote compiled deduplicated MPC source'
             git push origin HEAD:edit
-          fi
+          }
