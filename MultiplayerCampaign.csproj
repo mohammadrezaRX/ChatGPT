@@ -1,0 +1,179 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+
+    <AssemblyName>MultiplayerCampaign</AssemblyName>
+    <RootNamespace>MultiplayerCampaign</RootNamespace>
+
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- خروجی عادی پروژه -->
+    <OutputPath>bin\Debug\netstandard2.0\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <ItemGroup>
+
+    <!-- ===================================================== -->
+    <!-- Harmony                                                -->
+    <!-- ===================================================== -->
+
+    <Reference Include="0Harmony">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\Modules\Bannerlord.Harmony\bin\Win64_Shipping_Client\0Harmony.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+
+    <!-- ===================================================== -->
+    <!-- Core Bannerlord                                         -->
+    <!-- ===================================================== -->
+
+    <Reference Include="TaleWorlds.Core">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\bin\Win64_Shipping_Client\TaleWorlds.Core.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+    <Reference Include="TaleWorlds.Library">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\bin\Win64_Shipping_Client\TaleWorlds.Library.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+    <Reference Include="TaleWorlds.Localization">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\bin\Win64_Shipping_Client\TaleWorlds.Localization.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+    <Reference Include="TaleWorlds.ScreenSystem">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\bin\Win64_Shipping_Client\TaleWorlds.ScreenSystem.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+    <Reference Include="TaleWorlds.MountAndBlade">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\bin\Win64_Shipping_Client\TaleWorlds.MountAndBlade.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+    <Reference Include="TaleWorlds.CampaignSystem">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\bin\Win64_Shipping_Client\TaleWorlds.CampaignSystem.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+    <Reference Include="TaleWorlds.Engine">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\bin\Win64_Shipping_Client\TaleWorlds.Engine.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+    <Reference Include="TaleWorlds.ObjectSystem">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\bin\Win64_Shipping_Client\TaleWorlds.ObjectSystem.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+    <Reference Include="TaleWorlds.SaveSystem">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\bin\Win64_Shipping_Client\TaleWorlds.SaveSystem.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+
+    <!-- ===================================================== -->
+    <!-- Gauntlet                                                -->
+    <!-- ===================================================== -->
+
+    <Reference Include="TaleWorlds.Engine.GauntletUI">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\bin\Win64_Shipping_Client\TaleWorlds.Engine.GauntletUI.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+    <Reference Include="TaleWorlds.GauntletUI">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\bin\Win64_Shipping_Client\TaleWorlds.GauntletUI.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+    <Reference Include="TaleWorlds.GauntletUI.Data">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\bin\Win64_Shipping_Client\TaleWorlds.GauntletUI.Data.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+
+    <!-- ===================================================== -->
+    <!-- View                                                      -->
+    <!-- ===================================================== -->
+
+    <Reference Include="TaleWorlds.MountAndBlade.View">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\Modules\Native\bin\Win64_Shipping_Client\TaleWorlds.MountAndBlade.View.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+    <Reference Include="TaleWorlds.MountAndBlade.ViewModelCollection">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\bin\Win64_Shipping_Client\TaleWorlds.MountAndBlade.ViewModelCollection.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+
+    <!-- ===================================================== -->
+    <!-- SandBox                                                   -->
+    <!-- ===================================================== -->
+
+    <Reference Include="SandBox">
+      <HintPath>E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\Modules\SandBox\bin\Win64_Shipping_Client\SandBox.dll</HintPath>
+      <Private>false</Private>
+      <SpecificVersion>false</SpecificVersion>
+    </Reference>
+
+  </ItemGroup>
+
+
+  <!-- ======================================================= -->
+  <!-- Copy files to Bannerlord after successful build         -->
+  <!-- ======================================================= -->
+
+  <Target Name="CopyBannerlordMod" AfterTargets="Build">
+
+    <MakeDir
+      Directories="E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\Modules\MultiplayerCampaign\bin\Win64_Shipping_Client"
+    />
+
+    <Copy
+      SourceFiles="$(TargetPath)"
+      DestinationFiles="E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\Modules\MultiplayerCampaign\bin\Win64_Shipping_Client\MultiplayerCampaign.dll"
+      SkipUnchangedFiles="true"
+    />
+
+    <MakeDir
+      Directories="E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\Modules\MultiplayerCampaign\GUI\Prefabs"
+    />
+
+    <Copy
+      SourceFiles="$(ProjectDir)GUI\Prefabs\MultiplayerCampaign.xml"
+      DestinationFiles="E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\Modules\MultiplayerCampaign\GUI\Prefabs\MultiplayerCampaign.xml"
+      SkipUnchangedFiles="true"
+    />
+
+    <Copy
+      SourceFiles="$(ProjectDir)SubModule.xml"
+      DestinationFiles="E:\INSTAL GAME\Mount &amp; Blade 2 - Bannerlord\Modules\MultiplayerCampaign\SubModule.xml"
+      SkipUnchangedFiles="true"
+    />
+
+  </Target>
+
+</Project>
