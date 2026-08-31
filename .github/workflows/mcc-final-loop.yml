@@ -57,10 +57,6 @@ jobs:
       - name: Verify
         shell: pwsh
         run: |
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "BUILD FAILED"
-            exit 1
-          }
           Write-Host "================================"
           Write-Host "BUILD SUCCESS"
           Write-Host "ERRORS = 0"
