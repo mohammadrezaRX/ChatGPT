@@ -13,6 +13,9 @@ jobs:
   build:
     name: Build MPC
     runs-on: windows-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
 
     steps:
       - name: Checkout edit
@@ -29,6 +32,7 @@ jobs:
       - name: Import Bannerlord DLLs from main
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           git fetch origin main --depth=1
           git checkout origin/main -- DLLs
           if (!(Test-Path "DLLs")) {
@@ -47,12 +51,55 @@ jobs:
       - name: Restore
         shell: pwsh
         run: |
-          dotnet restore rebuild/MultiplayerCampaignRebuild.csproj --verbosity normal
+          $ErrorActionPreference = 'Continue'
+          dotnet restore rebuild/MultiplayerCampaignRebuild.csproj --verbosity diagnostic 2>&1 |
+            Tee-Object -FilePath restore.log
+          $exitCode = $LASTEXITCODE
+          Write-Host "RESTORE_EXIT_CODE=$exitCode"
+          if ($exitCode -ne 0) { exit $exitCode }
 
       - name: Build
         shell: pwsh
         run: |
-          dotnet build rebuild/MultiplayerCampaignRebuild.csproj --configuration Release --no-restore --verbosity diagnostic
+          $ErrorActionPreference = 'Continue'
+          Write-Host "===== MPC BUILD START ====="
+          dotnet --info 2>&1 | Tee-Object -FilePath dotnet-info.log
+          dotnet build rebuild/MultiplayerCampaignRebuild.csproj --configuration Release --no-restore --verbosity diagnostic 2>&1 |
+            Tee-Object -FilePath build.log
+          $exitCode = $LASTEXITCODE
+          Write-Host "BUILD_EXIT_CODE=$exitCode"
+          Write-Host "===== MPC BUILD END ====="
+          if ($exitCode -ne 0) { exit $exitCode }
+
+      - name: Print build summary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "===== MPC BUILD SUMMARY ====="
+          if (Test-Path build.log) {
+            Write-Host "--- Errors ---"
+            Select-String -Path build.log -Pattern '(?i)error [A-Z0-9]+|: error |error\s*CS[0-9]+|Build FAILED' |
+              Select-Object -Last 100 | ForEach-Object { Write-Host $_.Line }
+            Write-Host "--- Warnings ---"
+            Select-String -Path build.log -Pattern '(?i)warning [A-Z0-9]+|: warning |warning\s*CS[0-9]+' |
+              Select-Object -Last 100 | ForEach-Object { Write-Host $_.Line }
+            Write-Host "--- Tail ---"
+            Get-Content build.log -Tail 120
+          } else {
+            Write-Host "build.log was not created"
+          }
+          Write-Host "============================="
+
+      - name: Upload diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpc-build-diagnostics-${{ github.run_id }}
+          path: |
+            build.log
+            restore.log
+            dotnet-info.log
+          if-no-files-found: warn
 
       - name: Verify
         shell: pwsh
