@@ -16,7 +16,7 @@ namespace MultiplayerCampaign
         private static bool _loading;
         private static bool _loadStarted;
 
-        public static bool Loading => _loading;
+        public static bool Loading { get { lock (Sync) return _loading; } }
 
         public static void BeginLoad()
         {
@@ -45,6 +45,21 @@ namespace MultiplayerCampaign
 
             MultiplayerCampaignSubModule.EndTransferredWorldLoad();
             return true;
+        }
+
+        public static void AbortLoad(string message)
+        {
+            lock (Sync)
+            {
+                _loading = false;
+                _loadStarted = false;
+            }
+
+            try { MultiplayerCampaignSubModule.EndTransferredWorldLoad(); } catch { }
+            try { SetClientWorldLoaded(false); SetClientWorldReady(false); } catch { }
+            try { MultiplayerWorldTransfer.Clear(); } catch { }
+            try { MultiplayerConnectionStatus.Set(MultiplayerConnectionState.Connecting); } catch { }
+            try { HostConsole.WriteLine("[!] MCC transfer aborted: " + message); } catch { }
         }
 
         public static byte[] ReadHostSave()
@@ -135,9 +150,16 @@ namespace MultiplayerCampaign
         {
             try
             {
+                lock (Sync)
+                {
+                    _loading = false;
+                    _loadStarted = false;
+                }
                 SetClientWorldLoaded(false);
                 SetClientWorldReady(false);
                 MultiplayerWorldTransfer.Clear();
+                MultiplayerSessionState.SetWorldReady(false);
+                MultiplayerCampaignGameState.SetCampaignReady(false);
             }
             catch { }
         }
@@ -181,10 +203,7 @@ namespace MultiplayerCampaign
                         await Task.Yield();
                     }
 
-                    client.Send(new NetworkMessageData(
-                        NetworkPacketType.WorldComplete,
-                        Array.Empty<byte>()));
-
+                    client.Send(new NetworkMessageData(NetworkPacketType.WorldComplete, Array.Empty<byte>()));
                     client.Send(new NetworkMessageData(
                         NetworkPacketType.WorldJoinAck,
                         NetworkProtocol.CreatePayload(w => w.Write("MCC save received. Loading Host world..."))));
@@ -206,17 +225,21 @@ namespace MultiplayerCampaign
                     byte[] world = MultiplayerWorldTransfer.GetReceivedWorld();
                     if (world == null || world.Length == 0)
                     {
+                        MpcRecoveryRuntime.AbortLoad("No transferred world bytes were received.");
                         return false;
                     }
 
                     string path = MpcRecoveryRuntime.WriteTransferSave(world);
-                    if (path == null)
+                    if (path == null || !File.Exists(path))
+                    {
+                        MpcRecoveryRuntime.AbortLoad("Transferred save could not be written.");
                         return false;
+                    }
 
                     LoadResult result = MBSaveLoad.LoadSaveGameData("MCC_Transfer");
                     if (result == null || !result.Successful)
                     {
-                        HostConsole.WriteLine("[!] MCC transfer save could not be loaded.");
+                        MpcRecoveryRuntime.AbortLoad("MCC transfer save could not be loaded.");
                         return false;
                     }
 
@@ -230,7 +253,7 @@ namespace MultiplayerCampaign
                 }
                 catch (Exception ex)
                 {
-                    HostConsole.WriteLine("[!] MCC world load error: " + ex.Message);
+                    MpcRecoveryRuntime.AbortLoad(ex.Message);
                     return false;
                 }
             }
@@ -257,7 +280,7 @@ namespace MultiplayerCampaign
                 }
                 catch (Exception ex)
                 {
-                    HostConsole.WriteLine("[!] Client world finalization error: " + ex.Message);
+                    MpcRecoveryRuntime.AbortLoad(ex.Message);
                 }
             }
         }
