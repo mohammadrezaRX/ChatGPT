@@ -12,9 +12,11 @@ namespace MultiplayerCampaign
     internal static class MpcRecoveryRuntime
     {
         private const string TransferSaveName = "MCC_Transfer";
+        private const int LoadTimeoutSeconds = 90;
         private static readonly object Sync = new object();
         private static bool _loading;
         private static bool _loadStarted;
+        private static DateTime _loadDeadlineUtc;
 
         public static bool Loading { get { lock (Sync) return _loading; } }
 
@@ -24,13 +26,22 @@ namespace MultiplayerCampaign
             {
                 _loading = true;
                 _loadStarted = false;
+                _loadDeadlineUtc = DateTime.UtcNow.AddSeconds(LoadTimeoutSeconds);
             }
+
+            ResetTransferReceivers();
             MultiplayerCampaignSubModule.BeginTransferredWorldLoad();
         }
 
         public static void MarkLoadStarted()
         {
-            lock (Sync) _loadStarted = true;
+            lock (Sync)
+            {
+                if (!_loading)
+                    return;
+                _loadStarted = true;
+                _loadDeadlineUtc = DateTime.UtcNow.AddSeconds(LoadTimeoutSeconds);
+            }
         }
 
         public static bool TryFinishLoad()
@@ -41,10 +52,25 @@ namespace MultiplayerCampaign
                     return false;
                 _loading = false;
                 _loadStarted = false;
+                _loadDeadlineUtc = DateTime.MinValue;
             }
 
             MultiplayerCampaignSubModule.EndTransferredWorldLoad();
             return true;
+        }
+
+        public static void Tick()
+        {
+            bool timedOut;
+            lock (Sync)
+            {
+                timedOut = _loading &&
+                           _loadDeadlineUtc != DateTime.MinValue &&
+                           DateTime.UtcNow >= _loadDeadlineUtc;
+            }
+
+            if (timedOut)
+                AbortLoad("Timed out while loading the transferred MCC world.");
         }
 
         public static void AbortLoad(string message)
@@ -53,12 +79,16 @@ namespace MultiplayerCampaign
             {
                 _loading = false;
                 _loadStarted = false;
+                _loadDeadlineUtc = DateTime.MinValue;
             }
 
             try { MultiplayerCampaignSubModule.EndTransferredWorldLoad(); } catch { }
             try { SetClientWorldLoaded(false); SetClientWorldReady(false); } catch { }
-            try { MultiplayerWorldTransfer.Clear(); } catch { }
+            ResetTransferReceivers();
+            try { MultiplayerSessionState.SetWorldReady(false); } catch { }
+            try { MultiplayerCampaignGameState.SetCampaignReady(false); } catch { }
             try { MultiplayerConnectionStatus.Set(MultiplayerConnectionState.Connecting); } catch { }
+            try { MultiplayerNetworkClient.Instance.Disconnect(); } catch { }
             try { HostConsole.WriteLine("[!] MCC transfer aborted: " + message); } catch { }
         }
 
@@ -77,7 +107,7 @@ namespace MultiplayerCampaign
             Directory.CreateDirectory(dir);
             string path = Path.Combine(dir, TransferSaveName + ".sav");
             File.WriteAllBytes(path, data);
-            return path;
+            return File.Exists(path) && new FileInfo(path).Length == data.Length ? path : null;
         }
 
         private static string FindSave(string name)
@@ -124,6 +154,12 @@ namespace MultiplayerCampaign
             return Path.GetFullPath(localLow);
         }
 
+        private static void ResetTransferReceivers()
+        {
+            try { WorldTransferService.Reset(); } catch { }
+            try { MultiplayerWorldTransfer.Clear(); } catch { }
+        }
+
         public static void SetClientWorldLoaded(bool value)
         {
             try
@@ -148,20 +184,18 @@ namespace MultiplayerCampaign
 
         public static void ResetConnectionState()
         {
-            try
+            lock (Sync)
             {
-                lock (Sync)
-                {
-                    _loading = false;
-                    _loadStarted = false;
-                }
-                SetClientWorldLoaded(false);
-                SetClientWorldReady(false);
-                MultiplayerWorldTransfer.Clear();
-                MultiplayerSessionState.SetWorldReady(false);
-                MultiplayerCampaignGameState.SetCampaignReady(false);
+                _loading = false;
+                _loadStarted = false;
+                _loadDeadlineUtc = DateTime.MinValue;
             }
-            catch { }
+
+            try { MultiplayerCampaignSubModule.EndTransferredWorldLoad(); } catch { }
+            try { SetClientWorldLoaded(false); SetClientWorldReady(false); } catch { }
+            ResetTransferReceivers();
+            try { MultiplayerSessionState.SetWorldReady(false); } catch { }
+            try { MultiplayerCampaignGameState.SetCampaignReady(false); } catch { }
         }
     }
 
@@ -187,6 +221,7 @@ namespace MultiplayerCampaign
                         return;
                     }
 
+                    MpcRecoveryRuntime.BeginLoad();
                     const int chunkSize = 48 * 1024;
                     client.Send(new NetworkMessageData(
                         NetworkPacketType.WorldBegin,
@@ -236,6 +271,7 @@ namespace MultiplayerCampaign
                         return false;
                     }
 
+                    MpcRecoveryRuntime.BeginLoad();
                     LoadResult result = MBSaveLoad.LoadSaveGameData("MCC_Transfer");
                     if (result == null || !result.Successful)
                     {
@@ -243,11 +279,9 @@ namespace MultiplayerCampaign
                         return false;
                     }
 
-                    MpcRecoveryRuntime.BeginLoad();
                     MpcRecoveryRuntime.MarkLoadStarted();
                     MpcRecoveryRuntime.SetClientWorldReady(false);
                     MpcRecoveryRuntime.SetClientWorldLoaded(false);
-
                     MBGameManager.StartNewGame(new SandBoxGameManager(result));
                     return false;
                 }
@@ -290,12 +324,16 @@ namespace MultiplayerCampaign
         {
             private static void Prefix()
             {
-                try
-                {
-                    if (!MpcRecoveryRuntime.Loading)
-                        MpcRecoveryRuntime.ResetConnectionState();
-                }
-                catch { }
+                try { MpcRecoveryRuntime.ResetConnectionState(); } catch { }
+            }
+        }
+
+        [HarmonyPatch(typeof(MultiplayerNetworkClient), "Update")]
+        private static class UpdatePatch
+        {
+            private static void Postfix()
+            {
+                try { MpcRecoveryRuntime.Tick(); } catch { }
             }
         }
     }
