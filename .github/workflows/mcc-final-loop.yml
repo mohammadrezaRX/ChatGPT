@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - edit
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -39,24 +42,37 @@ jobs:
             Write-Error "DLLs directory from main was not imported"
             exit 1
           }
-          Write-Host "Imported DLLs from main:"
-          Get-ChildItem DLLs -File | Select-Object Name,Length
+          Write-Host "Imported Bannerlord DLLs from main."
 
-      - name: Locate project
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Roslyn split sources
         shell: pwsh
         run: |
-          Get-ChildItem -Recurse -Filter *.csproj |
-            ForEach-Object { Write-Host $_.FullName }
+          $ErrorActionPreference = 'Stop'
+          dotnet run --project tools/RoslynSplitter/RoslynSplitter.csproj -- rebuild/MultiplayerCampaignSubModule.cs rebuild/split rebuild
+          if (!(Test-Path "rebuild/REFACTOR_MAP.txt")) {
+            throw "Roslyn splitter did not produce REFACTOR_MAP.txt"
+          }
+
+      - name: Verify source layout
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem rebuild -Filter *.cs -File
+          $split = Get-ChildItem rebuild/split -Filter *.cs -File -ErrorAction SilentlyContinue
+          Write-Host "Root C# files: $($files.Count)"
+          Write-Host "Split C# files: $($split.Count)"
+          if ($files.Count -lt 2) { throw "Expected main source plus recovery source." }
+          if ($split.Count -lt 1) { throw "No split sources were generated." }
 
       - name: Restore
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Continue'
-          dotnet restore rebuild/MultiplayerCampaignRebuild.csproj --verbosity diagnostic 2>&1 |
-            Tee-Object -FilePath restore.log
-          $exitCode = $LASTEXITCODE
-          Write-Host "RESTORE_EXIT_CODE=$exitCode"
-          if ($exitCode -ne 0) { exit $exitCode }
+          $ErrorActionPreference = 'Stop'
+          dotnet restore rebuild/MultiplayerCampaignRebuild.csproj --verbosity normal
 
       - name: Build
         shell: pwsh
@@ -64,7 +80,7 @@ jobs:
           $ErrorActionPreference = 'Continue'
           Write-Host "===== MPC BUILD START ====="
           dotnet --info 2>&1 | Tee-Object -FilePath dotnet-info.log
-          dotnet build rebuild/MultiplayerCampaignRebuild.csproj --configuration Release --no-restore --verbosity diagnostic 2>&1 |
+          dotnet build rebuild/MultiplayerCampaignRebuild.csproj --configuration Release --no-restore --verbosity normal 2>&1 |
             Tee-Object -FilePath build.log
           $exitCode = $LASTEXITCODE
           Write-Host "BUILD_EXIT_CODE=$exitCode"
@@ -84,9 +100,7 @@ jobs:
             Select-String -Path build.log -Pattern '(?i)warning [A-Z0-9]+|: warning |warning\s*CS[0-9]+' |
               Select-Object -Last 100 | ForEach-Object { Write-Host $_.Line }
             Write-Host "--- Tail ---"
-            Get-Content build.log -Tail 120
-          } else {
-            Write-Host "build.log was not created"
+            Get-Content build.log -Tail 160
           }
           Write-Host "============================="
 
@@ -97,15 +111,14 @@ jobs:
           name: mpc-build-diagnostics-${{ github.run_id }}
           path: |
             build.log
-            restore.log
             dotnet-info.log
+            rebuild/REFACTOR_MAP.txt
           if-no-files-found: warn
 
-      - name: Verify
+      - name: Verify success
         shell: pwsh
         run: |
           Write-Host "================================"
           Write-Host "BUILD SUCCESS"
           Write-Host "ERRORS = 0"
           Write-Host "================================"
-          Write-Host "Connection/world-transfer recovery revision active"
