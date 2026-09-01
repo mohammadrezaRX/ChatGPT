@@ -1,22 +1,24 @@
 MPC BUILD FAILURE
-COMMIT=d81b2dc57b3b23340ee08490bd907d5837518fe1
-RUN=33494762075
+COMMIT=f1807c615937e62443d6dadcf80f11ff96e00e02
+RUN=33495047405
 
 ERRORS:
-     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(4913,27): error CS0101: The namespace 'MultiplayerCampaign' already contains a definition for 'MpcCharacterSlots' [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(5009,30): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'GetName' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(4984,28): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'Select' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(5022,28): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'SaveSelected' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(4957,28): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'EnsureSelectedFromExisting' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcUI.cs(228,17): error CS0023: Operator '!' cannot be applied to operand of type 'void' [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8032,17): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8108,21): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8129,25): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8414,17): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8461,17): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
 Build FAILED.
-         D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(4913,27): error CS0101: The namespace 'MultiplayerCampaign' already contains a definition for 'MpcCharacterSlots' [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-         D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(5009,30): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'GetName' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-         D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(4984,28): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'Select' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-         D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(5022,28): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'SaveSelected' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-         D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(4957,28): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'EnsureSelectedFromExisting' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcUI.cs(228,17): error CS0023: Operator '!' cannot be applied to operand of type 'void' [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8032,17): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8108,21): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8129,25): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8414,17): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8461,17): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
 
 TAIL:
-Build started 9/1/2026 9:56:22 AM.
+Build started 9/1/2026 10:00:06 AM.
      1>Project "D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj" on node 1 (default targets).
      1>GenerateTargetFrameworkMonikerAttribute:
        Skipping target "GenerateTargetFrameworkMonikerAttribute" because all output files are up-to-date with respect to the input files.
@@ -55,11 +57,14 @@ Build started 9/1/2026 9:56:22 AM.
      1>D:\a\ChatGPT\ChatGPT\rebuild\MpcWorld.cs(35,7): warning CS0105: The using directive for 'TaleWorlds.CampaignSystem' appeared previously in this namespace [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
      1>D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignSubModule.cs(16,7): warning CS0105: The using directive for 'HarmonyLib' appeared previously in this namespace [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
      1>D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignSubModule.cs(35,7): warning CS0105: The using directive for 'TaleWorlds.CampaignSystem' appeared previously in this namespace [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(4913,27): error CS0101: The namespace 'MultiplayerCampaign' already contains a definition for 'MpcCharacterSlots' [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(5009,30): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'GetName' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(4984,28): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'Select' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(5022,28): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'SaveSelected' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(4957,28): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'EnsureSelectedFromExisting' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcPatches.cs(630,21): warning CS4014: Because this call is not awaited, execution of the current method continues before the call is completed. Consider applying the 'await' operator to the result of the call. [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcUI.cs(228,17): error CS0023: Operator '!' cannot be applied to operand of type 'void' [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8032,17): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8108,21): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8129,25): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8414,17): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8461,17): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(925,25): warning CS0414: The field 'FinalSubModuleState._campaignStarted' is assigned but its value is never used [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
          CompilerServer: server - server processed compilation - MultiplayerCampaignRebuild (netstandard2.0)
      1>Done Building Project "D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj" (default targets) -- FAILED.
 
@@ -87,18 +92,21 @@ Build FAILED.
          D:\a\ChatGPT\ChatGPT\rebuild\MpcWorld.cs(35,7): warning CS0105: The using directive for 'TaleWorlds.CampaignSystem' appeared previously in this namespace [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
          D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignSubModule.cs(16,7): warning CS0105: The using directive for 'HarmonyLib' appeared previously in this namespace [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
          D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignSubModule.cs(35,7): warning CS0105: The using directive for 'TaleWorlds.CampaignSystem' appeared previously in this namespace [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcPatches.cs(630,21): warning CS4014: Because this call is not awaited, execution of the current method continues before the call is completed. Consider applying the 'await' operator to the result of the call. [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(925,25): warning CS0414: The field 'FinalSubModuleState._campaignStarted' is assigned but its value is never used [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
 
 
        "D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj" (default target) (1) ->
        (CoreCompile target) -> 
-         D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(4913,27): error CS0101: The namespace 'MultiplayerCampaign' already contains a definition for 'MpcCharacterSlots' [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-         D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(5009,30): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'GetName' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-         D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(4984,28): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'Select' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-         D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(5022,28): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'SaveSelected' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-         D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(4957,28): error CS0111: Type 'MpcCharacterSlots' already defines a member called 'EnsureSelectedFromExisting' with the same parameter types [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcUI.cs(228,17): error CS0023: Operator '!' cannot be applied to operand of type 'void' [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8032,17): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8108,21): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8129,25): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8414,17): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcNetwork.cs(8461,17): error CS1061: 'MultiplayerCampaignVM' does not contain a definition for 'SetStatus' and no accessible extension method 'SetStatus' accepting a first argument of type 'MultiplayerCampaignVM' could be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
 
-    20 Warning(s)
-    5 Error(s)
+    22 Warning(s)
+    6 Error(s)
 
-Time Elapsed 00:00:00.99
+Time Elapsed 00:00:01.41
 
