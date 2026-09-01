@@ -1,13 +1,14 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-
-using TaleWorlds.CampaignSystem;
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
 using HarmonyLib;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using TaleWorlds.CampaignSystem;
 using BinaryReader = System.IO.BinaryReader;
 using Helpers;
 using MultiplayerCampaign;
@@ -37,6 +38,7 @@ using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
+
 
 
 
@@ -122,6 +124,7 @@ public static class SafeCampaignAccess
         return CampaignWorld.GetMainPartySize();
     }
 }
+
 
 
 
@@ -292,6 +295,7 @@ internal static class CampaignMapRemotePositionCache
 
 
 
+
 // ============================================================
 // REMOTE PLAYER NAME CACHE
 // ============================================================
@@ -433,6 +437,7 @@ internal static class CampaignMapRemoteNameCache
 
 
 
+
 // ============================================================
 // CAMPAIGN MAP SAFE STATE
 // ============================================================
@@ -498,6 +503,7 @@ internal static class CampaignMapSafeState
         }
     }
 }
+
 
 
 
@@ -573,6 +579,7 @@ internal static class CampaignReadinessMonitor
 
 
 
+
 // ============================================================
 // CAMPAIGN INITIALIZATION GUARD
 // ============================================================
@@ -636,6 +643,7 @@ internal static class CampaignInitializationGuard
 
 
 
+
 // ============================================================
 // SAFE CAMPAIGN TICK
 // ============================================================
@@ -679,6 +687,7 @@ internal static class SafeCampaignTick
             );
     }
 }
+
 
 
 
@@ -773,6 +782,7 @@ internal static class CampaignSafeStartup
 
 
 
+
 // ============================================================
 // FINAL CAMPAIGN BEHAVIOR BRIDGE
 // ============================================================
@@ -824,6 +834,7 @@ internal static class FinalCampaignBehaviorBridge
             );
     }
 }
+
 
 
 
@@ -910,6 +921,7 @@ internal static class CampaignMapIntegration
 
 
 
+
 // ============================================================
 // FINAL CAMPAIGN LOOP
 // ============================================================
@@ -985,6 +997,7 @@ internal static class FinalCampaignLoop
 
 
 
+
 // ============================================================
 // FINAL MASTER TICK
 // ============================================================
@@ -1013,6 +1026,7 @@ internal static class FinalMasterTick
         _ = 0;
     }
 }
+
 
 
 
@@ -1062,6 +1076,7 @@ internal static class FinalStartupFactory
 
 
 
+
 // ============================================================
 // FINAL GLOBAL TICK ENTRY
 // ============================================================
@@ -1096,6 +1111,7 @@ internal static class FinalGlobalTickEntry
         }
     }
 }
+
 
 
 
@@ -1165,6 +1181,7 @@ internal static class FinalInitializationGuard
 
 
 
+
 // ============================================================
 // MAIN MULTIPLAYER TICK
 // ============================================================
@@ -1212,6 +1229,7 @@ internal static class MultiplayerMainTick
         }
     }
 }
+
 
 
 
@@ -1405,6 +1423,7 @@ public static class MultiplayerCampaignGameState
 
 
 
+
 // ============================================================
 // MAIN CAMPAIGN MULTIPLAYER TICK
 // ============================================================
@@ -1439,6 +1458,7 @@ internal static class MainMultiplayerTick
         }
     }
 }
+
 
 
 
@@ -1489,6 +1509,7 @@ public sealed class MultiplayerCampaignTickAdapter
             0f;
     }
 }
+
 
 
 
@@ -1548,6 +1569,7 @@ internal static class MultiplayerCampaignMasterUpdate
             .Clear();
     }
 }
+
 
 
 
@@ -1648,6 +1670,7 @@ public static class MultiplayerCampaignHostExtensions
         }
     }
 }
+
 
 
 
@@ -1877,6 +1900,7 @@ internal static class HostCampaignSnapshotLoop
 
 
 
+
 // ============================================================
 // CLIENT CAMPAIGN SNAPSHOT RECEIVER
 // ============================================================
@@ -2020,6 +2044,7 @@ internal static class ClientCampaignSnapshotReceiver
 
 
 
+
 // ============================================================
 // FULL MULTIPLAYER TICK
 // ============================================================
@@ -2095,6 +2120,7 @@ internal static class FullMultiplayerTick
 
 
 
+
 // ============================================================
 // FINAL ENTRY POINT
 // ============================================================
@@ -2134,6 +2160,7 @@ public static class MultiplayerCampaignEntryPoint
             .OnUnload();
     }
 }
+
 
 
 
@@ -2230,6 +2257,7 @@ public sealed class MultiplayerCampaignBehaviorV2
          */
     }
 }
+
 
 
 
@@ -2352,6 +2380,7 @@ internal static class FinalMultiplayerTickV3
 
 
 
+
 // ============================================================
 // FINAL ENTRY SERVICE
 // ============================================================
@@ -2425,6 +2454,7 @@ public static class MultiplayerCampaignFinalService
             .Execute();
     }
 }
+
 
 
 
@@ -2536,6 +2566,7 @@ public static class MultiplayerCampaignServiceEntry
 
 
 
+
 // ============================================================
 // FINAL CAMPAIGN BEHAVIOR
 // ============================================================
@@ -2624,6 +2655,7 @@ public sealed class MultiplayerCampaignFinalBehavior
 
 
 
+
 // ============================================================
 // END OF REBUILT MULTIPLAYER CAMPAIGN
 // ============================================================
@@ -2695,6 +2727,7 @@ public sealed class MultiplayerCampaignFinalSubModule
 
 
 
+
 // ============================================================
 // FINAL SAFE API
 // ============================================================
@@ -2744,6 +2777,7 @@ internal static class MultiplayerCampaignSafeApi
 
 
 
+
 // ============================================================
 // FINAL FILE TERMINATOR
 // ============================================================
@@ -2756,6 +2790,7 @@ internal static class MultiplayerCampaignFileTerminator
             .Shutdown();
     }
 }
+
 
 
 
@@ -2955,6 +2990,7 @@ internal static class MultiplayerCampaignClose
 
 
 
+
 // ============================================================
 // FINAL END
 // ============================================================
@@ -2994,6 +3030,7 @@ internal static class MultiplayerCampaignFinalization
         }
     }
 }
+
 
 
 
@@ -3054,6 +3091,7 @@ internal static class HostCampaignSnapshotBuilder
         return snapshot;
     }
 }
+
 
 
 
@@ -3212,6 +3250,7 @@ namespace MultiplayerCampaign
 
 
 
+
     /*
      * ============================================================
      * CAMPAIGN BEHAVIOR
@@ -3355,6 +3394,7 @@ namespace MultiplayerCampaign
         {
         }
     }
+
 
 
 
