@@ -1,0 +1,3 @@
+Declarations preserved: 281
+Declarations emitted: 281
+Files generated: 10

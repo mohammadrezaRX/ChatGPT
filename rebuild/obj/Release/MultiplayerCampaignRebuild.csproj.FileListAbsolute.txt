@@ -1,0 +1,11 @@
+D:\a\ChatGPT\ChatGPT\rebuild\bin\Debug\netstandard2.0\MultiplayerCampaign.deps.json
+D:\a\ChatGPT\ChatGPT\rebuild\bin\Debug\netstandard2.0\MultiplayerCampaign.dll
+D:\a\ChatGPT\ChatGPT\rebuild\bin\Debug\netstandard2.0\MultiplayerCampaign.pdb
+D:\a\ChatGPT\ChatGPT\rebuild\obj\Release\MultiplayerCampaignRebuild.csproj.AssemblyReference.cache
+D:\a\ChatGPT\ChatGPT\rebuild\obj\Release\MultiplayerCampaignRebuild.GeneratedMSBuildEditorConfig.editorconfig
+D:\a\ChatGPT\ChatGPT\rebuild\obj\Release\MultiplayerCampaignRebuild.AssemblyInfoInputs.cache
+D:\a\ChatGPT\ChatGPT\rebuild\obj\Release\MultiplayerCampaignRebuild.AssemblyInfo.cs
+D:\a\ChatGPT\ChatGPT\rebuild\obj\Release\MultiplayerCampaignRebuild.csproj.CoreCompileInputs.cache
+D:\a\ChatGPT\ChatGPT\rebuild\obj\Release\MultiplayerCampaignRebuild.sourcelink.json
+D:\a\ChatGPT\ChatGPT\rebuild\obj\Release\MultiplayerCampaign.dll
+D:\a\ChatGPT\ChatGPT\rebuild\obj\Release\MultiplayerCampaign.pdb

@@ -1,13 +1,91 @@
-using System;
-using System.IO;
-using System.Reflection;
-using System.Threading.Tasks;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
 using HarmonyLib;
+
+using TaleWorlds.CampaignSystem;
+using BinaryReader = System.IO.BinaryReader;
+using HarmonyLib;
+using Helpers;
+using MultiplayerCampaign;
 using SandBox;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Net.Sockets;
+using System.Net;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading.Tasks;
+using System.Threading;
+using System;
+using TaleWorlds.CampaignSystem.Actions;
+using TaleWorlds.CampaignSystem.CharacterCreationContent;
+using TaleWorlds.CampaignSystem.Party;
 using TaleWorlds.Core;
+using TaleWorlds.Engine.GauntletUI;
+using TaleWorlds.Library;
+using TaleWorlds.Localization;
+using TaleWorlds.MountAndBlade.View;
+using TaleWorlds.MountAndBlade.ViewModelCollection.InitialMenu;
 using TaleWorlds.MountAndBlade;
-using TaleWorlds.SaveSystem;
 using TaleWorlds.SaveSystem.Load;
+using TaleWorlds.SaveSystem;
+using TaleWorlds.ScreenSystem;
+
+
+
+// ============================================================
+// SAFE CAMPAIGN SAVE GUARD
+// ============================================================
+
+internal static class SafeCampaignSaveGuard
+{
+    public static bool CanSave()
+    {
+        try
+        {
+            if (
+                Campaign.Current == null)
+            {
+                return false;
+            }
+
+            if (
+                Hero.MainHero == null)
+            {
+                return false;
+            }
+
+            if (
+                MobileParty.MainParty == null)
+            {
+                return false;
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static void Prepare()
+    {
+        /*
+         * IMPORTANT:
+         *
+         * There is intentionally no remote Hero or
+         * remote MobileParty registered in Campaign.
+         *
+         * Therefore Bannerlord's normal save system
+         * only serializes the actual local Campaign.
+         */
+    }
+}
+
 
 namespace MultiplayerCampaign
 {
@@ -201,6 +279,7 @@ namespace MultiplayerCampaign
         }
     }
 
+
     internal static class MpcSaveTransferPatch
     {
         [HarmonyPatch(typeof(MultiplayerCampaignHost), "SendWorldToClientAsync")]
@@ -339,4 +418,6 @@ namespace MultiplayerCampaign
             }
         }
     }
+
 }
+
