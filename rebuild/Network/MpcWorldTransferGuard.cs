@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using HarmonyLib;
@@ -8,7 +9,8 @@ namespace MultiplayerCampaign
     {
         private static readonly object Sync = new object();
         private static readonly HashSet<HostClientConnection> Sent = new HashSet<HostClientConnection>();
-        private static readonly HashSet<HostClientConnection> ResyncRequested = new HashSet<HostClientConnection>();
+        private static readonly Dictionary<HostClientConnection, DateTime> LastResyncUtc = new Dictionary<HostClientConnection, DateTime>();
+        private static readonly TimeSpan ResyncCooldown = TimeSpan.FromSeconds(8);
 
         public static bool AllowInitialOrResync(HostClientConnection connection)
         {
@@ -17,13 +19,20 @@ namespace MultiplayerCampaign
 
             lock (Sync)
             {
-                if (ResyncRequested.Remove(connection))
+                if (!Sent.Contains(connection))
+                {
+                    Sent.Add(connection);
                     return true;
+                }
 
-                if (Sent.Contains(connection))
+                DateTime last;
+                if (!LastResyncUtc.TryGetValue(connection, out last))
                     return false;
 
-                Sent.Add(connection);
+                if (DateTime.UtcNow - last < ResyncCooldown)
+                    return false;
+
+                LastResyncUtc.Remove(connection);
                 return true;
             }
         }
@@ -35,7 +44,7 @@ namespace MultiplayerCampaign
 
             lock (Sync)
             {
-                ResyncRequested.Add(connection);
+                LastResyncUtc[connection] = DateTime.UtcNow;
             }
         }
 
@@ -47,7 +56,7 @@ namespace MultiplayerCampaign
             lock (Sync)
             {
                 Sent.Remove(connection);
-                ResyncRequested.Remove(connection);
+                LastResyncUtc.Remove(connection);
             }
         }
     }
