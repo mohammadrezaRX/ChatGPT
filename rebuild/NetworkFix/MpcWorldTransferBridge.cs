@@ -4,84 +4,68 @@ using HarmonyLib;
 namespace MultiplayerCampaign
 {
     /// <summary>
-    /// Unifies the active WorldTransferService receive path with the
-    /// recovery/save-loading path. The old code had two independent
-    /// world receivers; packets were accumulated by WorldTransferService
-    /// while the actual load patch listened to MultiplayerWorldTransfer.
+    /// Keeps the active client world-transfer receiver and the
+    /// recovery/save-loading path connected.
+    ///
+    /// MultiplayerNetworkClient routes WorldBegin/WorldChunk/
+    /// WorldComplete directly to MultiplayerWorldTransfer.
+    /// The previous bridge patched WorldTransferService instead,
+    /// so the active client never reached FinishClientLoad().
     /// </summary>
     internal static class MpcWorldTransferBridge
     {
-        [HarmonyPatch(typeof(WorldTransferService), "ReceiveBegin")]
-        private static class ReceiveBeginPatch
+        [HarmonyPatch(typeof(MultiplayerWorldTransfer), "HandleWorldBegin")]
+        private static class BeginPatch
         {
-            private static bool Prefix(byte[] payload)
+            private static void Prefix()
             {
                 try
                 {
-                    MultiplayerWorldTransfer.HandleWorldBegin(payload);
-                    return false;
+                    // Start the client-side recovery timeout before receiving data.
+                    if (!MpcRecoveryRuntime.Loading)
+                    {
+                        MpcRecoveryRuntime.BeginLoad();
+                    }
+
+                    MultiplayerConnectionStatus.Set(
+                        MultiplayerConnectionState.SynchronizingWorld
+                    );
                 }
                 catch (Exception ex)
                 {
-                    try { HostConsole.WriteLine("[!] World begin bridge error: " + ex.Message); } catch { }
-                    return false;
+                    try
+                    {
+                        HostConsole.WriteLine(
+                            "[!] World transfer initialization failed: " + ex.Message
+                        );
+                    }
+                    catch { }
                 }
             }
         }
 
-        [HarmonyPatch(typeof(WorldTransferService), "ReceiveChunk")]
-        private static class ReceiveChunkPatch
+        [HarmonyPatch(typeof(MultiplayerWorldTransfer), "HandleWorldComplete")]
+        private static class CompletePatch
         {
-            private static bool Prefix(byte[] payload)
+            private static void Postfix()
             {
                 try
                 {
-                    MultiplayerWorldTransfer.HandleWorldChunk(payload);
-                    return false;
-                }
-                catch (Exception ex)
-                {
-                    try { HostConsole.WriteLine("[!] World chunk bridge error: " + ex.Message); } catch { }
-                    return false;
-                }
-            }
-        }
-
-        [HarmonyPatch(typeof(WorldTransferService), "ReceiveComplete")]
-        private static class ReceiveCompletePatch
-        {
-            private static bool Prefix(byte[] payload)
-            {
-                try
-                {
-                    MultiplayerWorldTransfer.HandleWorldComplete(payload);
+                    // The active MultiplayerNetworkClient does not call
+                    // FinishClientLoad() after HandleWorldComplete().
+                    // Trigger it here so MpcSaveTransferPatch can take over
+                    // and load MCC_Transfer through Bannerlord's save system.
                     MultiplayerWorldTransfer.FinishClientLoad();
-                    return false;
                 }
                 catch (Exception ex)
                 {
-                    try { MpcRecoveryRuntime.AbortLoad(ex.Message); } catch { }
-                    return false;
-                }
-            }
-        }
-
-        // ReceiveComplete is followed by WorldReadyHandler.Handle() in the
-        // network dispatcher. During the transfer load that is too early:
-        // the SaveGame has only just been handed to Bannerlord. Let the
-        // OnLoadFinished recovery patch publish Ready instead.
-        [HarmonyPatch(typeof(WorldReadyHandler), "Handle")]
-        private static class WorldReadyPatch
-        {
-            private static bool Prefix()
-            {
-                try
-                {
-                    return !MpcRecoveryRuntime.Loading;
-                }
-                catch
-                {
-                    return true;
+                    try
+                    {
+                        MpcRecoveryRuntime.AbortLoad(
+                            "World transfer completion failed: " + ex.Message
+                        );
+                    }
+                    catch { }
                 }
             }
         }
