@@ -1,7 +1,6 @@
 using System;
-using System.Reflection;
 using HarmonyLib;
-using TaleWorlds.CampaignSystem.CharacterCreationContent;
+using TaleWorlds.CampaignSystem;
 using TaleWorlds.Core;
 using TaleWorlds.MountAndBlade;
 
@@ -9,150 +8,78 @@ namespace MultiplayerCampaign
 {
     internal static class MpcNativeCharacterCreationFix
     {
-        public static void OpenNativeCharacterCreation()
-        {
-            GameStateManager manager =
-                Game.Current != null && Game.Current.GameStateManager != null
-                    ? Game.Current.GameStateManager
-                    : GameStateManager.Current;
+        private static readonly object Sync = new object();
+        private static bool _pending;
+        private static bool _opening;
+        private static DateTime _requestUtc;
 
+        public static void RequestNativeCharacterCreation()
+        {
+            lock (Sync)
+            {
+                _pending = true;
+                _opening = false;
+                _requestUtc = DateTime.UtcNow;
+            }
+        }
+
+        public static void ProcessPending()
+        {
+            lock (Sync)
+            {
+                if (!_pending || _opening)
+                    return;
+
+                if ((DateTime.UtcNow - _requestUtc).TotalSeconds > 15.0)
+                {
+                    _pending = false;
+                    return;
+                }
+            }
+
+            Game game = Game.Current;
+            if (game == null)
+                return;
+
+            GameStateManager manager = game.GameStateManager;
             if (manager == null)
-                throw new InvalidOperationException("Bannerlord GameStateManager is not available yet.");
+                return;
 
-            object content = CreateSandboxCharacterCreationContent();
-            if (content == null)
-                throw new InvalidOperationException("SandboxCharacterCreationContent could not be created.");
-
-            CharacterCreationState state = CreateCharacterCreationState(manager, content);
-            if (state == null)
-                throw new InvalidOperationException("Bannerlord CharacterCreationState could not be created.");
-
-            manager.CleanAndPushState(state, 0);
-        }
-
-        private static CharacterCreationState CreateCharacterCreationState(GameStateManager manager, object content)
-        {
-            Type stateType = typeof(CharacterCreationState);
-            MethodInfo[] methods = typeof(GameStateManager).GetMethods(
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
-            for (int i = 0; i < methods.Length; i++)
+            lock (Sync)
             {
-                MethodInfo method = methods[i];
-                if (method.Name != "CreateState" ||
-                    !method.IsGenericMethodDefinition ||
-                    method.GetGenericArguments().Length != 1)
-                    continue;
+                if (!_pending || _opening)
+                    return;
 
-                MethodInfo closed;
-                try
-                {
-                    closed = method.MakeGenericMethod(stateType);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                ParameterInfo[] parameters = method.GetParameters();
-                try
-                {
-                    if (parameters.Length == 1 && parameters[0].ParameterType == typeof(object[]))
-                    {
-                        object result = closed.Invoke(
-                            manager,
-                            new object[] { new object[] { content } });
-
-                        CharacterCreationState state = result as CharacterCreationState;
-                        if (state != null)
-                            return state;
-                    }
-                }
-                catch
-                {
-                }
+                _opening = true;
+                _pending = false;
             }
 
             try
             {
-                return manager.CreateState<CharacterCreationState>(content);
-            }
-            catch
-            {
-                return null;
-            }
-        }
+                CharacterCreationState state =
+                    manager.CreateState<CharacterCreationState>();
 
-        private static object CreateSandboxCharacterCreationContent()
-        {
-            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+                if (state == null)
+                    throw new InvalidOperationException("Bannerlord CharacterCreationState could not be created.");
 
-            for (int a = 0; a < assemblies.Length; a++)
-            {
-                Type type = FindTypeByName(
-                    assemblies[a],
-                    "SandboxCharacterCreationContent");
-
-                if (type == null || type.IsAbstract)
-                    continue;
-
-                try
-                {
-                    return Activator.CreateInstance(type, true);
-                }
-                catch
-                {
-                }
-            }
-
-            return null;
-        }
-
-        private static Type FindTypeByName(
-            Assembly assembly,
-            string typeName)
-        {
-            try
-            {
-                Type direct = assembly.GetType(typeName, false, true);
-                if (direct != null)
-                    return direct;
-
-                Type[] types = assembly.GetTypes();
-                for (int i = 0; i < types.Length; i++)
-                {
-                    if (types[i] != null &&
-                        string.Equals(
-                            types[i].Name,
-                            typeName,
-                            StringComparison.OrdinalIgnoreCase))
-                    {
-                        return types[i];
-                    }
-                }
-            }
-            catch
-            {
-            }
-
-            return null;
-        }
-    }
-
-    [HarmonyPatch(typeof(MultiplayerCampaignVM), "ExecuteOpenCreate")]
-    internal static class MpcCreateHostButtonPatch
-    {
-        private static bool Prefix(MultiplayerCampaignVM __instance)
-        {
-            try
-            {
-                __instance.SetStatus("CREATE OR SELECT CHARACTER");
+                manager.CleanAndPushState(state, 0);
+                HostConsole.WriteLine("[*] Native Bannerlord Character Creation opened.");
             }
             catch (Exception ex)
             {
-                try { HostConsole.WriteLine("[!] Character page: " + ex); } catch { }
+                lock (Sync)
+                {
+                    _opening = false;
+                }
+
+                try
+                {
+                    HostConsole.WriteLine("[!] Native Character Creation failed: " + ex);
+                }
+                catch
+                {
+                }
             }
-            return true;
         }
     }
 
@@ -167,14 +94,15 @@ namespace MultiplayerCampaign
                     MpcCharacterSlots.Select(0);
 
                 __instance.SetStatus("OPENING BANNERLORD CHARACTER CREATION...");
-                MpcNativeCharacterCreationFix.OpenNativeCharacterCreation();
+                MpcNativeCharacterCreationFix.RequestNativeCharacterCreation();
+                return false;
             }
             catch (Exception ex)
             {
                 try { __instance.SetStatus("CHARACTER CREATION FAILED"); } catch { }
-                try { HostConsole.WriteLine("[!] Character Creator: " + ex); } catch { }
+                try { HostConsole.WriteLine("[!] Character Creator request: " + ex); } catch { }
+                return false;
             }
-            return false;
         }
     }
 
@@ -201,6 +129,7 @@ namespace MultiplayerCampaign
 
                 MpcCharacterSlots.SaveSelected(name);
                 LocalPlayerState.SetDisplayName(name);
+                HostConsole.WriteLine("[*] Character saved to MPC slot: " + name);
             }
             catch (Exception ex)
             {
