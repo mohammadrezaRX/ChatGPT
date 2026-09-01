@@ -3,15 +3,16 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-
-using TaleWorlds.CampaignSystem;
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
 using HarmonyLib;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using TaleWorlds.CampaignSystem;
 using BinaryReader = System.IO.BinaryReader;
 using HarmonyLib;
 using Helpers;
@@ -44,6 +45,7 @@ using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
+
 
 
 
@@ -135,6 +137,7 @@ internal static class LocalPlayerState
 
 
 
+
 /*
  * ============================================================
  * REMOTE PLAYER STATE
@@ -186,6 +189,7 @@ public sealed class RemotePlayerState
 
 
 
+
 /*
  * ============================================================
  * REMOTE PLAYER COMMAND
@@ -202,6 +206,7 @@ internal enum RemotePlayerCommandType
 
     Leave
 }
+
 
 
 
@@ -308,6 +313,7 @@ internal sealed class RemotePlayerCommand
         };
     }
 }
+
 
 
 
@@ -1378,6 +1384,7 @@ public static partial class RemotePlayerManager
 
 
 
+
 /*
  * ============================================================
  * PLAYER VISUAL DATA
@@ -1403,6 +1410,7 @@ public sealed class RemotePlayerVisualData
 
     public DateTime LastUpdateUtc;
 }
+
 
 
 
@@ -1566,6 +1574,7 @@ public static class RemotePlayerVisualRegistry
 
 
 
+
 /*
  * ============================================================
  * REMOTE PLAYER MAP ACCESS
@@ -1598,6 +1607,7 @@ public static class RemotePlayerMapAccess
         return result;
     }
 }
+
 
 
 
@@ -1679,6 +1689,7 @@ internal static class RemotePlayerHealthMonitor
 
 
 
+
 /*
  * ============================================================
  * REMOTE PLAYER UPDATE HOOK
@@ -1731,6 +1742,7 @@ internal static class RemotePlayerUpdateHook
 
 
 
+
 /*
  * ============================================================
  * LOCAL PLAYER VALIDATION
@@ -1762,6 +1774,7 @@ internal static class LocalPlayerValidation
         return true;
     }
 }
+
 
 
 
@@ -2027,6 +2040,7 @@ internal static class CampaignMapRemotePlayerRegistry
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP DATA
 // ============================================================
@@ -2072,6 +2086,7 @@ internal sealed class CampaignMapRemotePlayerData
             DateTime.MinValue;
     }
 }
+
 
 
 
@@ -2136,6 +2151,7 @@ internal static class CampaignMapRemotePlayerUpdate
             .Clear();
     }
 }
+
 
 
 
@@ -2275,6 +2291,7 @@ internal static class CampaignMapRemotePlayerAccess
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP PIPELINE
 // ============================================================
@@ -2352,6 +2369,7 @@ internal static class CampaignMapRemotePlayerPipeline
             .Clear();
     }
 }
+
 
 
 
@@ -2471,6 +2489,7 @@ internal static class CampaignMapRemotePlayerTimeout
 
 
 
+
 // ============================================================
 // MASTER MAP UPDATE
 // ============================================================
@@ -2506,6 +2525,7 @@ internal static class CampaignMapRemotePlayerMaster
             .Clear();
     }
 }
+
 
 
 
@@ -2566,6 +2586,7 @@ internal static class CampaignMapRemotePlayerSnapshot
 
 
 
+
 // ============================================================
 // FINAL CLEANUP FOR THIS SECTION
 // ============================================================
@@ -2584,6 +2605,7 @@ internal static class CampaignMapRemotePlayerCleanup
         }
     }
 }
+
 
 
 
@@ -2638,6 +2660,7 @@ internal static class RemotePlayerCommandQueue
         }
     }
 }
+
 
 
 
@@ -2775,6 +2798,7 @@ internal sealed class SnapshotBuffer
         }
     }
 }
+
 
 
 
@@ -3071,6 +3095,7 @@ internal static class RemotePlayerRegistry
 
 
 
+
 // ============================================================
 // REMOTE PLAYER BRIDGE
 // ============================================================
@@ -3138,6 +3163,7 @@ internal static class RemotePlayerBridge
             .Clear();
     }
 }
+
 
 
 
@@ -3315,6 +3341,7 @@ internal static class PlayerSnapshotCodec
 
 
 
+
 // ============================================================
 // SAFE REMOTE PLAYER TICK
 // ============================================================
@@ -3342,6 +3369,7 @@ internal static class RemotePlayerTick
             .Refresh();
     }
 }
+
 
 
 
@@ -3534,6 +3562,7 @@ public static class RemotePlayerMapRegistry
 
 
 
+
 public sealed class RemotePlayerMapMarkerData
 {
     public string PlayerId;
@@ -3548,6 +3577,7 @@ public sealed class RemotePlayerMapMarkerData
 
     public DateTime LastUpdateUtc;
 }
+
 
 
 
@@ -3598,6 +3628,7 @@ internal static class RemotePlayerMapMarkerController
             .Update();
     }
 }
+
 
 
 
@@ -3669,6 +3700,7 @@ public static class RemotePlayerDataSource
         return false;
     }
 }
+
 
 
 
@@ -3776,6 +3808,7 @@ public static class RemotePlayerNameRegistry
         }
     }
 }
+
 
 
 
@@ -3923,6 +3956,7 @@ public static class RemotePlayerPositionRegistry
 
 
 
+
 // ============================================================
 // REMOTE PLAYER STATE PROJECTOR
 // ============================================================
@@ -4006,6 +4040,7 @@ internal static class RemotePlayerStateProjector
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP REFRESH
 // ============================================================
@@ -4064,6 +4099,7 @@ internal static class RemotePlayerMapRefresh
 
 
 
+
 // ============================================================
 // EXTENDED REMOTE PLAYER TICK
 // ============================================================
@@ -4107,6 +4143,7 @@ internal static class ExtendedRemotePlayerTick
             );
     }
 }
+
 
 
 
@@ -4197,6 +4234,7 @@ internal static class RemotePlayerFinalCleanup
             .Reset();
     }
 }
+
 
 
 
@@ -4347,6 +4385,7 @@ public static class PlayerSnapshotState
 
 
 
+
 // ============================================================
 // PLAYER SNAPSHOT SEND TIMER
 // ============================================================
@@ -4452,6 +4491,7 @@ internal static class PlayerSnapshotSendTimer
 
 
 
+
 // ============================================================
 // REMOTE PLAYER INTERPOLATOR
 // ============================================================
@@ -4516,6 +4556,7 @@ internal static class RemotePlayerInterpolator
             );
     }
 }
+
 
 
 
@@ -4636,6 +4677,7 @@ internal static class RemotePlayerGameTick
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MANAGER EXTENSION
 // ============================================================
@@ -4682,6 +4724,7 @@ public static class RemotePlayerManagerExtensions
             );
     }
 }
+
 
 
 
@@ -4799,6 +4842,7 @@ public static partial class RemotePlayerManager
 
 
 
+
 // ============================================================
 // REMOTE PLAYER COMMAND FACTORY
 // ============================================================
@@ -4895,6 +4939,7 @@ internal static class RemotePlayerCommandFactory
             );
     }
 }
+
 
 
 
@@ -5131,6 +5176,7 @@ internal static class RemotePlayerCommandProcessor
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP REGISTRY EXTENSION
 // ============================================================
@@ -5225,6 +5271,7 @@ public static class RemotePlayerMapRegistryExtensions
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP VALIDATOR
 // ============================================================
@@ -5258,6 +5305,7 @@ internal static class RemotePlayerMapValidator
         return true;
     }
 }
+
 
 
 
@@ -5326,6 +5374,7 @@ public static class RemotePlayerDisplayService
             valid.ToArray();
     }
 }
+
 
 
 
@@ -5434,6 +5483,7 @@ internal static class RemotePlayerMasterService
 
 
 
+
 // ============================================================
 // REMOTE PLAYER REMOVE PACKET
 // ============================================================
@@ -5513,6 +5563,7 @@ internal static class RemotePlayerLeaveProcessor
 
 
 
+
 // ============================================================
 // REMOTE PLAYER SNAPSHOT RECEIVER
 // ============================================================
@@ -5558,6 +5609,7 @@ internal static class RemotePlayerSnapshotReceiver
             );
     }
 }
+
 
 
 
@@ -5622,6 +5674,7 @@ internal static class RemotePlayerJoinReceiver
 
 
 
+
 // ============================================================
 // REMOTE PLAYER LEAVE RECEIVER
 // ============================================================
@@ -5664,6 +5717,7 @@ internal static class RemotePlayerLeaveReceiver
         }
     }
 }
+
 
 
 
@@ -5782,6 +5836,7 @@ internal static class RemotePlayerCreationController
 
 
 
+
 // ============================================================
 // REMOTE PLAYER POSITION SERVICE
 // ============================================================
@@ -5877,6 +5932,7 @@ internal static class RemotePlayerPositionService
 
 
 
+
 // ============================================================
 // REMOTE PLAYER NAME SERVICE
 // ============================================================
@@ -5924,6 +5980,7 @@ internal static class RemotePlayerNameService
             );
     }
 }
+
 
 
 
@@ -6036,6 +6093,7 @@ internal static class RemotePlayerSnapshotApplier
 
 
 
+
 // ============================================================
 // REMOTE PLAYER SNAPSHOT LOOP
 // ============================================================
@@ -6094,6 +6152,7 @@ internal static class RemotePlayerSnapshotLoop
         }
     }
 }
+
 
 
 
@@ -6167,6 +6226,7 @@ internal static class RemotePlayerLeaveService
             .Update();
     }
 }
+
 
 
 
@@ -6262,6 +6322,7 @@ internal static class RemotePlayerTimeoutService
 
 
 
+
 // ============================================================
 // REMOTE PLAYER UPDATE PIPELINE
 // ============================================================
@@ -6324,6 +6385,7 @@ internal static class RemotePlayerUpdatePipeline
             .Clear();
     }
 }
+
 
 
 
@@ -6414,6 +6476,7 @@ public sealed class CampaignPlayerSnapshot
         }
     }
 }
+
 
 
 
@@ -6636,6 +6699,7 @@ internal static class CampaignPlayerSnapshotCodec
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP MARKER MODEL
 // ============================================================
@@ -6686,6 +6750,7 @@ public sealed class CampaignRemotePlayerMarker
             1f;
     }
 }
+
 
 
 
@@ -6906,6 +6971,7 @@ public static class CampaignRemotePlayerMarkerRegistry
 
 
 
+
 // ============================================================
 // CAMPAIGN REMOTE PLAYER MAP QUERY
 // ============================================================
@@ -6977,6 +7043,7 @@ public static class CampaignRemotePlayerMapQuery
 
 
 
+
 // ============================================================
 // MAP MARKER CLEANUP
 // ============================================================
@@ -6998,6 +7065,7 @@ internal static class CampaignRemotePlayerMarkerCleanup
             .Clear();
     }
 }
+
 
 
 
@@ -7075,6 +7143,7 @@ internal static class RemotePlayerUpdateService
 
 
 
+
 // ============================================================
 // REMOTE PLAYER STATE COPY
 // ============================================================
@@ -7119,6 +7188,7 @@ internal static class RemotePlayerStateCopy
             };
     }
 }
+
 
 
 
@@ -7200,6 +7270,7 @@ public static class RemotePlayerSnapshotList
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP POSITION
 // ============================================================
@@ -7266,6 +7337,7 @@ public static class RemotePlayerMapPosition
 
 
 
+
 // ============================================================
 // REMOTE PLAYER DISPLAY NAME
 // ============================================================
@@ -7282,6 +7354,7 @@ public static class RemotePlayerDisplayName
                 );
     }
 }
+
 
 
 
@@ -7330,6 +7403,7 @@ public static class RemotePlayerActiveCheck
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP DATA
 // ============================================================
@@ -7348,6 +7422,7 @@ public sealed class RemotePlayerMapData
 
     public DateTime LastUpdateUtc;
 }
+
 
 
 
@@ -7448,6 +7523,7 @@ public static class RemotePlayerMapDataService
             result.ToArray();
     }
 }
+
 
 
 
@@ -7579,6 +7655,7 @@ public static class RemotePlayerSyncStatistics
 
 
 
+
 // ============================================================
 // REMOTE PLAYER SYNC VALIDATOR
 // ============================================================
@@ -7666,6 +7743,7 @@ internal static class RemotePlayerSyncValidator
 
 
 
+
 // ============================================================
 // REMOTE PLAYER SYNC APPLIER V2
 // ============================================================
@@ -7722,6 +7800,7 @@ internal static class RemotePlayerSyncApplierV2
         }
     }
 }
+
 
 
 
@@ -7820,6 +7899,7 @@ internal static class RemotePlayerMapRefreshV2
 
 
 
+
 // ============================================================
 // REMOTE PLAYER FINAL SNAPSHOT
 // ============================================================
@@ -7840,6 +7920,7 @@ public sealed class FinalRemotePlayerSnapshot
 
     public DateTime LastUpdateUtc;
 }
+
 
 
 
@@ -7922,6 +8003,7 @@ public static class FinalRemotePlayerCollection
 
 
 
+
 // ============================================================
 // FINAL REMOTE PLAYER CHECK
 // ============================================================
@@ -7968,6 +8050,7 @@ internal static class FinalRemotePlayerCheck
         return true;
     }
 }
+
 
 
 
@@ -8072,6 +8155,7 @@ public static class FinalRemotePlayerQuery
 
 
 
+
 // ============================================================
 // FINAL REMOTE PLAYER ACCESSOR
 // ============================================================
@@ -8152,6 +8236,7 @@ public static class MultiplayerCampaignPlayers
 
 
 
+
 // ============================================================
 // EOF
 // ============================================================
@@ -8163,6 +8248,7 @@ internal static class PlayerIdentity
 {
     public static void Reset() { }
 }
+
 
 
 
@@ -8194,6 +8280,7 @@ internal static class RemotePlayerMapMarkerCleanup
 
 
 
+
 // ============================================================
 // REMOTE PLAYER WORLD VIEW
 // ============================================================
@@ -8212,6 +8299,7 @@ public sealed class RemotePlayerWorldView
 
     public DateTime UpdatedUtc;
 }
+
 
 
 
@@ -8405,6 +8493,7 @@ namespace MultiplayerCampaignRebuildLayer
             }
         }
     }
+
 
 
 
