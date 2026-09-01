@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MultiplayerCampaign")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6b366842bca0ab62480b15ac64099fd23d3d3205")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1a6b07112c2e71291551ab95225accc430127e36")]
 [assembly: System.Reflection.AssemblyProductAttribute("MultiplayerCampaign")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MultiplayerCampaign")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
