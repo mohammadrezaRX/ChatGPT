@@ -1,8 +1,9 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
-using HarmonyLib;
-
 using TaleWorlds.CampaignSystem;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using HarmonyLib;
 using BinaryReader = System.IO.BinaryReader;
 using HarmonyLib;
 using Helpers;
@@ -34,138 +35,6 @@ using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
 
-
-
-// ============================================================
-// HOST SNAPSHOT BUILDER
-// ============================================================
-
-internal static class HostSnapshotBuilder
-{
-    public static byte[] Build(
-        string id,
-        string name,
-        float x,
-        float y,
-        int partySize)
-    {
-        if (
-            !NetworkUtilities
-                .IsValidPosition(
-                    x,
-                    y))
-        {
-            return null;
-        }
-
-        return
-            NetworkProtocol.CreatePayload(
-                writer =>
-                {
-                    writer.Write(
-                        id ??
-                        ""
-                    );
-
-                    writer.Write(
-                        NetworkUtilities
-                            .SafeName(
-                                name
-                            )
-                    );
-
-                    writer.Write(
-                        x
-                    );
-
-                    writer.Write(
-                        y
-                    );
-
-                    writer.Write(
-                        NetworkUtilities
-                            .SafePartySize(
-                                partySize
-                            )
-                    );
-                }
-            );
-    }
-}
-
-
-
-// ============================================================
-// WORLD TRANSFER PACKET BUILDER
-// ============================================================
-
-internal static class WorldTransferPacketBuilder
-{
-    public static byte[] BuildBegin(
-        long length)
-    {
-        if (length <= 0)
-        {
-            return null;
-        }
-
-        return
-            NetworkProtocol.CreatePayload(
-                writer =>
-                {
-                    writer.Write(
-                        length
-                    );
-
-                    writer.Write(
-                        MultiplayerSessionId
-                            .Get()
-                    );
-                }
-            );
-    }
-
-    public static byte[] BuildChunk(
-        byte[] data)
-    {
-        if (
-            data == null ||
-            data.Length == 0)
-        {
-            return null;
-        }
-
-        if (
-            data.Length >
-            64 * 1024)
-        {
-            throw new InvalidOperationException(
-                "World chunk is too large."
-            );
-        }
-
-        return
-            (byte[])data.Clone();
-    }
-
-    public static byte[] BuildComplete()
-    {
-        return
-            NetworkProtocol.CreatePayload(
-                writer =>
-                {
-                    writer.Write(
-                        MultiplayerSessionId
-                            .Get()
-                    );
-
-                    writer.Write(
-                        DateTime.UtcNow.Ticks
-                    );
-                }
-            );
-    }
-}
 
 
 
@@ -377,6 +246,7 @@ public sealed class MultiplayerUIState
 
 
 
+
 // ============================================================
 // GLOBAL UI STATE
 // ============================================================
@@ -401,63 +271,338 @@ internal static class MultiplayerUIStateManager
 }
 
 
-
-// ============================================================
-// HOST CAMPAIGN SNAPSHOT BUILDER
-// ============================================================
-
-internal static class HostCampaignSnapshotBuilder
-{
-    public static CampaignPlayerSnapshot
-        BuildHostSnapshot()
-    {
-        CampaignPlayerSnapshot snapshot =
-            new CampaignPlayerSnapshot();
-
-        snapshot.PlayerId =
-            LocalPlayerState
-                .GetNetworkId();
-
-        snapshot.PlayerName =
-            LocalPlayerState
-                .GetDisplayName();
-
-        snapshot.Connected =
-            true;
-
-        snapshot.Ready =
-            true;
-
-        snapshot.PartySize =
-            CampaignWorld
-                .GetMainPartySize();
-
-        CampaignVec2 position;
-
-        if (
-            CampaignWorld
-                .TryGetMainPartyPosition(
-                    out position))
-        {
-            snapshot.Position =
-                position;
-        }
-
-        snapshot.TimestampUtcTicks =
-            DateTime.UtcNow.Ticks;
-
-        snapshot.Sequence =
-            CampaignStateSynchronization
-                .LastSequence +
-                1;
-
-        return snapshot;
-    }
-}
-
-
 namespace MultiplayerCampaign
 {
+
+
+
+    /*
+     * ============================================================
+     * VIEW MODEL
+     * ============================================================
+     */
+
+    public sealed class MultiplayerCampaignVM
+        : ViewModel
+    {
+        private string _ipAddress =
+            "127.0.0.1";
+
+        private string _playerName =
+            "Player";
+
+        private string _statusText =
+            "";
+
+        private bool _showMain =
+            true;
+
+        private bool _showCreate;
+
+        private bool _showJoin;
+
+        public MultiplayerCampaignVM()
+        {
+            MultiplayerNetworkClient
+                .Instance
+                .SetViewModel(this);
+
+            _playerName =
+                LocalPlayerState
+                    .GetDisplayName();
+        }
+
+        [DataSourceProperty]
+        public string IpAddress
+        {
+            get
+            {
+                return _ipAddress;
+            }
+
+            set
+            {
+                if (_ipAddress == value)
+                {
+                    return;
+                }
+
+                _ipAddress = value;
+
+                OnPropertyChangedWithValue(
+                    value,
+                    nameof(IpAddress)
+                );
+            }
+        }
+
+        [DataSourceProperty]
+        public string PlayerName
+        {
+            get
+            {
+                return _playerName;
+            }
+
+            set
+            {
+                if (_playerName == value)
+                {
+                    return;
+                }
+
+                _playerName = value;
+
+                OnPropertyChangedWithValue(
+                    value,
+                    nameof(PlayerName)
+                );
+            }
+        }
+
+        [DataSourceProperty]
+        public string StatusText
+        {
+            get
+            {
+                return _statusText;
+            }
+
+            set
+            {
+                if (_statusText == value)
+                {
+                    return;
+                }
+
+                _statusText = value;
+
+                OnPropertyChangedWithValue(
+                    value,
+                    nameof(StatusText)
+                );
+            }
+        }
+
+        [DataSourceProperty]
+        public bool ShowMain
+        {
+            get
+            {
+                return _showMain;
+            }
+
+            private set
+            {
+                if (_showMain == value)
+                {
+                    return;
+                }
+
+                _showMain = value;
+
+                OnPropertyChangedWithValue(
+                    value,
+                    nameof(ShowMain)
+                );
+            }
+        }
+
+        [DataSourceProperty]
+        public bool ShowCreate
+        {
+            get
+            {
+                return _showCreate;
+            }
+
+            private set
+            {
+                if (_showCreate == value)
+                {
+                    return;
+                }
+
+                _showCreate = value;
+
+                OnPropertyChangedWithValue(
+                    value,
+                    nameof(ShowCreate)
+                );
+            }
+        }
+
+        [DataSourceProperty]
+        public bool ShowJoin
+        {
+            get
+            {
+                return _showJoin;
+            }
+
+            private set
+            {
+                if (_showJoin == value)
+                {
+                    return;
+                }
+
+                _showJoin = value;
+
+                OnPropertyChangedWithValue(
+                    value,
+                    nameof(ShowJoin)
+                );
+            }
+        }
+
+        public void SetStatus(
+            string text)
+        {
+            StatusText = text;
+        }
+
+        public void ExecuteOpenCreate()
+        {
+            ShowMain = false;
+            ShowCreate = true;
+            ShowJoin = false;
+
+            StatusText = "";
+        }
+
+        public void ExecuteOpenJoin()
+        {
+            ShowMain = false;
+            ShowCreate = false;
+            ShowJoin = true;
+
+            StatusText = "";
+        }
+
+        public void ExecuteBackToMain()
+        {
+            ShowMain = true;
+            ShowCreate = false;
+            ShowJoin = false;
+
+            StatusText = "";
+        }
+
+        public void ExecuteBack()
+        {
+            MultiplayerNetworkClient
+                .Instance
+                .Disconnect();
+
+            ScreenManager.PopScreen();
+        }
+
+        /*
+         * ========================================================
+         * CREATE HOST
+         * ========================================================
+         */
+
+        public void ExecuteStartHost()
+        {
+            string name =
+                string.IsNullOrWhiteSpace(
+                    PlayerName)
+                    ? "Host"
+                    : PlayerName.Trim();
+
+            LocalPlayerState
+                .SetDisplayName(
+                    name
+                );
+
+            StatusText =
+                "LOADING MCC...";
+
+            MultiplayerCampaignSubModule
+                .RequestHost();
+
+            if (
+                !MultiplayerCampaignSubModule
+                    .LoadHostCampaign())
+            {
+                StatusText =
+                    "MCC LOAD FAILED";
+
+                MultiplayerCampaignSubModule
+                    .StopHost();
+
+                return;
+            }
+
+            StatusText =
+                "MCC LOADED";
+        }
+
+        /*
+         * ========================================================
+         * JOIN
+         * ========================================================
+         */
+
+        public void ExecuteJoinHost()
+        {
+            if (
+                string.IsNullOrWhiteSpace(
+                    IpAddress))
+            {
+                StatusText =
+                    "HOST IP REQUIRED";
+
+                return;
+            }
+
+            if (
+                string.IsNullOrWhiteSpace(
+                    PlayerName))
+            {
+                StatusText =
+                    "PLAYER NAME REQUIRED";
+
+                return;
+            }
+
+            LocalPlayerState
+                .SetDisplayName(
+                    PlayerName.Trim()
+                );
+
+            StatusText =
+                "CONNECTING...";
+
+            MultiplayerNetworkClient
+                .Instance
+                .Connect(
+                    IpAddress.Trim()
+                );
+        }
+
+        public void UpdateNetwork()
+        {
+            MultiplayerNetworkClient
+                .Instance
+                .Update();
+
+            if (
+                MultiplayerNetworkClient
+                    .Instance
+                    .ConsumeWorldReady())
+            {
+                StatusText =
+                    "LOADING HOST WORLD...";
+
+                MultiplayerWorldTransfer
+                    .FinishClientLoad();
+            }
+        }
+    }
+
 
 
     /*
@@ -537,6 +682,7 @@ namespace MultiplayerCampaign
             );
         }
     }
+
 
 
 
@@ -649,194 +795,6 @@ namespace MultiplayerCampaign
             _vm = null;
 
             base.OnFinalize();
-        }
-    }
-
-}
-
-namespace MultiplayerCampaignRebuildLayer
-{
-
-    internal static class MpcRebuildPatches
-    {
-        [HarmonyPatch(typeof(MultiplayerNetworkClient), "SendHello")]
-        private static class ClientHelloPatch
-        {
-            private static bool Prefix(MultiplayerNetworkClient __instance)
-            {
-                try
-                {
-                    MpcSession.SelectOrCreateIdentityFromCurrentPlayer();
-                    if (!MpcSession.HasSlot)
-                        return true;
-
-                    byte[] payload = NetworkProtocol.CreatePayload(
-                        writer =>
-                        {
-                            writer.Write("MPC2HELLO");
-                            writer.Write(MpcSession.Name ?? "Player");
-                            writer.Write(MpcSession.Slot);
-                            writer.Write(MpcSession.Id ?? "");
-                        });
-
-                    __instance.Send(NetworkPacketType.Hello, payload);
-                    return false;
-                }
-                catch
-                {
-                    return true;
-                }
-            }
-        }
-
-        [HarmonyPatch(typeof(MultiplayerNetworkClient), "ProcessMessage")]
-        private static class ClientMessagePatch
-        {
-            private static bool Prefix(NetworkMessage message)
-            {
-                if (message == null || message.Type != NetworkPacketType.WorldPartySnapshot)
-                    return true;
-
-                try
-                {
-                    if (MpcRebuildPatches.ProcessPayload(message.Payload, true))
-                        return false;
-                }
-                catch
-                {
-                }
-
-                return true;
-            }
-        }
-
-        [HarmonyPatch(typeof(HostClientConnection), "ProcessMessage")]
-        private static class HostMessagePatch
-        {
-            private static bool Prefix(
-                HostClientConnection __instance,
-                NetworkPacketType type,
-                byte[] payload)
-            {
-                try
-                {
-                    if (type == NetworkPacketType.Hello && IsMpcHello(payload))
-                    {
-                        ApplyHello(__instance, payload);
-                        return false;
-                    }
-
-                    if (type == NetworkPacketType.WorldPartySnapshot &&
-                        MpcRebuildPatches.ProcessPayload(payload, false))
-                    {
-                        return false;
-                    }
-                }
-                catch
-                {
-                }
-
-                return true;
-            }
-        }
-
-        [HarmonyPatch(typeof(MultiplayerCampaignBehavior), "OnCampaignTick")]
-        private static class CampaignTickPatch
-        {
-            private static void Postfix(float dt)
-            {
-                MpcNetworkRuntime.Tick(dt);
-            }
-        }
-
-        [HarmonyPatch(typeof(MultiplayerCampaignSubModule), "OnGameEnd")]
-        private static class GameEndPatch
-        {
-            private static void Postfix()
-            {
-                MpcNetworkRuntime.Clear();
-            }
-        }
-
-        private static bool ProcessPayload(byte[] payload, bool fromHost)
-        {
-            try
-            {
-                return MpcNetworkRuntime.ProcessNetworkPayload(payload, fromHost);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private static bool IsMpcHello(byte[] payload)
-        {
-            if (payload == null || payload.Length == 0 || payload.Length > 1024)
-                return false;
-
-            try
-            {
-                using (MemoryStream stream = new MemoryStream(payload))
-                using (System.IO.BinaryReader reader = new System.IO.BinaryReader(stream, Encoding.UTF8, true))
-                    return reader.ReadString() == "MPC2HELLO";
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private static void ApplyHello(
-            HostClientConnection connection,
-            byte[] payload)
-        {
-            using (MemoryStream stream = new MemoryStream(payload))
-            using (System.IO.BinaryReader reader = new System.IO.BinaryReader(stream, Encoding.UTF8, true))
-            {
-                string magic = reader.ReadString();
-                string name = reader.ReadString();
-                int slot = reader.ReadInt32();
-                string characterId = reader.ReadString();
-
-                if (magic != "MPC2HELLO" || slot < 0 || slot >= 3 ||
-                    string.IsNullOrWhiteSpace(characterId))
-                {
-                    connection.SendError("Character slot is required.");
-                    return;
-                }
-
-                PropertyInfo property = typeof(HostClientConnection)
-                    .GetProperty("PlayerId", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                if (property != null)
-                    property.SetValue(connection, characterId, null);
-
-                connection.PlayerName = Sanitize(name);
-
-                connection.Send(new NetworkMessageData(
-                    NetworkPacketType.Welcome,
-                    NetworkProtocol.CreatePayload(
-                        writer =>
-                        {
-                            writer.Write("Connected as " + connection.PlayerName);
-                            writer.Write(characterId);
-                        })));
-
-                MultiplayerCampaignHost host = MultiplayerCampaignSubModule.GetHost();
-                if (host != null)
-                    host.SendWorldToClientAsync(connection);
-            }
-        }
-
-        private static string Sanitize(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-                return "Player";
-
-            value = value.Trim();
-            if (value.Length > 32)
-                value = value.Substring(0, 32);
-            return value;
         }
     }
 

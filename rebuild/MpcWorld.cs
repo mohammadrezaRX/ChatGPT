@@ -1,8 +1,9 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
-using HarmonyLib;
-
 using TaleWorlds.CampaignSystem;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using HarmonyLib;
 using BinaryReader = System.IO.BinaryReader;
 using HarmonyLib;
 using Helpers;
@@ -33,6 +34,244 @@ using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
+
+
+
+
+/*
+ * ============================================================
+ * WORLD PARTY SYNCHRONIZER
+ * ============================================================
+ */
+
+public static class WorldPartySynchronizer
+{
+    private sealed class WorldSnapshot
+    {
+        public string PartyId;
+
+        public float X;
+
+        public float Y;
+
+        public int Size;
+
+        public string Name;
+    }
+
+    private static readonly ConcurrentQueue<
+        WorldSnapshot>
+        Pending =
+            new ConcurrentQueue<
+                WorldSnapshot>();
+
+    public static void EnqueueSnapshot(
+        byte[] payload)
+    {
+        if (
+            payload == null ||
+            payload.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            using (
+                MemoryStream stream =
+                    new MemoryStream(
+                        payload))
+            using (
+                System.IO.BinaryReader reader =
+                    new System.IO.BinaryReader(
+                        stream,
+                        Encoding.UTF8,
+                        true))
+            {
+                string partyId =
+                    reader.ReadString();
+
+                float x =
+                    reader.ReadSingle();
+
+                float y =
+                    reader.ReadSingle();
+
+                int size =
+                    reader.ReadInt32();
+
+                string name =
+                    reader.ReadString();
+
+                if (
+                    string.IsNullOrWhiteSpace(
+                        partyId))
+                {
+                    return;
+                }
+
+                if (
+                    float.IsNaN(x) ||
+                    float.IsInfinity(x) ||
+                    float.IsNaN(y) ||
+                    float.IsInfinity(y))
+                {
+                    return;
+                }
+
+                Pending.Enqueue(
+                    new WorldSnapshot
+                    {
+                        PartyId =
+                            partyId,
+
+                        X =
+                            x,
+
+                        Y =
+                            y,
+
+                        Size =
+                            Math.Max(
+                                1,
+                                Math.Min(
+                                    10000,
+                                    size
+                                )
+                            ),
+
+                        Name =
+                            name
+                    }
+                );
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    public static void ApplyPending(
+        float dt)
+    {
+        /*
+         * Do not modify Campaign parties here.
+         *
+         * This queue is intentionally retained so the
+         * existing world synchronization protocol remains
+         * compatible while Remote Player representation is
+         * kept separate from Campaign MobileParty state.
+         */
+
+        int processed = 0;
+
+        while (
+            processed < 64 &&
+            Pending.TryDequeue(
+                out WorldSnapshot snapshot))
+        {
+            processed++;
+
+            if (snapshot == null)
+            {
+                continue;
+            }
+
+            /*
+             * World NPC synchronization is deliberately
+             * conservative in this stable build.
+             *
+             * Remote players are handled by
+             * RemotePlayerManager.
+             */
+        }
+    }
+
+    public static void Clear()
+    {
+        while (
+            Pending.TryDequeue(
+                out _))
+        {
+        }
+    }
+}
+
+
+
+
+// ============================================================
+// WORLD TRANSFER PACKET BUILDER
+// ============================================================
+
+internal static class WorldTransferPacketBuilder
+{
+    public static byte[] BuildBegin(
+        long length)
+    {
+        if (length <= 0)
+        {
+            return null;
+        }
+
+        return
+            NetworkProtocol.CreatePayload(
+                writer =>
+                {
+                    writer.Write(
+                        length
+                    );
+
+                    writer.Write(
+                        MultiplayerSessionId
+                            .Get()
+                    );
+                }
+            );
+    }
+
+    public static byte[] BuildChunk(
+        byte[] data)
+    {
+        if (
+            data == null ||
+            data.Length == 0)
+        {
+            return null;
+        }
+
+        if (
+            data.Length >
+            64 * 1024)
+        {
+            throw new InvalidOperationException(
+                "World chunk is too large."
+            );
+        }
+
+        return
+            (byte[])data.Clone();
+    }
+
+    public static byte[] BuildComplete()
+    {
+        return
+            NetworkProtocol.CreatePayload(
+                writer =>
+                {
+                    writer.Write(
+                        MultiplayerSessionId
+                            .Get()
+                    );
+
+                    writer.Write(
+                        DateTime.UtcNow.Ticks
+                    );
+                }
+            );
+    }
+}
+
 
 
 
@@ -381,6 +620,7 @@ public static class MultiplayerWorldTransfer
 
 
 
+
 /*
  * ============================================================
  * EXISTING WORLD PROVIDER
@@ -445,189 +685,6 @@ internal static class ExistingWorldTransferProvider
     }
 }
 
-
-
-// ============================================================
-// REMOTE PLAYER WORLD VIEW
-// ============================================================
-
-public sealed class RemotePlayerWorldView
-{
-    public string PlayerId;
-
-    public string Name;
-
-    public CampaignVec2 Position;
-
-    public int PartySize;
-
-    public bool Active;
-
-    public DateTime UpdatedUtc;
-}
-
-
-
-// ============================================================
-// REMOTE PLAYER WORLD VIEW REGISTRY
-// ============================================================
-
-public static class RemotePlayerWorldViewRegistry
-{
-    private static readonly object Sync =
-        new object();
-
-    private static readonly Dictionary<
-        string,
-        RemotePlayerWorldView>
-        Views =
-            new Dictionary<
-                string,
-                RemotePlayerWorldView>();
-
-    public static void Update()
-    {
-        RemotePlayerState[] states =
-            RemotePlayerManager
-                .Snapshot();
-
-        lock (Sync)
-        {
-            HashSet<string> activeIds =
-                new HashSet<string>();
-
-            if (states != null)
-            {
-                for (
-                    int i = 0;
-                    i < states.Length;
-                    i++)
-                {
-                    RemotePlayerState state =
-                        states[i];
-
-                    if (state == null)
-                    {
-                        continue;
-                    }
-
-                    if (
-                        string.IsNullOrWhiteSpace(
-                            state.PlayerId))
-                    {
-                        continue;
-                    }
-
-                    activeIds.Add(
-                        state.PlayerId
-                    );
-
-                    RemotePlayerWorldView view;
-
-                    if (
-                        !Views.TryGetValue(
-                            state.PlayerId,
-                            out view))
-                    {
-                        view =
-                            new RemotePlayerWorldView();
-
-                        Views.Add(
-                            state.PlayerId,
-                            view
-                        );
-                    }
-
-                    view.PlayerId =
-                        state.PlayerId;
-
-                    view.Name =
-                        NetworkUtilities
-                            .SafeName(
-                                state.Name
-                            );
-
-                    view.Position =
-                        state.CurrentPosition;
-
-                    view.PartySize =
-                        NetworkUtilities
-                            .SafePartySize(
-                                state.PartySize
-                            );
-
-                    view.Active =
-                        state.Active;
-
-                    view.UpdatedUtc =
-                        state.LastPacketUtc;
-                }
-            }
-
-            List<string> remove =
-                new List<string>();
-
-            foreach (
-                KeyValuePair<
-                    string,
-                    RemotePlayerWorldView>
-                item in Views)
-            {
-                if (
-                    !activeIds.Contains(
-                        item.Key))
-                {
-                    remove.Add(
-                        item.Key
-                    );
-                }
-            }
-
-            for (
-                int i = 0;
-                i < remove.Count;
-                i++)
-            {
-                Views.Remove(
-                    remove[i]
-                );
-            }
-        }
-    }
-
-    public static RemotePlayerWorldView[]
-        Snapshot()
-    {
-        lock (Sync)
-        {
-            RemotePlayerWorldView[] result =
-                new RemotePlayerWorldView[
-                    Views.Count
-                ];
-
-            int index =
-                0;
-
-            foreach (
-                RemotePlayerWorldView view
-                in Views.Values)
-            {
-                result[index++] =
-                    view;
-            }
-
-            return result;
-        }
-    }
-
-    public static void Clear()
-    {
-        lock (Sync)
-        {
-            Views.Clear();
-        }
-    }
-}
 
 
 
@@ -802,6 +859,7 @@ public static class MultiplayerWorldSyncState
     }
 }
 
+
 // ============================================================
 // WORLD SYNCHRONIZATION CONTROLLER
 // ============================================================
@@ -913,6 +971,7 @@ public static class WorldSynchronizationController
 
 
 
+
 // ============================================================
 // WORLD TRANSFER VALIDATOR
 // ============================================================
@@ -947,6 +1006,7 @@ internal static class WorldTransferValidator
             received == expected;
     }
 }
+
 
 
 
@@ -1151,6 +1211,7 @@ internal sealed class WorldTransferReceiver
 
 
 
+
 // ============================================================
 // WORLD TRANSFER SERVICE
 // ============================================================
@@ -1304,6 +1365,7 @@ public static class WorldTransferService
 
 
 
+
 // ============================================================
 // WORLD TRANSFER HOST SERVICE
 // ============================================================
@@ -1447,6 +1509,7 @@ internal static class WorldTransferHostService
 
 
 
+
 // ============================================================
 // WORLD READY HANDLER
 // ============================================================
@@ -1483,6 +1546,7 @@ internal static class WorldReadyHandler
         );
     }
 }
+
 
 
 
@@ -1551,6 +1615,7 @@ public sealed class HostWorldState
         }
     }
 }
+
 
 
 
@@ -1660,227 +1725,6 @@ public static class HostWorldStateController
     }
 }
 
-
-
-// ============================================================
-// END OF CONTINUATION
-// ============================================================
-// ============================================================
-// CAMPAIGN STATE SYNCHRONIZATION
-// ============================================================
-
-internal static class CampaignStateSynchronization
-{
-    private static readonly object Sync =
-        new object();
-
-    private static long _lastSequence;
-
-    private static DateTime _lastSyncUtc =
-        DateTime.MinValue;
-
-    public static long LastSequence
-    {
-        get
-        {
-            lock (Sync)
-            {
-                return _lastSequence;
-            }
-        }
-    }
-
-    public static DateTime LastSyncUtc
-    {
-        get
-        {
-            lock (Sync)
-            {
-                return _lastSyncUtc;
-            }
-        }
-    }
-
-    public static void MarkSynced(
-        long sequence)
-    {
-        lock (Sync)
-        {
-            if (
-                sequence <
-                _lastSequence)
-            {
-                return;
-            }
-
-            _lastSequence =
-                sequence;
-
-            _lastSyncUtc =
-                DateTime.UtcNow;
-        }
-    }
-
-    public static bool IsRecent()
-    {
-        lock (Sync)
-        {
-            if (
-                _lastSyncUtc ==
-                DateTime.MinValue)
-            {
-                return false;
-            }
-
-            return
-                DateTime.UtcNow -
-                _lastSyncUtc <
-                TimeSpan.FromSeconds(
-                    5
-                );
-        }
-    }
-
-    public static void Reset()
-    {
-        lock (Sync)
-        {
-            _lastSequence =
-                0;
-
-            _lastSyncUtc =
-                DateTime.MinValue;
-        }
-    }
-}
-
-
-
-// ============================================================
-// FINAL SAFE WORLD CHECK
-// ============================================================
-
-internal static class FinalWorldCheck
-{
-    public static bool IsReady()
-    {
-        if (
-            Campaign.Current == null)
-        {
-            return false;
-        }
-
-        if (
-            Hero.MainHero == null)
-        {
-            return false;
-        }
-
-        if (
-            MobileParty.MainParty == null)
-        {
-            return false;
-        }
-
-        return true;
-    }
-}
-
-
-namespace MultiplayerCampaign
-{
-    /*
-     * ============================================================
-     * CAMPAIGN WORLD HELPER
-     * ============================================================
-     *
-     * Bannerlord 1.3.4
-     *
-     * IMPORTANT:
-     *
-     * These methods may ONLY be called from the
-     * Campaign/Game thread.
-     *
-     * Network threads must never call these methods.
-     *
-     * ============================================================
-     */
-
-    internal static class CampaignWorld
-    {
-        public static CampaignVec2 GetMainPartyPosition()
-        {
-            try
-            {
-                MobileParty mainParty =
-                    MobileParty.MainParty;
-
-                if (mainParty != null)
-                {
-                    return mainParty.Position;
-                }
-            }
-            catch
-            {
-            }
-
-            return new CampaignVec2(
-                new Vec2(
-                    0f,
-                    0f
-                ),
-                true
-            );
-        }
-
-        public static int GetMainPartySize()
-        {
-            try
-            {
-                MobileParty mainParty =
-                    MobileParty.MainParty;
-
-                if (
-                    mainParty != null &&
-                    mainParty.MemberRoster != null)
-                {
-                    return Math.Max(
-                        1,
-                        mainParty
-                            .MemberRoster
-                            .TotalManCount
-                    );
-                }
-            }
-            catch
-            {
-            }
-
-            return 1;
-        }
-    
-
-    public static bool TryGetMainPartyPosition(
-        out CampaignVec2 position)
-    {
-        try
-        {
-            MobileParty mainParty = MobileParty.MainParty;
-            if (mainParty != null)
-            {
-                position = mainParty.Position;
-                return true;
-            }
-        }
-        catch
-        {
-        }
-        position = new CampaignVec2(new Vec2(0f, 0f), true);
-        return false;
-    }
-}
-
-}
 
 namespace MultiplayerCampaignRebuildLayer
 {

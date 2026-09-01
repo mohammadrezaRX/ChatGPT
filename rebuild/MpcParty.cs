@@ -1,8 +1,9 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
-using HarmonyLib;
-
 using TaleWorlds.CampaignSystem;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using HarmonyLib;
 using BinaryReader = System.IO.BinaryReader;
 using HarmonyLib;
 using Helpers;
@@ -34,166 +35,6 @@ using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
 
-
-
-/*
- * ============================================================
- * WORLD PARTY SYNCHRONIZER
- * ============================================================
- */
-
-public static class WorldPartySynchronizer
-{
-    private sealed class WorldSnapshot
-    {
-        public string PartyId;
-
-        public float X;
-
-        public float Y;
-
-        public int Size;
-
-        public string Name;
-    }
-
-    private static readonly ConcurrentQueue<
-        WorldSnapshot>
-        Pending =
-            new ConcurrentQueue<
-                WorldSnapshot>();
-
-    public static void EnqueueSnapshot(
-        byte[] payload)
-    {
-        if (
-            payload == null ||
-            payload.Length == 0)
-        {
-            return;
-        }
-
-        try
-        {
-            using (
-                MemoryStream stream =
-                    new MemoryStream(
-                        payload))
-            using (
-                System.IO.BinaryReader reader =
-                    new System.IO.BinaryReader(
-                        stream,
-                        Encoding.UTF8,
-                        true))
-            {
-                string partyId =
-                    reader.ReadString();
-
-                float x =
-                    reader.ReadSingle();
-
-                float y =
-                    reader.ReadSingle();
-
-                int size =
-                    reader.ReadInt32();
-
-                string name =
-                    reader.ReadString();
-
-                if (
-                    string.IsNullOrWhiteSpace(
-                        partyId))
-                {
-                    return;
-                }
-
-                if (
-                    float.IsNaN(x) ||
-                    float.IsInfinity(x) ||
-                    float.IsNaN(y) ||
-                    float.IsInfinity(y))
-                {
-                    return;
-                }
-
-                Pending.Enqueue(
-                    new WorldSnapshot
-                    {
-                        PartyId =
-                            partyId,
-
-                        X =
-                            x,
-
-                        Y =
-                            y,
-
-                        Size =
-                            Math.Max(
-                                1,
-                                Math.Min(
-                                    10000,
-                                    size
-                                )
-                            ),
-
-                        Name =
-                            name
-                    }
-                );
-            }
-        }
-        catch
-        {
-        }
-    }
-
-    public static void ApplyPending(
-        float dt)
-    {
-        /*
-         * Do not modify Campaign parties here.
-         *
-         * This queue is intentionally retained so the
-         * existing world synchronization protocol remains
-         * compatible while Remote Player representation is
-         * kept separate from Campaign MobileParty state.
-         */
-
-        int processed = 0;
-
-        while (
-            processed < 64 &&
-            Pending.TryDequeue(
-                out WorldSnapshot snapshot))
-        {
-            processed++;
-
-            if (snapshot == null)
-            {
-                continue;
-            }
-
-            /*
-             * World NPC synchronization is deliberately
-             * conservative in this stable build.
-             *
-             * Remote players are handled by
-             * RemotePlayerManager.
-             */
-        }
-    }
-
-    public static void Clear()
-    {
-        while (
-            Pending.TryDequeue(
-                out _))
-        {
-        }
-    }
-}
 
 
 
@@ -328,6 +169,7 @@ internal static class CampaignMapRemotePartyCache
 
 
 
+
 // ============================================================
 // REMOTE PLAYER PARTY SIZE REGISTRY
 // ============================================================
@@ -426,6 +268,7 @@ public static class RemotePlayerPartyRegistry
 
 
 
+
 // ============================================================
 // REMOTE PLAYER PARTY SERVICE
 // ============================================================
@@ -473,6 +316,7 @@ internal static class RemotePlayerPartyService
             );
     }
 }
+
 
 
 

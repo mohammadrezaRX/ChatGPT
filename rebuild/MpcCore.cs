@@ -1,8 +1,9 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
-using HarmonyLib;
-
 using TaleWorlds.CampaignSystem;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using HarmonyLib;
 using BinaryReader = System.IO.BinaryReader;
 using HarmonyLib;
 using Helpers;
@@ -33,6 +34,7 @@ using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
+
 
 
 
@@ -99,6 +101,7 @@ internal static class HostConsole
         }
     }
 }
+
 
 
 
@@ -274,6 +277,7 @@ internal static class HostStateUpdateService
         }
     }
 }
+
 
 
 
@@ -458,36 +462,6 @@ internal static class MasterCleanupRegistry
     }
 }
 
-
-
-// ============================================================
-// FINAL MASTER TICK
-// ============================================================
-
-internal static class FinalMasterTick
-{
-    public static void Tick(
-        float dt)
-    {
-        if (
-            dt < 0f ||
-            float.IsNaN(dt) ||
-            float.IsInfinity(dt))
-        {
-            return;
-        }
-
-        NetworkUpdateController
-            .Update(
-                dt
-            );
-    }
-
-    public static void Reset()
-    {
-        _ = 0;
-    }
-}
 
 
 
@@ -766,6 +740,7 @@ internal static class FinalStateCleanup
 
 
 
+
 // ============================================================
 // SAFE PLAYER POSITION APPLICATION
 // ============================================================
@@ -827,6 +802,7 @@ internal static class SafeRemotePositionApplication
 
 
 
+
 // ============================================================
 // FINAL ERROR GUARD
 // ============================================================
@@ -868,6 +844,7 @@ internal static class FinalErrorGuard
         }
     }
 }
+
 
 
 
@@ -945,6 +922,7 @@ internal static class FinalSubModuleState
 
 
 
+
 // ============================================================
 // FINAL HOST UPDATE
 // ============================================================
@@ -978,6 +956,7 @@ internal static class FinalHostUpdate
         host.Update();
     }
 }
+
 
 
 
@@ -1016,6 +995,7 @@ internal static class FinalMasterUpdateV2
             .Update();
     }
 }
+
 
 
 
@@ -1113,6 +1093,7 @@ internal static class FinalResetV2
 
 
 
+
 // ============================================================
 // FINAL SAFE MAP UPDATE
 // ============================================================
@@ -1146,6 +1127,7 @@ internal static class FinalSafeMapUpdate
             );
     }
 }
+
 
 
 
@@ -1467,6 +1449,7 @@ internal static class FinalGlobalReset
 
 
 
+
 // ============================================================
 // FINAL ERROR REPORTER
 // ============================================================
@@ -1496,6 +1479,7 @@ internal static class FinalErrorReporter
         );
     }
 }
+
 
 
 
@@ -1544,6 +1528,7 @@ internal static class FinalSafeExecution
         }
     }
 }
+
 
 
 
@@ -1672,6 +1657,7 @@ internal static class FinalRemoteMapState
 
 
 
+
 // ============================================================
 // FINAL MOD LIFECYCLE
 // ============================================================
@@ -1782,41 +1768,6 @@ internal static class FinalModLifecycle
 
 
 
-// ============================================================
-// FINAL STARTUP FACTORY
-// ============================================================
-
-internal static class FinalStartupFactory
-{
-    public static void InitializeCampaign()
-    {
-        if (
-            Campaign.Current == null)
-        {
-            return;
-        }
-
-        CampaignSafeStartup
-            .Initialize();
-
-        CampaignSessionCoordinator
-            .Initialize();
-
-        MultiplayerCampaignGameState
-            .SetCampaignReady(
-                false
-            );
-
-        MultiplayerCampaignGameState
-            .SetNetworkReady(
-                MultiplayerNetworkClient
-                    .Instance
-                    .IsConnected
-            );
-    }
-}
-
-
 
 // ============================================================
 // FINAL MASTER SERVICE
@@ -1882,6 +1833,7 @@ public static class FinalMasterService
             .Execute();
     }
 }
+
 
 
 
@@ -2234,6 +2186,7 @@ internal static class UltimateCleanup
 
 
 
+
 // ============================================================
 // FINAL HOST STATE EXPORT
 // ============================================================
@@ -2320,6 +2273,7 @@ internal static class HostStateExporter
 
 
 
+
 // ============================================================
 // FINAL CLIENT STATE IMPORT
 // ============================================================
@@ -2382,6 +2336,7 @@ internal static class ClientStateImporter
 
 
 
+
 // ============================================================
 // FINAL REMOTE PLAYER VALIDATOR
 // ============================================================
@@ -2433,6 +2388,7 @@ internal static class FinalRemoteValidator
         return true;
     }
 }
+
 
 
 
@@ -2506,6 +2462,7 @@ internal static class FinalSubmoduleCallback
 
 
 
+
 // ============================================================
 // FINAL SAFETY CHECK
 // ============================================================
@@ -2562,6 +2519,7 @@ internal static class FinalSafetyCheck
                     state.CurrentPosition.Y);
     }
 }
+
 
 
 
@@ -2674,94 +2632,1557 @@ internal static class FinalShutdown
 
 
 
-// ============================================================
-// FINAL GLOBAL TICK ENTRY
-// ============================================================
 
-internal static class FinalGlobalTickEntry
+/*
+ * ============================================================
+ * FINAL CLEANUP
+ * ============================================================
+ */
+
+internal static class MultiplayerCleanup
 {
-    public static void Tick(
-        float dt)
+    public static void Execute()
     {
-        if (
-            dt < 0f ||
-            float.IsNaN(dt) ||
-            float.IsInfinity(dt))
+        try
         {
-            return;
+            RemotePlayerVisualRegistry
+                .Clear();
+        }
+        catch
+        {
         }
 
         try
         {
-            FinalSubmoduleCallback
-                .OnTick(
-                    dt
-                );
+            RemotePlayerManager
+                .Clear();
         }
-        catch (Exception ex)
+        catch
         {
-            FinalErrorReporter
-                .Report(
-                    "GlobalTick",
-                    ex
-                );
+        }
+
+        try
+        {
+            WorldPartySynchronizer
+                .Clear();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            MultiplayerWorldTransfer
+                .Clear();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            ExistingWorldTransferProvider
+                .Clear();
+        }
+        catch
+        {
+        }
+
+        MultiplayerSessionState
+            .Reset();
+    }
+}
+
+
+
+
+// ============================================================
+// CLIENT SNAPSHOT RECEIVE
+// ============================================================
+
+internal static class RemoteSnapshotProcessor
+{
+    public static void Process(
+        byte[] payload)
+    {
+        NetworkPlayerSnapshot snapshot;
+
+        if (
+            !PlayerSnapshotCodec.Decode(
+                payload,
+                out snapshot))
+        {
+            return;
+        }
+
+        if (
+            snapshot.PlayerId ==
+            LocalPlayerState.GetNetworkId())
+        {
+            return;
+        }
+
+        RemotePlayerBridge.Queue(
+            snapshot
+        );
+    }
+}
+
+
+
+
+// ============================================================
+// REMOTE SNAPSHOT DECODER
+// ============================================================
+
+internal static class RemoteSnapshotDecoder
+{
+    public static bool TryDecode(
+        byte[] payload,
+        out NetworkPlayerSnapshot snapshot)
+    {
+        snapshot =
+            null;
+
+        if (
+            payload == null ||
+            payload.Length == 0 ||
+            payload.Length > 1024)
+        {
+            return false;
+        }
+
+        try
+        {
+            using (
+                MemoryStream stream =
+                    new MemoryStream(
+                        payload))
+            using (
+                BinaryReader reader =
+                    new BinaryReader(
+                        stream,
+                        Encoding.UTF8,
+                        true))
+            {
+                string playerId =
+                    reader.ReadString();
+
+                string playerName =
+                    reader.ReadString();
+
+                if (
+                    stream.Length -
+                    stream.Position <
+                    sizeof(float) * 2 +
+                    sizeof(int))
+                {
+                    return false;
+                }
+
+                float x =
+                    reader.ReadSingle();
+
+                float y =
+                    reader.ReadSingle();
+
+                int partySize =
+                    reader.ReadInt32();
+
+                if (
+                    !NetworkStateValidator
+                        .IsValidPlayerId(
+                            playerId))
+                {
+                    return false;
+                }
+
+                if (
+                    playerId ==
+                    LocalPlayerState
+                        .GetNetworkId())
+                {
+                    return false;
+                }
+
+                if (
+                    !NetworkUtilities
+                        .IsValidPosition(
+                            x,
+                            y))
+                {
+                    return false;
+                }
+
+                if (
+                    !NetworkStateValidator
+                        .IsValidPartySize(
+                            partySize))
+                {
+                    partySize =
+                        1;
+                }
+
+                snapshot =
+                    new NetworkPlayerSnapshot
+                    {
+                        PlayerId =
+                            playerId,
+
+                        PlayerName =
+                            NetworkUtilities
+                                .SafeName(
+                                    playerName
+                                ),
+
+                        X =
+                            x,
+
+                        Y =
+                            y,
+
+                        PartySize =
+                            partySize,
+
+                        Timestamp =
+                            DateTime.UtcNow
+                                .Ticks
+                    };
+
+                return true;
+            }
+        }
+        catch
+        {
+            return false;
         }
     }
 }
 
 
 
+
 // ============================================================
-// FINAL INITIALIZATION GUARD
+// HOST PLAYER STATE
 // ============================================================
 
-internal static class FinalInitializationGuard
+public sealed class HostPlayerState
+{
+    public string PlayerId;
+
+    public string Name;
+
+    public float X;
+
+    public float Y;
+
+    public int PartySize;
+
+    public bool Ready;
+
+    public bool Connected;
+
+    public DateTime LastUpdateUtc;
+
+    public long Sequence;
+
+    public HostPlayerState()
+    {
+        PlayerId =
+            "";
+
+        Name =
+            "Player";
+
+        X =
+            0f;
+
+        Y =
+            0f;
+
+        PartySize =
+            1;
+
+        Ready =
+            false;
+
+        Connected =
+            false;
+
+        LastUpdateUtc =
+            DateTime.UtcNow;
+
+        Sequence =
+            0;
+    }
+
+    public CampaignVec2 Position
+    {
+        get
+        {
+            return
+                new CampaignVec2(
+                    new Vec2(
+                        X,
+                        Y
+                    ),
+                    true
+                );
+        }
+
+        set
+        {
+            X =
+                value.X;
+
+            Y =
+                value.Y;
+        }
+    }
+}
+
+
+
+
+// ============================================================
+// HOST PLAYER REGISTRY
+// ============================================================
+
+public static class HostPlayerRegistry
 {
     private static readonly object Sync =
         new object();
 
-    private static bool _initialized;
+    private static readonly Dictionary<
+        string,
+        HostPlayerState>
+        Players =
+            new Dictionary<
+                string,
+                HostPlayerState>();
 
-    public static bool Ensure()
+    public static HostPlayerState GetOrCreate(
+        string id)
+    {
+        if (
+            string.IsNullOrWhiteSpace(
+                id))
+        {
+            return null;
+        }
+
+        lock (Sync)
+        {
+            HostPlayerState state;
+
+            if (
+                !Players.TryGetValue(
+                    id,
+                    out state))
+            {
+                state =
+                    new HostPlayerState
+                    {
+                        PlayerId =
+                            id,
+
+                        Connected =
+                            true
+                    };
+
+                Players.Add(
+                    id,
+                    state
+                );
+            }
+
+            return state;
+        }
+    }
+
+    public static void Update(
+        string id,
+        string name,
+        float x,
+        float y,
+        int partySize)
+    {
+        if (
+            string.IsNullOrWhiteSpace(
+                id))
+        {
+            return;
+        }
+
+        if (
+            !NetworkUtilities
+                .IsValidPosition(
+                    x,
+                    y))
+        {
+            return;
+        }
+
+        HostPlayerState state =
+            GetOrCreate(
+                id
+            );
+
+        if (state == null)
+        {
+            return;
+        }
+
+        lock (Sync)
+        {
+            state.Name =
+                NetworkUtilities.SafeName(
+                    name
+                );
+
+            state.X =
+                x;
+
+            state.Y =
+                y;
+
+            state.PartySize =
+                NetworkUtilities.SafePartySize(
+                    partySize
+                );
+
+            state.Connected =
+                true;
+
+            state.LastUpdateUtc =
+                DateTime.UtcNow;
+
+            state.Sequence++;
+        }
+    }
+
+    public static void SetReady(
+        string id,
+        bool ready)
+    {
+        if (
+            string.IsNullOrWhiteSpace(
+                id))
+        {
+            return;
+        }
+
+        lock (Sync)
+        {
+            HostPlayerState state;
+
+            if (
+                Players.TryGetValue(
+                    id,
+                    out state))
+            {
+                state.Ready =
+                    ready;
+            }
+        }
+    }
+
+    public static void Remove(
+        string id)
+    {
+        if (
+            string.IsNullOrWhiteSpace(
+                id))
+        {
+            return;
+        }
+
+        lock (Sync)
+        {
+            Players.Remove(
+                id
+            );
+        }
+    }
+
+    public static HostPlayerState[]
+        Snapshot()
     {
         lock (Sync)
         {
-            if (_initialized)
+            HostPlayerState[] result =
+                new HostPlayerState[
+                    Players.Count
+                ];
+
+            int index = 0;
+
+            foreach (
+                HostPlayerState state
+                in Players.Values)
             {
-                return true;
+                result[index++] =
+                    state;
             }
 
-            if (
-                Campaign.Current == null)
-            {
-                return false;
-            }
+            return result;
+        }
+    }
 
-            _initialized =
-                true;
+    public static void Clear()
+    {
+        lock (Sync)
+        {
+            Players.Clear();
+        }
+    }
+}
+
+
+
+
+// ============================================================
+// HOST PLAYER SNAPSHOT SERVICE
+// ============================================================
+
+internal static class HostPlayerSnapshotService
+{
+    private static float _timer;
+
+    public static void Update(
+        float dt,
+        MultiplayerCampaignHost host)
+    {
+        if (host == null)
+        {
+            return;
         }
 
-        CampaignSessionCoordinator
-            .Initialize();
+        if (
+            Campaign.Current == null ||
+            MobileParty.MainParty == null)
+        {
+            return;
+        }
 
-        CampaignSafeStartup
-            .Initialize();
+        _timer +=
+            Math.Max(
+                0f,
+                Math.Min(
+                    1f,
+                    dt
+                )
+            );
 
-        MultiplayerCampaignGameState
-            .SetCampaignReady(
-                false
+        if (_timer < 0.10f)
+        {
+            return;
+        }
+
+        _timer =
+            0f;
+
+        HostPlayerState[] players =
+            HostPlayerRegistry
+                .Snapshot();
+
+        if (
+            players == null ||
+            players.Length == 0)
+        {
+            return;
+        }
+
+        for (
+            int i = 0;
+            i < players.Length;
+            i++)
+        {
+            HostPlayerState player =
+                players[i];
+
+            if (
+                player == null ||
+                !player.Connected)
+            {
+                continue;
+            }
+
+            host.BroadcastHostSnapshot(
+                player.PlayerId
+            );
+        }
+    }
+}
+
+
+
+
+// ============================================================
+// HOST PLAYER SNAPSHOT CACHE
+// ============================================================
+
+internal static class HostPlayerSnapshotCache
+{
+    private static readonly object Sync =
+        new object();
+
+    private static readonly Dictionary<
+        string,
+        NetworkPlayerSnapshot>
+        Snapshots =
+            new Dictionary<
+                string,
+                NetworkPlayerSnapshot>();
+
+    public static void Set(
+        NetworkPlayerSnapshot snapshot)
+    {
+        if (snapshot == null)
+        {
+            return;
+        }
+
+        if (
+            string.IsNullOrWhiteSpace(
+                snapshot.PlayerId))
+        {
+            return;
+        }
+
+        lock (Sync)
+        {
+            Snapshots[
+                snapshot.PlayerId] =
+                snapshot;
+        }
+    }
+
+    public static bool TryGet(
+        string playerId,
+        out NetworkPlayerSnapshot snapshot)
+    {
+        snapshot =
+            null;
+
+        if (
+            string.IsNullOrWhiteSpace(
+                playerId))
+        {
+            return false;
+        }
+
+        lock (Sync)
+        {
+            return Snapshots.TryGetValue(
+                playerId,
+                out snapshot
+            );
+        }
+    }
+
+    public static NetworkPlayerSnapshot[]
+        Snapshot()
+    {
+        lock (Sync)
+        {
+            NetworkPlayerSnapshot[] result =
+                new NetworkPlayerSnapshot[
+                    Snapshots.Count
+                ];
+
+            int index = 0;
+
+            foreach (
+                NetworkPlayerSnapshot snapshot
+                in Snapshots.Values)
+            {
+                result[index++] =
+                    snapshot;
+            }
+
+            return result;
+        }
+    }
+
+    public static void Remove(
+        string playerId)
+    {
+        if (
+            string.IsNullOrWhiteSpace(
+                playerId))
+        {
+            return;
+        }
+
+        lock (Sync)
+        {
+            Snapshots.Remove(
+                playerId
+            );
+        }
+    }
+
+    public static void Clear()
+    {
+        lock (Sync)
+        {
+            Snapshots.Clear();
+        }
+    }
+}
+
+
+
+
+// ============================================================
+// HOST PLAYER SNAPSHOT PROCESSOR
+// ============================================================
+
+internal static class HostPlayerSnapshotProcessor
+{
+    public static bool Process(
+        HostClientConnection sender,
+        byte[] payload)
+    {
+        if (sender == null)
+        {
+            return false;
+        }
+
+        if (
+            !PlayerSnapshotCodec.Decode(
+                payload,
+                out NetworkPlayerSnapshot snapshot))
+        {
+            return false;
+        }
+
+        /*
+         * Never trust the sender-provided ID.
+         */
+
+        snapshot.PlayerId =
+            sender.PlayerId;
+
+        snapshot.PlayerName =
+            NetworkUtilities.SafeName(
+                sender.PlayerName
+            );
+
+        sender.LastX =
+            snapshot.X;
+
+        sender.LastY =
+            snapshot.Y;
+
+        sender.LastPartySize =
+            snapshot.PartySize;
+
+        HostPlayerSnapshotCache
+            .Set(
+                snapshot
+            );
+
+        HostPlayerRegistry
+            .Update(
+                snapshot.PlayerId,
+                snapshot.PlayerName,
+                snapshot.X,
+                snapshot.Y,
+                snapshot.PartySize
             );
 
         return true;
     }
+}
+
+
+
+
+// ============================================================
+// CLIENT REMOTE SNAPSHOT PROCESSOR
+// ============================================================
+
+internal static class ClientRemoteSnapshotProcessor
+{
+    public static void Process(
+        byte[] payload)
+    {
+        NetworkPlayerSnapshot snapshot;
+
+        if (
+            !PlayerSnapshotCodec
+                .Decode(
+                    payload,
+                    out snapshot))
+        {
+            return;
+        }
+
+        if (
+            snapshot.PlayerId ==
+            LocalPlayerState.GetNetworkId())
+        {
+            return;
+        }
+
+        if (
+            snapshot.PlayerId ==
+            NetworkIdentityService
+                .GetCurrentId())
+        {
+            return;
+        }
+
+        RemoteSnapshotDispatcher
+            .Enqueue(
+                snapshot
+            );
+
+        RemotePlayerBridge
+            .Queue(
+                snapshot
+            );
+
+        RemoteSessionProcessor
+            .EnqueueState(
+                snapshot.PlayerId,
+                snapshot.PlayerName,
+                snapshot.GetPosition(),
+                snapshot.PartySize
+            );
+    }
+}
+
+
+
+
+// ============================================================
+// PLAYER JOIN SERVICE
+// ============================================================
+
+internal static class PlayerJoinService
+{
+    public static void CreateLogicalPlayer(
+        string id,
+        string name,
+        CampaignVec2 position,
+        int partySize)
+    {
+        if (
+            string.IsNullOrWhiteSpace(
+                id))
+        {
+            return;
+        }
+
+        if (
+            id ==
+            LocalPlayerState.GetNetworkId())
+        {
+            return;
+        }
+
+        if (
+            !NetworkUtilities.IsValidPosition(
+                position.X,
+                position.Y))
+        {
+            return;
+        }
+
+        partySize =
+            NetworkUtilities.SafePartySize(
+                partySize
+            );
+
+        RemotePlayerManager
+            .ReceiveSessionInternal(
+                id,
+                NetworkUtilities.SafeName(
+                    name
+                ),
+                position,
+                partySize
+            );
+    }
+
+    public static void RemoveLogicalPlayer(
+        string id)
+    {
+        if (
+            string.IsNullOrWhiteSpace(
+                id))
+        {
+            return;
+        }
+
+        RemotePlayerManager
+            .RemoveSessionInternal(
+                id
+            );
+    }
+}
+
+
+
+
+// ============================================================
+// PLAYER JOIN VALIDATOR
+// ============================================================
+
+internal static class PlayerJoinValidator
+{
+    public static bool Validate(
+        string id,
+        string name,
+        float x,
+        float y,
+        int partySize)
+    {
+        if (
+            !NetworkUtilities
+                .IsValidPosition(
+                    x,
+                    y))
+        {
+            return false;
+        }
+
+        if (
+            !NetworkStateValidator
+                .IsValidPlayerId(
+                    id))
+        {
+            return false;
+        }
+
+        if (
+            string.IsNullOrWhiteSpace(
+                name))
+        {
+            return false;
+        }
+
+        if (
+            name.Length > 32)
+        {
+            return false;
+        }
+
+        return
+            NetworkStateValidator
+                .IsValidPartySize(
+                    partySize
+                );
+    }
+}
+
+
+
+
+// ============================================================
+// CLIENT PLAYER STATE SENDER
+// ============================================================
+
+internal static class ClientPlayerStateSender
+{
+    private static float _timer;
+
+    private static long _sequence;
+
+    public static void Update(
+        float dt)
+    {
+        MultiplayerNetworkClient client =
+            MultiplayerNetworkClient
+                .Instance;
+
+        if (client == null)
+        {
+            return;
+        }
+
+        if (!client.IsConnected)
+        {
+            return;
+        }
+
+        if (!client.IsWorldLoaded)
+        {
+            return;
+        }
+
+        if (
+            Campaign.Current == null ||
+            MobileParty.MainParty == null)
+        {
+            return;
+        }
+
+        _timer +=
+            Math.Max(
+                0f,
+                Math.Min(
+                    1f,
+                    dt
+                )
+            );
+
+        if (_timer < 0.10f)
+        {
+            return;
+        }
+
+        _timer =
+            0f;
+
+        CampaignVec2 position;
+
+        if (
+            !CampaignWorld
+                .TryGetMainPartyPosition(
+                    out position))
+        {
+            return;
+        }
+
+        int partySize =
+            CampaignWorld
+                .GetMainPartySize();
+
+        CampaignPlayerSnapshot snapshot =
+            new CampaignPlayerSnapshot();
+
+        snapshot.PlayerId =
+            NetworkIdentityService
+                .GetCurrentId();
+
+        if (
+            string.IsNullOrWhiteSpace(
+                snapshot.PlayerId))
+        {
+            snapshot.PlayerId =
+                LocalPlayerState
+                    .GetNetworkId();
+        }
+
+        snapshot.PlayerName =
+            LocalPlayerState
+                .GetDisplayName();
+
+        snapshot.Position =
+            position;
+
+        snapshot.PartySize =
+            partySize;
+
+        snapshot.Connected =
+            true;
+
+        snapshot.Ready =
+            true;
+
+        snapshot.Sequence =
+            ++_sequence;
+
+        snapshot.TimestampUtcTicks =
+            DateTime.UtcNow.Ticks;
+
+        byte[] payload =
+            CampaignPlayerSnapshotCodec
+                .Encode(
+                    snapshot
+                );
+
+        if (payload == null)
+        {
+            return;
+        }
+
+        client.Send(
+            NetworkPacketType.PlayerSnapshot,
+            payload
+        );
+    }
 
     public static void Reset()
     {
-        lock (Sync)
+        _timer =
+            0f;
+
+        _sequence =
+            0;
+    }
+}
+
+
+
+
+// ============================================================
+// FINAL PLAYER SYNC SERVICE
+// ============================================================
+
+public static class FinalPlayerSyncService
+{
+    public static void Update(
+        float dt)
+    {
+        FullMultiplayerTick
+            .Update(
+                dt
+            );
+    }
+
+    public static void Reset()
+    {
+        ClientPlayerStateSender
+            .Reset();
+
+        HostCampaignSnapshotLoop
+            .Reset();
+
+        ClientCampaignSnapshotReceiver
+            .Clear();
+
+        CampaignRemotePlayerMarkerCleanup
+            .Clear();
+
+        CampaignStateSynchronization
+            .Reset();
+
+        PlayerSnapshotState
+            .Reset();
+    }
+}
+
+
+
+
+// ============================================================
+// END OF SECTION
+// ============================================================
+// ============================================================
+// FINAL COMPATIBILITY LAYER
+// ============================================================
+
+internal static class MultiplayerCompatibilityLayer
+{
+    public static bool IsCampaignAvailable()
+    {
+        try
         {
-            _initialized =
-                false;
+            return Campaign.Current != null;
         }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static bool IsLocalPlayerAvailable()
+    {
+        try
+        {
+            return
+                Campaign.Current != null &&
+                Hero.MainHero != null &&
+                MobileParty.MainParty != null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static CampaignVec2 GetSafePosition()
+    {
+        try
+        {
+            if (
+                MobileParty.MainParty != null)
+            {
+                CampaignVec2 position =
+                    MobileParty.MainParty.Position;
+
+                if (
+                    NetworkUtilities.IsValidPosition(
+                        position.X,
+                        position.Y))
+                {
+                    return position;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return
+            new CampaignVec2(
+                new Vec2(
+                    0f,
+                    0f
+                ),
+                true
+            );
+    }
+
+    public static int GetSafePartySize()
+    {
+        try
+        {
+            if (
+                MobileParty.MainParty != null &&
+                MobileParty.MainParty.MemberRoster != null)
+            {
+                return
+                    NetworkUtilities.SafePartySize(
+                        MobileParty.MainParty
+                            .MemberRoster
+                            .TotalManCount
+                    );
+            }
+        }
+        catch
+        {
+        }
+
+        return 1;
+    }
+}
+
+
+
+
+// ============================================================
+// FINAL REMOTE SNAPSHOT FACTORY
+// ============================================================
+
+internal static class FinalRemoteSnapshotFactory
+{
+    public static FinalRemotePlayerSnapshot Create(
+        RemotePlayerState state)
+    {
+        if (state == null)
+        {
+            return null;
+        }
+
+        if (
+            string.IsNullOrWhiteSpace(
+                state.PlayerId))
+        {
+            return null;
+        }
+
+        if (
+            !NetworkUtilities.IsValidPosition(
+                state.CurrentPosition.X,
+                state.CurrentPosition.Y))
+        {
+            return null;
+        }
+
+        return
+            new FinalRemotePlayerSnapshot
+            {
+                Id =
+                    state.PlayerId,
+
+                Name =
+                    NetworkUtilities.SafeName(
+                        state.Name
+                    ),
+
+                X =
+                    state.CurrentPosition.X,
+
+                Y =
+                    state.CurrentPosition.Y,
+
+                PartySize =
+                    NetworkUtilities.SafePartySize(
+                        state.PartySize
+                    ),
+
+                Connected =
+                    state.Active,
+
+                LastUpdateUtc =
+                    state.LastPacketUtc
+            };
+    }
+}
+
+
+
+
+// ============================================================
+// FINAL PLAYER SYNC COORDINATOR
+// ============================================================
+
+internal static class FinalPlayerSyncCoordinator
+{
+    private static float _sendTimer;
+
+    private static float _receiveTimer;
+
+    public static void Update(
+        float dt)
+    {
+        if (
+            Campaign.Current == null)
+        {
+            return;
+        }
+
+        _receiveTimer +=
+            Math.Max(
+                0f,
+                Math.Min(
+                    1f,
+                    dt
+                )
+            );
+
+        if (_receiveTimer >= 0.05f)
+        {
+            _receiveTimer =
+                0f;
+
+            ClientCampaignSnapshotReceiver
+                .Process();
+
+            RemotePlayerCommandProcessor
+                .Process(
+                    dt
+                );
+
+            RemotePlayerManager
+                .Update(
+                    dt
+                );
+
+            FinalRemoteMapState
+                .Update();
+        }
+
+        if (
+            MultiplayerNetworkClient
+                .Instance
+                .IsConnected &&
+            MultiplayerNetworkClient
+                .Instance
+                .IsWorldLoaded &&
+            MobileParty.MainParty != null)
+        {
+            _sendTimer +=
+                Math.Max(
+                    0f,
+                    Math.Min(
+                        1f,
+                        dt
+                    )
+                );
+
+            if (_sendTimer >= 0.10f)
+            {
+                _sendTimer =
+                    0f;
+
+                CampaignVec2 position =
+                    MultiplayerCompatibilityLayer
+                        .GetSafePosition();
+
+                int partySize =
+                    MultiplayerCompatibilityLayer
+                        .GetSafePartySize();
+
+                MultiplayerNetworkClient
+                    .Instance
+                    .SendLocalPlayerState(
+                        position,
+                        partySize
+                    );
+            }
+        }
+    }
+
+    public static void Reset()
+    {
+        _sendTimer =
+            0f;
+
+        _receiveTimer =
+            0f;
+
+        FinalRemoteMapState
+            .Clear();
+    }
+}
+
+
+
+
+// ============================================================
+// FINAL TWO PLAYER CONTROLLER
+// ============================================================
+
+public static class FinalTwoPlayerController
+{
+    private static bool _active;
+
+    public static void Start()
+    {
+        if (_active)
+        {
+            return;
+        }
+
+        _active =
+            true;
+
+        MultiplayerSessionState
+            .StartClient();
+
+        MultiplayerCampaignGameState
+            .SetNetworkReady(
+                true
+            );
+
+        MultiplayerConnectionStatus
+            .Set(
+                MultiplayerConnectionState
+                    .Connected
+            );
+    }
+
+    public static void Update(
+        float dt)
+    {
+        if (!_active)
+        {
+            return;
+        }
+
+        if (
+            !MultiplayerCompatibilityLayer
+                .IsCampaignAvailable())
+        {
+            return;
+        }
+
+        FinalPlayerSyncCoordinator
+            .Update(
+                dt
+            );
+    }
+
+    public static void Stop()
+    {
+        _active =
+            false;
+
+        FinalPlayerSyncCoordinator
+            .Reset();
+
+        MultiplayerSessionState
+            .Reset();
+    }
+}
+
+
+
+
+// ============================================================
+// HOST SNAPSHOT BUILDER
+// ============================================================
+
+internal static class HostSnapshotBuilder
+{
+    public static byte[] Build(
+        string id,
+        string name,
+        float x,
+        float y,
+        int partySize)
+    {
+        if (
+            !NetworkUtilities
+                .IsValidPosition(
+                    x,
+                    y))
+        {
+            return null;
+        }
+
+        return
+            NetworkProtocol.CreatePayload(
+                writer =>
+                {
+                    writer.Write(
+                        id ??
+                        ""
+                    );
+
+                    writer.Write(
+                        NetworkUtilities
+                            .SafeName(
+                                name
+                            )
+                    );
+
+                    writer.Write(
+                        x
+                    );
+
+                    writer.Write(
+                        y
+                    );
+
+                    writer.Write(
+                        NetworkUtilities
+                            .SafePartySize(
+                                partySize
+                            )
+                    );
+                }
+            );
+    }
+}
+
+
+
+
+// ============================================================
+// FINAL SAFE WORLD CHECK
+// ============================================================
+
+internal static class FinalWorldCheck
+{
+    public static bool IsReady()
+    {
+        if (
+            Campaign.Current == null)
+        {
+            return false;
+        }
+
+        if (
+            Hero.MainHero == null)
+        {
+            return false;
+        }
+
+        if (
+            MobileParty.MainParty == null)
+        {
+            return false;
+        }
+
+        return true;
     }
 }
 
@@ -2783,12 +4204,174 @@ namespace MultiplayerCampaign
     }
 
 
+
     internal static class MpcFinalRuntimeStatusV2
     {
         public static bool CharacterSelected { get { try { return MpcFinalCharacterSystemV2.HasSelection; } catch { return false; } } }
         public static int CharacterSlot { get { try { return MpcFinalCharacterSystemV2.Selected; } catch { return -1; } } }
         public static string CharacterId { get { try { return MpcFinalCharacterSystemV2.GetSelectedCharacterId(); } catch { return null; } } }
         public static string CharacterName { get { try { return MpcFinalCharacterSystemV2.GetSelectedName(); } catch { return "Player"; } } }
+    }
+
+
+    internal sealed class MpcFinalCharacterSlotV2
+    {
+        public int Slot;
+        public string CharacterId;
+        public string Name;
+        public string CharacterData;
+        public long CreatedUtcTicks;
+    }
+
+
+
+    internal static class MpcFinalCharacterSystemV2
+    {
+        private const int SlotCount = 3;
+        private static readonly object Sync = new object();
+        private static readonly MpcFinalCharacterSlotV2[] Slots = new MpcFinalCharacterSlotV2[SlotCount];
+        private static bool Loaded;
+        private static int SelectedSlot = -1;
+
+        private static string FilePath
+        {
+            get
+            {
+                string root = System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData);
+                return System.IO.Path.Combine(root, "MultiplayerCampaign", "final-characters.dat");
+            }
+        }
+
+        public static void EnsureLoaded()
+        {
+            lock (Sync)
+            {
+                if (Loaded) return;
+                Loaded = true;
+                LoadLocked();
+            }
+        }
+
+        public static bool HasSelection
+        {
+            get { EnsureLoaded(); lock (Sync) return SelectedSlot >= 0 && SelectedSlot < SlotCount; }
+        }
+
+        public static int Selected
+        {
+            get { EnsureLoaded(); lock (Sync) return SelectedSlot; }
+        }
+
+        public static bool SelectSlot(int slot)
+        {
+            EnsureLoaded();
+            if (slot < 0 || slot >= SlotCount) return false;
+            lock (Sync)
+            {
+                SelectedSlot = slot;
+                SaveLocked();
+                return true;
+            }
+        }
+
+        public static MpcFinalCharacterSlotV2 CreateSlot(int slot, string name, string data)
+        {
+            EnsureLoaded();
+            if (slot < 0 || slot >= SlotCount) return null;
+            lock (Sync)
+            {
+                MpcFinalCharacterSlotV2 record = new MpcFinalCharacterSlotV2
+                {
+                    Slot = slot,
+                    CharacterId = System.Guid.NewGuid().ToString("N"),
+                    Name = SafeName(name),
+                    CharacterData = data ?? "",
+                    CreatedUtcTicks = System.DateTime.UtcNow.Ticks
+                };
+                Slots[slot] = record;
+                SelectedSlot = slot;
+                SaveLocked();
+                return record;
+            }
+        }
+
+        public static MpcFinalCharacterSlotV2 GetSlot(int slot)
+        {
+            EnsureLoaded();
+            if (slot < 0 || slot >= SlotCount) return null;
+            lock (Sync) return Slots[slot];
+        }
+
+        public static bool IsEmpty(int slot) { return GetSlot(slot) == null; }
+        public static string GetSelectedCharacterId()
+        {
+            EnsureLoaded();
+            lock (Sync)
+            {
+                return SelectedSlot >= 0 && SelectedSlot < SlotCount && Slots[SelectedSlot] != null ? Slots[SelectedSlot].CharacterId : null;
+            }
+        }
+
+        public static string GetSelectedName()
+        {
+            EnsureLoaded();
+            lock (Sync)
+            {
+                return SelectedSlot >= 0 && SelectedSlot < SlotCount && Slots[SelectedSlot] != null ? Slots[SelectedSlot].Name : "Player";
+            }
+        }
+
+        public static void ResetSelection()
+        {
+            EnsureLoaded();
+            lock (Sync) { SelectedSlot = -1; SaveLocked(); }
+        }
+
+        private static string SafeName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "Player";
+            name = name.Trim();
+            return name.Length > 32 ? name.Substring(0, 32) : name;
+        }
+
+        private static void SaveLocked()
+        {
+            try
+            {
+                string directory = System.IO.Path.GetDirectoryName(FilePath);
+                if (!System.IO.Directory.Exists(directory)) System.IO.Directory.CreateDirectory(directory);
+                using (var stream = new System.IO.FileStream(FilePath, System.IO.FileMode.Create, System.IO.FileAccess.Write, System.IO.FileShare.None))
+                using (var writer = new System.IO.BinaryWriter(stream, System.Text.Encoding.UTF8, true))
+                {
+                    writer.Write(1); writer.Write(SelectedSlot);
+                    for (int i = 0; i < SlotCount; i++)
+                    {
+                        var s = Slots[i]; writer.Write(s != null); if (s == null) continue;
+                        writer.Write(s.Slot); writer.Write(s.CharacterId ?? ""); writer.Write(s.Name ?? "Player"); writer.Write(s.CharacterData ?? ""); writer.Write(s.CreatedUtcTicks);
+                    }
+                }
+            } catch { }
+        }
+
+        private static void LoadLocked()
+        {
+            try
+            {
+                if (!System.IO.File.Exists(FilePath)) return;
+                using (var stream = new System.IO.FileStream(FilePath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.Read))
+                using (var reader = new System.IO.BinaryReader(stream, System.Text.Encoding.UTF8, true))
+                {
+                    if (reader.ReadInt32() != 1) return;
+                    SelectedSlot = reader.ReadInt32();
+                    for (int i = 0; i < SlotCount; i++)
+                    {
+                        if (!reader.ReadBoolean()) { Slots[i] = null; continue; }
+                        Slots[i] = new MpcFinalCharacterSlotV2
+                        { Slot = reader.ReadInt32(), CharacterId = reader.ReadString(), Name = reader.ReadString(), CharacterData = reader.ReadString(), CreatedUtcTicks = reader.ReadInt64() };
+                    }
+                }
+            } catch { SelectedSlot = -1; for (int i = 0; i < SlotCount; i++) Slots[i] = null; }
+        }
     }
 
 }
@@ -2992,6 +4575,29 @@ namespace MultiplayerCampaignRebuildLayer
 
             return true;
         }
+    }
+
+
+
+    internal sealed class PlayerSyncState
+    {
+        public string Id;
+        public string Name;
+        public float X;
+        public float Y;
+        public float TargetX;
+        public float TargetY;
+        public float BearingX;
+        public float BearingY;
+        public int PartySize;
+        public bool Moving;
+        public bool Active;
+        public long Sequence;
+        public long Revision;
+        public double ServerTimeMs;
+        public int TimeSpeed;
+        public int TimeMode;
+        public DateTime LastUpdateUtc;
     }
 
 }

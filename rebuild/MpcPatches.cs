@@ -1,8 +1,9 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
-using HarmonyLib;
-
 using TaleWorlds.CampaignSystem;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using HarmonyLib;
 using BinaryReader = System.IO.BinaryReader;
 using HarmonyLib;
 using Helpers;
@@ -33,6 +34,7 @@ using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
+
 
 
 
@@ -110,6 +112,7 @@ internal static class RemoteSnapshotDispatcher
 
 
 
+
 // ============================================================
 // CAMPAIGN THREAD DISPATCHER
 // ============================================================
@@ -177,6 +180,7 @@ internal static class CampaignThreadDispatcher
 
 
 
+
 // ============================================================
 // CAMPAIGN TICK DISPATCHER
 // ============================================================
@@ -206,6 +210,7 @@ internal static class CampaignTickDispatcher
 
 
 
+
 // ============================================================
 // FINAL NETWORK CLIENT PATCH
 // ============================================================
@@ -221,6 +226,7 @@ internal static class FinalNetworkClientPatch
             );
     }
 }
+
 
 
 
@@ -306,6 +312,7 @@ namespace MultiplayerCampaign
     }
 
 
+
     [HarmonyLib.HarmonyPatch(typeof(MultiplayerCampaignRebuildLayer.MpcClientParty), "Ensure")]
     internal static class MpcFinalBlockSharedPartyV2
     {
@@ -317,6 +324,7 @@ namespace MultiplayerCampaign
             } catch { __result = null; }
         }
     }
+
 
 
     [HarmonyLib.HarmonyPatch(typeof(MultiplayerNetworkClient), "SendHello")]
@@ -339,6 +347,7 @@ namespace MultiplayerCampaign
     }
 
 
+
     [HarmonyLib.HarmonyPatch(typeof(MultiplayerCampaignBehavior), "OnCampaignTick")]
     internal static class MpcFinalCampaignThreadPatchV2
     {
@@ -354,12 +363,201 @@ namespace MultiplayerCampaign
     }
 
 
+
     [HarmonyLib.HarmonyPatch(typeof(MultiplayerCampaignSubModule), "OnGameEnd")]
     internal static class MpcFinalGameEndPatchV2
     {
         private static void Postfix()
         {
             try { MpcFinalCharacterSystemV2.ResetSelection(); } catch { }
+        }
+    }
+
+}
+
+namespace MultiplayerCampaignRebuildLayer
+{
+
+    internal static class MpcRebuildPatches
+    {
+        [HarmonyPatch(typeof(MultiplayerNetworkClient), "SendHello")]
+        private static class ClientHelloPatch
+        {
+            private static bool Prefix(MultiplayerNetworkClient __instance)
+            {
+                try
+                {
+                    MpcSession.SelectOrCreateIdentityFromCurrentPlayer();
+                    if (!MpcSession.HasSlot)
+                        return true;
+
+                    byte[] payload = NetworkProtocol.CreatePayload(
+                        writer =>
+                        {
+                            writer.Write("MPC2HELLO");
+                            writer.Write(MpcSession.Name ?? "Player");
+                            writer.Write(MpcSession.Slot);
+                            writer.Write(MpcSession.Id ?? "");
+                        });
+
+                    __instance.Send(NetworkPacketType.Hello, payload);
+                    return false;
+                }
+                catch
+                {
+                    return true;
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(MultiplayerNetworkClient), "ProcessMessage")]
+        private static class ClientMessagePatch
+        {
+            private static bool Prefix(NetworkMessage message)
+            {
+                if (message == null || message.Type != NetworkPacketType.WorldPartySnapshot)
+                    return true;
+
+                try
+                {
+                    if (MpcRebuildPatches.ProcessPayload(message.Payload, true))
+                        return false;
+                }
+                catch
+                {
+                }
+
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(HostClientConnection), "ProcessMessage")]
+        private static class HostMessagePatch
+        {
+            private static bool Prefix(
+                HostClientConnection __instance,
+                NetworkPacketType type,
+                byte[] payload)
+            {
+                try
+                {
+                    if (type == NetworkPacketType.Hello && IsMpcHello(payload))
+                    {
+                        ApplyHello(__instance, payload);
+                        return false;
+                    }
+
+                    if (type == NetworkPacketType.WorldPartySnapshot &&
+                        MpcRebuildPatches.ProcessPayload(payload, false))
+                    {
+                        return false;
+                    }
+                }
+                catch
+                {
+                }
+
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(MultiplayerCampaignBehavior), "OnCampaignTick")]
+        private static class CampaignTickPatch
+        {
+            private static void Postfix(float dt)
+            {
+                MpcNetworkRuntime.Tick(dt);
+            }
+        }
+
+        [HarmonyPatch(typeof(MultiplayerCampaignSubModule), "OnGameEnd")]
+        private static class GameEndPatch
+        {
+            private static void Postfix()
+            {
+                MpcNetworkRuntime.Clear();
+            }
+        }
+
+        private static bool ProcessPayload(byte[] payload, bool fromHost)
+        {
+            try
+            {
+                return MpcNetworkRuntime.ProcessNetworkPayload(payload, fromHost);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsMpcHello(byte[] payload)
+        {
+            if (payload == null || payload.Length == 0 || payload.Length > 1024)
+                return false;
+
+            try
+            {
+                using (MemoryStream stream = new MemoryStream(payload))
+                using (System.IO.BinaryReader reader = new System.IO.BinaryReader(stream, Encoding.UTF8, true))
+                    return reader.ReadString() == "MPC2HELLO";
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void ApplyHello(
+            HostClientConnection connection,
+            byte[] payload)
+        {
+            using (MemoryStream stream = new MemoryStream(payload))
+            using (System.IO.BinaryReader reader = new System.IO.BinaryReader(stream, Encoding.UTF8, true))
+            {
+                string magic = reader.ReadString();
+                string name = reader.ReadString();
+                int slot = reader.ReadInt32();
+                string characterId = reader.ReadString();
+
+                if (magic != "MPC2HELLO" || slot < 0 || slot >= 3 ||
+                    string.IsNullOrWhiteSpace(characterId))
+                {
+                    connection.SendError("Character slot is required.");
+                    return;
+                }
+
+                PropertyInfo property = typeof(HostClientConnection)
+                    .GetProperty("PlayerId", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (property != null)
+                    property.SetValue(connection, characterId, null);
+
+                connection.PlayerName = Sanitize(name);
+
+                connection.Send(new NetworkMessageData(
+                    NetworkPacketType.Welcome,
+                    NetworkProtocol.CreatePayload(
+                        writer =>
+                        {
+                            writer.Write("Connected as " + connection.PlayerName);
+                            writer.Write(characterId);
+                        })));
+
+                MultiplayerCampaignHost host = MultiplayerCampaignSubModule.GetHost();
+                if (host != null)
+                    host.SendWorldToClientAsync(connection);
+            }
+        }
+
+        private static string Sanitize(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "Player";
+
+            value = value.Trim();
+            if (value.Length > 32)
+                value = value.Substring(0, 32);
+            return value;
         }
     }
 

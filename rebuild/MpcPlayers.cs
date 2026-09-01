@@ -1,8 +1,9 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
-using HarmonyLib;
-
 using TaleWorlds.CampaignSystem;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using HarmonyLib;
 using BinaryReader = System.IO.BinaryReader;
 using HarmonyLib;
 using Helpers;
@@ -33,6 +34,7 @@ using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
+
 
 // ============================
 // CONTINUATION
@@ -106,6 +108,7 @@ internal static class LocalPlayerState
 
 
 
+
 /*
  * ============================================================
  * REMOTE PLAYER STATE
@@ -148,6 +151,7 @@ public sealed class RemotePlayerState
 
 
 
+
 /*
  * ============================================================
  * REMOTE PLAYER COMMAND
@@ -164,6 +168,7 @@ internal enum RemotePlayerCommandType
 
     Leave
 }
+
 
 
 
@@ -261,6 +266,7 @@ internal sealed class RemotePlayerCommand
         };
     }
 }
+
 
 
 
@@ -1313,6 +1319,7 @@ public static partial class RemotePlayerManager
 
 
 
+
 /*
  * ============================================================
  * PLAYER VISUAL DATA
@@ -1338,6 +1345,7 @@ public sealed class RemotePlayerVisualData
 
     public DateTime LastUpdateUtc;
 }
+
 
 
 
@@ -1481,1073 +1489,6 @@ public static class RemotePlayerVisualRegistry
     }
 }
 
-/*
- * ============================================================
- * HOST SERVER
- * ============================================================
- */
-
-public sealed class MultiplayerCampaignHost
-{
-    private readonly object _sync =
-        new object();
-
-    private readonly List<
-        HostClientConnection>
-        _clients =
-            new List<
-                HostClientConnection>();
-
-    private TcpListener _listener;
-
-    private CancellationTokenSource _cts;
-
-    private readonly string _hostName;
-
-    private bool _running;
-
-    private const int Port = 25565;
-
-    public MultiplayerCampaignHost(
-        string hostName)
-    {
-        _hostName =
-            string.IsNullOrWhiteSpace(
-                hostName)
-                ? "Host"
-                : hostName.Trim();
-    }
-
-
-    /*
-     * ========================================================
-     * START
-     * ========================================================
-     */
-
-    public void Start()
-    {
-        if (_running)
-        {
-            return;
-        }
-
-        try
-        {
-            _cts =
-                new CancellationTokenSource();
-
-            _listener =
-                new TcpListener(
-                    IPAddress.Any,
-                    Port
-                );
-
-            _listener.Start();
-
-            _running = true;
-
-            HostConsole.WriteLine(
-                "[MultiplayerCampaign] " +
-                "Server started on port " +
-                Port
-            );
-
-            _ =
-                AcceptLoopAsync(
-                    _cts.Token
-                );
-        }
-        catch (Exception ex)
-        {
-            _running =
-                false;
-
-            HostConsole.WriteLine(
-                "[!] Server start failed: " +
-                ex.Message
-            );
-
-            Stop();
-        }
-    }
-
-
-    /*
-     * ========================================================
-     * ACCEPT LOOP
-     * ========================================================
-     */
-
-    private async Task AcceptLoopAsync(
-        CancellationToken token)
-    {
-        while (
-            _running &&
-            !token.IsCancellationRequested)
-        {
-            try
-            {
-                TcpClient tcpClient =
-                    await _listener
-                        .AcceptTcpClientAsync();
-
-                if (
-                    tcpClient == null)
-                {
-                    continue;
-                }
-
-                tcpClient.NoDelay =
-                    true;
-
-                HostClientConnection client =
-                    new HostClientConnection(
-                        this,
-                        tcpClient
-                    );
-
-                lock (_sync)
-                {
-                    /*
-                     * The target build is two-player.
-                     *
-                     * Existing host is player one.
-                     * Only one remote client is required.
-                     */
-
-                    if (_clients.Count >= 1)
-                    {
-                        SendErrorAndClose(
-                            client,
-                            "Server is full."
-                        );
-
-                        continue;
-                    }
-
-                    _clients.Add(
-                        client
-                    );
-                }
-
-                _ =
-                    client.StartAsync(
-                        token
-                    );
-            }
-            catch (ObjectDisposedException)
-            {
-                return;
-            }
-            catch (SocketException)
-            {
-                if (!_running)
-                {
-                    return;
-                }
-            }
-            catch (Exception ex)
-            {
-                if (_running)
-                {
-                    HostConsole.WriteLine(
-                        "[!] Accept error: " +
-                        ex.Message
-                    );
-                }
-            }
-        }
-    }
-
-
-    /*
-     * ========================================================
-     * CLIENT REMOVE
-     * ========================================================
-     */
-
-    internal void RemoveClient(
-        HostClientConnection client)
-    {
-        if (client == null)
-        {
-            return;
-        }
-
-        bool removed;
-
-        lock (_sync)
-        {
-            removed =
-                _clients.Remove(
-                    client
-                );
-        }
-
-        if (removed)
-        {
-            string id =
-                client.PlayerId;
-
-            if (
-                !string.IsNullOrWhiteSpace(
-                    id))
-            {
-                BroadcastPlayerLeave(
-                    id
-                );
-            }
-
-            if (
-                !string.IsNullOrWhiteSpace(
-                    client.PlayerName))
-            {
-                HostConsole.WriteLine(
-                    "[MultiplayerCampaign] " +
-                    "Player left: " +
-                    client.PlayerName
-                );
-            }
-        }
-    }
-
-
-    /*
-     * ========================================================
-     * SEND ERROR
-     * ========================================================
-     */
-
-    private void SendErrorAndClose(
-        HostClientConnection client,
-        string message)
-    {
-        if (client == null)
-        {
-            return;
-        }
-
-        try
-        {
-            client.SendError(
-                message
-            );
-        }
-        catch
-        {
-        }
-
-        client.Close();
-    }
-
-
-    /*
-     * ========================================================
-     * BROADCAST PLAYER LEAVE
-     * ========================================================
-     */
-
-    private void BroadcastPlayerLeave(
-        string playerId)
-    {
-        if (
-            string.IsNullOrWhiteSpace(
-                playerId))
-        {
-            return;
-        }
-
-        byte[] payload =
-            NetworkProtocol.CreatePayload(
-                writer =>
-                {
-                    writer.Write(
-                        playerId
-                    );
-                }
-            );
-
-        NetworkMessageData data =
-            new NetworkMessageData(
-                NetworkPacketType.PlayerLeave,
-                payload
-            );
-
-        HostClientConnection[] clients =
-            GetClientsSnapshot();
-
-        for (
-            int i = 0;
-            i < clients.Length;
-            i++)
-        {
-            try
-            {
-                clients[i]?.Send(
-                    data
-                );
-            }
-            catch
-            {
-            }
-        }
-    }
-
-
-    /*
-     * ========================================================
-     * CLIENT SNAPSHOT
-     * ========================================================
-     */
-
-    internal void OnPlayerSnapshot(
-        HostClientConnection sender,
-        byte[] payload)
-    {
-        if (
-            sender == null ||
-            payload == null ||
-            payload.Length == 0)
-        {
-            return;
-        }
-
-        if (
-            sender.PlayerId == null)
-        {
-            return;
-        }
-
-        if (
-            payload.Length >
-            1024)
-        {
-            return;
-        }
-
-        try
-        {
-            using (
-                MemoryStream stream =
-                    new MemoryStream(
-                        payload))
-            using (
-                BinaryReader reader =
-                    new BinaryReader(
-                        stream,
-                        Encoding.UTF8,
-                        true))
-            {
-                /*
-                 * The player ID comes from the host-assigned
-                 * connection identity.
-                 *
-                 * We deliberately DO NOT trust the network
-                 * supplied ID for ownership.
-                 */
-
-                string suppliedId =
-                    reader.ReadString();
-
-                string suppliedName =
-                    reader.ReadString();
-
-                float x =
-                    reader.ReadSingle();
-
-                float y =
-                    reader.ReadSingle();
-
-                int partySize =
-                    reader.ReadInt32();
-
-                if (
-                    float.IsNaN(x) ||
-                    float.IsInfinity(x) ||
-                    float.IsNaN(y) ||
-                    float.IsInfinity(y))
-                {
-                    return;
-                }
-
-                string playerId =
-                    sender.PlayerId;
-
-                string playerName =
-                    string.IsNullOrWhiteSpace(
-                        sender.PlayerName)
-                        ? suppliedName
-                        : sender.PlayerName;
-
-                playerName =
-                    SanitizeName(
-                        playerName
-                    );
-
-                partySize =
-                    Math.Max(
-                        1,
-                        Math.Min(
-                            10000,
-                            partySize
-                        )
-                    );
-
-                sender.LastX =
-                    x;
-
-                sender.LastY =
-                    y;
-
-                sender.LastPartySize =
-                    partySize;
-
-                sender.PlayerName =
-                    playerName;
-
-                BroadcastSnapshot(
-                    sender
-                );
-            }
-        }
-        catch (Exception ex)
-        {
-            HostConsole.WriteLine(
-                "[!] Player state error: " +
-                ex.Message
-            );
-        }
-    }
-
-
-    /*
-     * ========================================================
-     * BROADCAST SNAPSHOT
-     * ========================================================
-     */
-
-    private void BroadcastSnapshot(
-        HostClientConnection changedClient)
-    {
-        HostClientConnection[] clients =
-            GetClientsSnapshot();
-
-        /*
-         * First send the changed Client snapshot
-         * to the Host-side game state.
-         *
-         * The Host campaign itself is player one and
-         * therefore does not need to receive itself.
-         *
-         * Every connected Client receives the remote
-         * player state of every other participant.
-         */
-
-        if (changedClient != null)
-        {
-            byte[] remotePayload =
-                BuildClientSnapshot(
-                    changedClient
-                );
-
-            NetworkMessageData message =
-                new NetworkMessageData(
-                    NetworkPacketType.PlayerSnapshot,
-                    remotePayload
-                );
-
-            for (
-                int i = 0;
-                i < clients.Length;
-                i++)
-            {
-                HostClientConnection client =
-                    clients[i];
-
-                if (
-                    client == null ||
-                    client == changedClient)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    client.Send(
-                        message
-                    );
-                }
-                catch
-                {
-                }
-            }
-        }
-
-        /*
-         * Also send the Host's own Campaign position to Client.
-         */
-
-        SendHostSnapshotToClients(
-            clients
-        );
-    }
-
-
-    /*
-     * ========================================================
-     * HOST SNAPSHOT
-     * ========================================================
-     */
-
-    private void SendHostSnapshotToClients(
-        HostClientConnection[] clients)
-    {
-        if (
-            Campaign.Current == null ||
-            MobileParty.MainParty == null)
-        {
-            return;
-        }
-
-        CampaignVec2 position =
-            MobileParty.MainParty.Position;
-
-        int size =
-            CampaignWorld.GetMainPartySize();
-
-        byte[] payload =
-            NetworkProtocol.CreatePayload(
-                writer =>
-                {
-                    /*
-                     * Host has a stable local network ID.
-                     */
-
-                    writer.Write(
-                        LocalPlayerState
-                            .GetNetworkId()
-                    );
-
-                    writer.Write(
-                        LocalPlayerState
-                            .GetDisplayName()
-                    );
-
-                    writer.Write(
-                        position.X
-                    );
-
-                    writer.Write(
-                        position.Y
-                    );
-
-                    writer.Write(
-                        size
-                    );
-                }
-            );
-
-        NetworkMessageData message =
-            new NetworkMessageData(
-                NetworkPacketType.PlayerSnapshot,
-                payload
-            );
-
-        for (
-            int i = 0;
-            i < clients.Length;
-            i++)
-        {
-            HostClientConnection client =
-                clients[i];
-
-            if (client == null)
-            {
-                continue;
-            }
-
-            try
-            {
-                client.Send(
-                    message
-                );
-            }
-            catch
-            {
-            }
-        }
-    }
-
-
-    /*
-     * ========================================================
-     * BUILD CLIENT SNAPSHOT
-     * ========================================================
-     */
-
-    private static byte[] BuildClientSnapshot(
-        HostClientConnection client)
-    {
-        return NetworkProtocol.CreatePayload(
-            writer =>
-            {
-                writer.Write(
-                    client.PlayerId
-                );
-
-                writer.Write(
-                    client.PlayerName ??
-                    "Player"
-                );
-
-                writer.Write(
-                    client.LastX
-                );
-
-                writer.Write(
-                    client.LastY
-                );
-
-                writer.Write(
-                    Math.Max(
-                        1,
-                        client.LastPartySize
-                    )
-                );
-            }
-        );
-    }
-
-
-    /*
-     * ========================================================
-     * SEND WORLD BEGIN
-     * ========================================================
-     */
-
-    internal async Task SendWorldToClientAsync(
-        HostClientConnection client)
-    {
-        if (client == null)
-        {
-            return;
-        }
-
-        byte[] world =
-            BuildWorldTransferData();
-
-        if (
-            world == null ||
-            world.Length == 0)
-        {
-            client.SendError(
-                "Campaign world is unavailable."
-            );
-
-            return;
-        }
-
-        byte[] beginPayload =
-            NetworkProtocol.CreatePayload(
-                writer =>
-                {
-                    writer.Write(
-                        (long)world.Length
-                    );
-                }
-            );
-
-        client.Send(
-            new NetworkMessageData(
-                NetworkPacketType.WorldBegin,
-                beginPayload
-            )
-        );
-
-        const int chunkSize =
-            48 * 1024;
-
-        int offset = 0;
-
-        while (
-            offset < world.Length)
-        {
-            int count =
-                Math.Min(
-                    chunkSize,
-                    world.Length - offset
-                );
-
-            byte[] chunk =
-                new byte[count];
-
-            Buffer.BlockCopy(
-                world,
-                offset,
-                chunk,
-                0,
-                count
-            );
-
-            client.Send(
-                new NetworkMessageData(
-                    NetworkPacketType.WorldChunk,
-                    chunk
-                )
-            );
-
-            offset += count;
-
-            await Task.Yield();
-        }
-
-        client.Send(
-            new NetworkMessageData(
-                NetworkPacketType.WorldComplete,
-                Array.Empty<byte>()
-            )
-        );
-
-        client.Send(
-            new NetworkMessageData(
-                NetworkPacketType.WorldJoinAck,
-                NetworkProtocol.CreatePayload(
-                    writer =>
-                    {
-                        writer.Write(
-                            "World synchronization completed."
-                        );
-                    }
-                )
-            )
-        );
-    }
-
-
-    /*
-     * ========================================================
-     * BUILD WORLD DATA
-     * ========================================================
-     */
-
-    private static byte[] BuildWorldTransferData()
-    {
-        /*
-         * This method intentionally uses the existing
-         * project transfer mechanism when available.
-         *
-         * A save-backed Campaign should never be serialized
-         * by manually copying random Campaign objects.
-         */
-
-        byte[] existing =
-            ExistingWorldTransferProvider
-                .TryGetWorldData();
-
-        if (
-            existing != null &&
-            existing.Length > 0)
-        {
-            return existing;
-        }
-
-        /*
-         * Fallback:
-         *
-         * send a minimal valid payload instead of null.
-         *
-         * This prevents a client from waiting forever for
-         * WorldComplete after receiving WorldBegin.
-         */
-
-        return Encoding.UTF8.GetBytes(
-            "MULTIPLAYER_CAMPAIGN_WORLD"
-        );
-    }
-
-
-    /*
-     * ========================================================
-     * READY
-     * ========================================================
-     */
-
-    internal void OnPlayerReady(
-        HostClientConnection client)
-    {
-        if (client == null)
-        {
-            return;
-        }
-
-        client.Ready =
-            true;
-
-        HostConsole.WriteLine(
-            "[MultiplayerCampaign] " +
-            "Player joined: " +
-            SanitizeName(
-                client.PlayerName
-            )
-        );
-
-        /*
-         * Initial host snapshot.
-         */
-
-        SendInitialSnapshots(
-            client
-        );
-    }
-
-
-    /*
-     * ========================================================
-     * INITIAL SNAPSHOTS
-     * ========================================================
-     */
-
-    private void SendInitialSnapshots(
-        HostClientConnection target)
-    {
-        if (target == null)
-        {
-            return;
-        }
-
-        if (
-            Campaign.Current == null ||
-            MobileParty.MainParty == null)
-        {
-            return;
-        }
-
-        /*
-         * Host -> Client
-         */
-
-        CampaignVec2 hostPosition =
-            MobileParty.MainParty.Position;
-
-        int hostSize =
-            CampaignWorld.GetMainPartySize();
-
-        byte[] hostPayload =
-            NetworkProtocol.CreatePayload(
-                writer =>
-                {
-                    writer.Write(
-                        LocalPlayerState
-                            .GetNetworkId()
-                    );
-
-                    writer.Write(
-                        LocalPlayerState
-                            .GetDisplayName()
-                    );
-
-                    writer.Write(
-                        hostPosition.X
-                    );
-
-                    writer.Write(
-                        hostPosition.Y
-                    );
-
-                    writer.Write(
-                        hostSize
-                    );
-                }
-            );
-
-        target.Send(
-            new NetworkMessageData(
-                NetworkPacketType.PlayerSnapshot,
-                hostPayload
-            )
-        );
-
-        /*
-         * Existing other clients.
-         *
-         * The target build normally has only one remote
-         * client, but this keeps the server architecture
-         * valid.
-         */
-
-        HostClientConnection[] clients =
-            GetClientsSnapshot();
-
-        for (
-            int i = 0;
-            i < clients.Length;
-            i++)
-        {
-            HostClientConnection other =
-                clients[i];
-
-            if (
-                other == null ||
-                other == target ||
-                !other.Ready)
-            {
-                continue;
-            }
-
-            target.Send(
-                new NetworkMessageData(
-                    NetworkPacketType.PlayerSnapshot,
-                    BuildClientSnapshot(
-                        other
-                    )
-                )
-            );
-        }
-    }
-
-
-    /*
-     * ========================================================
-     * UPDATE
-     * ========================================================
-     */
-
-    public void Update()
-    {
-        if (!_running)
-        {
-            return;
-        }
-
-        HostClientConnection[] clients =
-            GetClientsSnapshot();
-
-        for (
-            int i = 0;
-            i < clients.Length;
-            i++)
-        {
-            HostClientConnection client =
-                clients[i];
-
-            if (client == null)
-            {
-                continue;
-            }
-
-            if (
-                !client.IsConnected)
-            {
-                client.Close();
-            }
-        }
-    }
-
-
-    /*
-     * ========================================================
-     * CLIENT SNAPSHOT
-     * ========================================================
-     */
-
-    internal HostClientConnection[] GetClientsSnapshot()
-    {
-        lock (_sync)
-        {
-            return _clients.ToArray();
-        }
-    }
-
-
-    /*
-     * ========================================================
-     * STOP
-     * ========================================================
-     */
-
-    public void Stop()
-    {
-        _running =
-            false;
-
-        try
-        {
-            _cts?.Cancel();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            _listener?.Stop();
-        }
-        catch
-        {
-        }
-
-        HostClientConnection[] clients =
-            GetClientsSnapshot();
-
-        lock (_sync)
-        {
-            _clients.Clear();
-        }
-
-        for (
-            int i = 0;
-            i < clients.Length;
-            i++)
-        {
-            try
-            {
-                clients[i]?.Close();
-            }
-            catch
-            {
-            }
-        }
-
-        _listener =
-            null;
-
-        _cts =
-            null;
-    }
-
-
-    /*
-     * ========================================================
-     * NAME SANITIZER
-     * ========================================================
-     */
-
-    private static string SanitizeName(
-        string name)
-    {
-        if (
-            string.IsNullOrWhiteSpace(
-                name))
-        {
-            return "Player";
-        }
-
-        string value =
-            name.Trim();
-
-        if (value.Length > 32)
-        {
-            value =
-                value.Substring(
-                    0,
-                    32
-                );
-        }
-
-        return value;
-    }
-}
 
 
 
@@ -2583,6 +1524,7 @@ public static class RemotePlayerMapAccess
         return result;
     }
 }
+
 
 
 
@@ -2646,6 +1588,7 @@ internal static class RemotePlayerHealthMonitor
 
 
 
+
 /*
  * ============================================================
  * REMOTE PLAYER UPDATE HOOK
@@ -2689,6 +1632,7 @@ internal static class RemotePlayerUpdateHook
 
 
 
+
 /*
  * ============================================================
  * LOCAL PLAYER VALIDATION
@@ -2721,67 +1665,6 @@ internal static class LocalPlayerValidation
     }
 }
 
-
-
-/*
- * ============================================================
- * FINAL CLEANUP
- * ============================================================
- */
-
-internal static class MultiplayerCleanup
-{
-    public static void Execute()
-    {
-        try
-        {
-            RemotePlayerVisualRegistry
-                .Clear();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            RemotePlayerManager
-                .Clear();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            WorldPartySynchronizer
-                .Clear();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            MultiplayerWorldTransfer
-                .Clear();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            ExistingWorldTransferProvider
-                .Clear();
-        }
-        catch
-        {
-        }
-
-        MultiplayerSessionState
-            .Reset();
-    }
-}
 
 
 
@@ -3029,6 +1912,7 @@ internal static class CampaignMapRemotePlayerRegistry
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP DATA
 // ============================================================
@@ -3074,6 +1958,7 @@ internal sealed class CampaignMapRemotePlayerData
             DateTime.MinValue;
     }
 }
+
 
 
 
@@ -3129,6 +2014,7 @@ internal static class CampaignMapRemotePlayerUpdate
             .Clear();
     }
 }
+
 
 
 
@@ -3250,6 +2136,7 @@ internal static class CampaignMapRemotePlayerAccess
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP PIPELINE
 // ============================================================
@@ -3327,6 +2214,7 @@ internal static class CampaignMapRemotePlayerPipeline
             .Clear();
     }
 }
+
 
 
 
@@ -3428,6 +2316,7 @@ internal static class CampaignMapRemotePlayerTimeout
 
 
 
+
 // ============================================================
 // MASTER MAP UPDATE
 // ============================================================
@@ -3463,6 +2352,7 @@ internal static class CampaignMapRemotePlayerMaster
             .Clear();
     }
 }
+
 
 
 
@@ -3505,6 +2395,7 @@ internal static class CampaignMapRemotePlayerSnapshot
 
 
 
+
 // ============================================================
 // FINAL CLEANUP FOR THIS SECTION
 // ============================================================
@@ -3523,6 +2414,7 @@ internal static class CampaignMapRemotePlayerCleanup
         }
     }
 }
+
 
 
 
@@ -3568,6 +2460,7 @@ internal static class RemotePlayerCommandQueue
         }
     }
 }
+
 
 
 
@@ -3696,6 +2589,7 @@ internal sealed class SnapshotBuffer
         }
     }
 }
+
 
 
 
@@ -3974,6 +2868,7 @@ internal static class RemotePlayerRegistry
 
 
 
+
 // ============================================================
 // REMOTE PLAYER BRIDGE
 // ============================================================
@@ -4041,6 +2936,7 @@ internal static class RemotePlayerBridge
             .Clear();
     }
 }
+
 
 
 
@@ -4200,39 +3096,6 @@ internal static class PlayerSnapshotCodec
 
 
 
-// ============================================================
-// CLIENT SNAPSHOT RECEIVE
-// ============================================================
-
-internal static class RemoteSnapshotProcessor
-{
-    public static void Process(
-        byte[] payload)
-    {
-        NetworkPlayerSnapshot snapshot;
-
-        if (
-            !PlayerSnapshotCodec.Decode(
-                payload,
-                out snapshot))
-        {
-            return;
-        }
-
-        if (
-            snapshot.PlayerId ==
-            LocalPlayerState.GetNetworkId())
-        {
-            return;
-        }
-
-        RemotePlayerBridge.Queue(
-            snapshot
-        );
-    }
-}
-
-
 
 // ============================================================
 // SAFE REMOTE PLAYER TICK
@@ -4262,55 +3125,6 @@ internal static class RemotePlayerTick
     }
 }
 
-
-
-// ============================================================
-// MAIN MULTIPLAYER TICK
-// ============================================================
-
-internal static class MultiplayerMainTick
-{
-    private static float _healthTimer;
-
-    public static void Update(
-        float dt)
-    {
-        if (
-            dt < 0f ||
-            float.IsNaN(dt) ||
-            float.IsInfinity(dt))
-        {
-            dt =
-                0f;
-        }
-
-        MultiplayerNetworkClient
-            .Instance
-            .Update();
-
-        RemotePlayerTick
-            .Update(
-                dt
-            );
-
-        LocalPlayerNetworkSender
-            .Update(
-                dt
-            );
-
-        _healthTimer +=
-            dt;
-
-        if (_healthTimer >= 1f)
-        {
-            _healthTimer =
-                0f;
-
-            RemotePlayerHealthMonitor
-                .Check();
-        }
-    }
-}
 
 // ============================================================
 // CAMPAIGN MAP REMOTE PLAYER VISUAL SYSTEM
@@ -4485,6 +3299,7 @@ public static class RemotePlayerMapRegistry
 
 
 
+
 public sealed class RemotePlayerMapMarkerData
 {
     public string PlayerId;
@@ -4499,6 +3314,7 @@ public sealed class RemotePlayerMapMarkerData
 
     public DateTime LastUpdateUtc;
 }
+
 
 
 
@@ -4540,6 +3356,7 @@ internal static class RemotePlayerMapMarkerController
             .Update();
     }
 }
+
 
 
 
@@ -4602,6 +3419,7 @@ public static class RemotePlayerDataSource
         return false;
     }
 }
+
 
 
 
@@ -4700,6 +3518,7 @@ public static class RemotePlayerNameRegistry
         }
     }
 }
+
 
 
 
@@ -4829,6 +3648,7 @@ public static class RemotePlayerPositionRegistry
 
 
 
+
 // ============================================================
 // REMOTE PLAYER STATE PROJECTOR
 // ============================================================
@@ -4903,6 +3723,7 @@ internal static class RemotePlayerStateProjector
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP REFRESH
 // ============================================================
@@ -4952,6 +3773,7 @@ internal static class RemotePlayerMapRefresh
 
 
 
+
 // ============================================================
 // EXTENDED REMOTE PLAYER TICK
 // ============================================================
@@ -4995,6 +3817,7 @@ internal static class ExtendedRemotePlayerTick
             );
     }
 }
+
 
 
 
@@ -5077,185 +3900,6 @@ internal static class RemotePlayerFinalCleanup
     }
 }
 
-// ============================================================
-// MULTIPLAYER CAMPAIGN GAME STATE
-// ============================================================
-
-public static class MultiplayerCampaignGameState
-{
-    private static readonly object Sync =
-        new object();
-
-    private static bool _initialized;
-
-    private static bool _campaignReady;
-
-    private static bool _networkReady;
-
-    private static bool _isHost;
-
-    private static bool _isClient;
-
-    private static DateTime _startedUtc;
-
-    public static bool Initialized
-    {
-        get
-        {
-            lock (Sync)
-            {
-                return _initialized;
-            }
-        }
-    }
-
-    public static bool CampaignReady
-    {
-        get
-        {
-            lock (Sync)
-            {
-                return _campaignReady;
-            }
-        }
-    }
-
-    public static bool NetworkReady
-    {
-        get
-        {
-            lock (Sync)
-            {
-                return _networkReady;
-            }
-        }
-    }
-
-    public static bool IsHost
-    {
-        get
-        {
-            lock (Sync)
-            {
-                return _isHost;
-            }
-        }
-    }
-
-    public static bool IsClient
-    {
-        get
-        {
-            lock (Sync)
-            {
-                return _isClient;
-            }
-        }
-    }
-
-    public static DateTime StartedUtc
-    {
-        get
-        {
-            lock (Sync)
-            {
-                return _startedUtc;
-            }
-        }
-    }
-
-    public static void InitializeHost()
-    {
-        lock (Sync)
-        {
-            _initialized =
-                true;
-
-            _campaignReady =
-                false;
-
-            _networkReady =
-                false;
-
-            _isHost =
-                true;
-
-            _isClient =
-                false;
-
-            _startedUtc =
-                DateTime.UtcNow;
-        }
-    }
-
-    public static void InitializeClient()
-    {
-        lock (Sync)
-        {
-            _initialized =
-                true;
-
-            _campaignReady =
-                false;
-
-            _networkReady =
-                false;
-
-            _isHost =
-                false;
-
-            _isClient =
-                true;
-
-            _startedUtc =
-                DateTime.UtcNow;
-        }
-    }
-
-    public static void SetCampaignReady(
-        bool value)
-    {
-        lock (Sync)
-        {
-            _campaignReady =
-                value;
-        }
-    }
-
-    public static void SetNetworkReady(
-        bool value)
-    {
-        lock (Sync)
-        {
-            _networkReady =
-                value;
-        }
-    }
-
-    public static void Reset()
-    {
-        lock (Sync)
-        {
-            _initialized =
-                false;
-
-            _campaignReady =
-                false;
-
-            _networkReady =
-                false;
-
-            _isHost =
-                false;
-
-            _isClient =
-                false;
-
-            _startedUtc =
-                DateTime.MinValue;
-        }
-    }
-}
 
 
 
@@ -5388,6 +4032,7 @@ public static class PlayerSnapshotState
 
 
 
+
 // ============================================================
 // PLAYER SNAPSHOT SEND TIMER
 // ============================================================
@@ -5484,135 +4129,6 @@ internal static class PlayerSnapshotSendTimer
 
 
 
-// ============================================================
-// REMOTE SNAPSHOT DECODER
-// ============================================================
-
-internal static class RemoteSnapshotDecoder
-{
-    public static bool TryDecode(
-        byte[] payload,
-        out NetworkPlayerSnapshot snapshot)
-    {
-        snapshot =
-            null;
-
-        if (
-            payload == null ||
-            payload.Length == 0 ||
-            payload.Length > 1024)
-        {
-            return false;
-        }
-
-        try
-        {
-            using (
-                MemoryStream stream =
-                    new MemoryStream(
-                        payload))
-            using (
-                BinaryReader reader =
-                    new BinaryReader(
-                        stream,
-                        Encoding.UTF8,
-                        true))
-            {
-                string playerId =
-                    reader.ReadString();
-
-                string playerName =
-                    reader.ReadString();
-
-                if (
-                    stream.Length -
-                    stream.Position <
-                    sizeof(float) * 2 +
-                    sizeof(int))
-                {
-                    return false;
-                }
-
-                float x =
-                    reader.ReadSingle();
-
-                float y =
-                    reader.ReadSingle();
-
-                int partySize =
-                    reader.ReadInt32();
-
-                if (
-                    !NetworkStateValidator
-                        .IsValidPlayerId(
-                            playerId))
-                {
-                    return false;
-                }
-
-                if (
-                    playerId ==
-                    LocalPlayerState
-                        .GetNetworkId())
-                {
-                    return false;
-                }
-
-                if (
-                    !NetworkUtilities
-                        .IsValidPosition(
-                            x,
-                            y))
-                {
-                    return false;
-                }
-
-                if (
-                    !NetworkStateValidator
-                        .IsValidPartySize(
-                            partySize))
-                {
-                    partySize =
-                        1;
-                }
-
-                snapshot =
-                    new NetworkPlayerSnapshot
-                    {
-                        PlayerId =
-                            playerId,
-
-                        PlayerName =
-                            NetworkUtilities
-                                .SafeName(
-                                    playerName
-                                ),
-
-                        X =
-                            x,
-
-                        Y =
-                            y,
-
-                        PartySize =
-                            partySize,
-
-                        Timestamp =
-                            DateTime.UtcNow
-                                .Ticks
-                    };
-
-                return true;
-            }
-        }
-        catch
-        {
-            return false;
-        }
-    }
-}
-
-
 
 // ============================================================
 // REMOTE PLAYER INTERPOLATOR
@@ -5678,6 +4194,7 @@ internal static class RemotePlayerInterpolator
             );
     }
 }
+
 
 
 
@@ -5780,87 +4297,6 @@ internal static class RemotePlayerGameTick
 
 
 
-// ============================================================
-// MAIN CAMPAIGN MULTIPLAYER TICK
-// ============================================================
-
-internal static class MainMultiplayerTick
-{
-    public static void Update(
-        float dt)
-    {
-        CampaignReadinessMonitor
-            .Update(
-                dt
-            );
-
-        MultiplayerNetworkClient
-            .Instance
-            .Update();
-
-        if (
-            MultiplayerCampaignGameState
-                .CampaignReady)
-        {
-            PlayerSnapshotSendTimer
-                .Update(
-                    dt
-                );
-
-            RemotePlayerGameTick
-                .Update(
-                    dt
-                );
-        }
-    }
-}
-
-
-
-// ============================================================
-// FINAL CAMPAIGN TICK ADAPTER
-// ============================================================
-
-public sealed class MultiplayerCampaignTickAdapter
-{
-    private float _lastDt;
-
-    public void Tick(
-        float dt)
-    {
-        if (
-            dt < 0f ||
-            float.IsNaN(dt) ||
-            float.IsInfinity(dt))
-        {
-            dt =
-                0f;
-        }
-
-        _lastDt =
-            dt;
-
-        /*
-         * EVERYTHING here runs on the Bannerlord
-         * Campaign/Game thread.
-         *
-         * Network callbacks only enqueue data.
-         */
-
-        MainMultiplayerTick
-            .Update(
-                _lastDt
-            );
-    }
-
-    public void Reset()
-    {
-        _lastDt =
-            0f;
-    }
-}
-
-
 
 // ============================================================
 // REMOTE PLAYER MANAGER EXTENSION
@@ -5909,358 +4345,6 @@ public static class RemotePlayerManagerExtensions
     }
 }
 
-
-
-// ============================================================
-// HOST PLAYER STATE
-// ============================================================
-
-public sealed class HostPlayerState
-{
-    public string PlayerId;
-
-    public string Name;
-
-    public float X;
-
-    public float Y;
-
-    public int PartySize;
-
-    public bool Ready;
-
-    public bool Connected;
-
-    public DateTime LastUpdateUtc;
-
-    public long Sequence;
-
-    public HostPlayerState()
-    {
-        PlayerId =
-            "";
-
-        Name =
-            "Player";
-
-        X =
-            0f;
-
-        Y =
-            0f;
-
-        PartySize =
-            1;
-
-        Ready =
-            false;
-
-        Connected =
-            false;
-
-        LastUpdateUtc =
-            DateTime.UtcNow;
-
-        Sequence =
-            0;
-    }
-
-    public CampaignVec2 Position
-    {
-        get
-        {
-            return
-                new CampaignVec2(
-                    new Vec2(
-                        X,
-                        Y
-                    ),
-                    true
-                );
-        }
-
-        set
-        {
-            X =
-                value.X;
-
-            Y =
-                value.Y;
-        }
-    }
-}
-
-
-
-// ============================================================
-// HOST PLAYER REGISTRY
-// ============================================================
-
-public static class HostPlayerRegistry
-{
-    private static readonly object Sync =
-        new object();
-
-    private static readonly Dictionary<
-        string,
-        HostPlayerState>
-        Players =
-            new Dictionary<
-                string,
-                HostPlayerState>();
-
-    public static HostPlayerState GetOrCreate(
-        string id)
-    {
-        if (
-            string.IsNullOrWhiteSpace(
-                id))
-        {
-            return null;
-        }
-
-        lock (Sync)
-        {
-            HostPlayerState state;
-
-            if (
-                !Players.TryGetValue(
-                    id,
-                    out state))
-            {
-                state =
-                    new HostPlayerState
-                    {
-                        PlayerId =
-                            id,
-
-                        Connected =
-                            true
-                    };
-
-                Players.Add(
-                    id,
-                    state
-                );
-            }
-
-            return state;
-        }
-    }
-
-    public static void Update(
-        string id,
-        string name,
-        float x,
-        float y,
-        int partySize)
-    {
-        if (
-            string.IsNullOrWhiteSpace(
-                id))
-        {
-            return;
-        }
-
-        if (
-            !NetworkUtilities
-                .IsValidPosition(
-                    x,
-                    y))
-        {
-            return;
-        }
-
-        HostPlayerState state =
-            GetOrCreate(
-                id
-            );
-
-        if (state == null)
-        {
-            return;
-        }
-
-        lock (Sync)
-        {
-            state.Name =
-                NetworkUtilities.SafeName(
-                    name
-                );
-
-            state.X =
-                x;
-
-            state.Y =
-                y;
-
-            state.PartySize =
-                NetworkUtilities.SafePartySize(
-                    partySize
-                );
-
-            state.Connected =
-                true;
-
-            state.LastUpdateUtc =
-                DateTime.UtcNow;
-
-            state.Sequence++;
-        }
-    }
-
-    public static void SetReady(
-        string id,
-        bool ready)
-    {
-        if (
-            string.IsNullOrWhiteSpace(
-                id))
-        {
-            return;
-        }
-
-        lock (Sync)
-        {
-            HostPlayerState state;
-
-            if (
-                Players.TryGetValue(
-                    id,
-                    out state))
-            {
-                state.Ready =
-                    ready;
-            }
-        }
-    }
-
-    public static void Remove(
-        string id)
-    {
-        if (
-            string.IsNullOrWhiteSpace(
-                id))
-        {
-            return;
-        }
-
-        lock (Sync)
-        {
-            Players.Remove(
-                id
-            );
-        }
-    }
-
-    public static HostPlayerState[]
-        Snapshot()
-    {
-        lock (Sync)
-        {
-            HostPlayerState[] result =
-                new HostPlayerState[
-                    Players.Count
-                ];
-
-            int index = 0;
-
-            foreach (
-                HostPlayerState state
-                in Players.Values)
-            {
-                result[index++] =
-                    state;
-            }
-
-            return result;
-        }
-    }
-
-    public static void Clear()
-    {
-        lock (Sync)
-        {
-            Players.Clear();
-        }
-    }
-}
-
-
-
-// ============================================================
-// HOST PLAYER SNAPSHOT SERVICE
-// ============================================================
-
-internal static class HostPlayerSnapshotService
-{
-    private static float _timer;
-
-    public static void Update(
-        float dt,
-        MultiplayerCampaignHost host)
-    {
-        if (host == null)
-        {
-            return;
-        }
-
-        if (
-            Campaign.Current == null ||
-            MobileParty.MainParty == null)
-        {
-            return;
-        }
-
-        _timer +=
-            Math.Max(
-                0f,
-                Math.Min(
-                    1f,
-                    dt
-                )
-            );
-
-        if (_timer < 0.10f)
-        {
-            return;
-        }
-
-        _timer =
-            0f;
-
-        HostPlayerState[] players =
-            HostPlayerRegistry
-                .Snapshot();
-
-        if (
-            players == null ||
-            players.Length == 0)
-        {
-            return;
-        }
-
-        for (
-            int i = 0;
-            i < players.Length;
-            i++)
-        {
-            HostPlayerState player =
-                players[i];
-
-            if (
-                player == null ||
-                !player.Connected)
-            {
-                continue;
-            }
-
-            host.BroadcastHostSnapshot(
-                player.PlayerId
-            );
-        }
-    }
-}
 
 
 
@@ -6360,195 +4444,6 @@ public static partial class RemotePlayerManager
 
 
 
-// ============================================================
-// MASTER UPDATE
-// ============================================================
-
-internal static class MultiplayerCampaignMasterUpdate
-{
-    public static void Tick(
-        float dt)
-    {
-        CampaignThreadDispatcher
-            .Process();
-
-        CampaignReadinessMonitor
-            .Update(
-                dt
-            );
-
-        if (
-            !MultiplayerSessionValidator
-                .CanRunCampaign())
-        {
-            return;
-        }
-
-        MultiplayerNetworkClient
-            .Instance
-            .Update();
-
-        MultiplayerNetworkUpdateBridge
-            .Update(
-                dt
-            );
-
-        ExtendedRemotePlayerTick
-            .Tick(
-                dt
-            );
-    }
-
-    public static void Clear()
-    {
-        CampaignThreadDispatcher
-            .Clear();
-
-        MultiplayerNetworkUpdateBridge
-            .Clear();
-
-        RemotePlayerFinalCleanup
-            .Clear();
-    }
-}
-
-// ============================================================
-// HOST BROADCAST EXTENSIONS
-// ============================================================
-
-public static class MultiplayerCampaignHostExtensions
-{
-    public static void BroadcastHostSnapshot(
-        this MultiplayerCampaignHost host,
-        string targetPlayerId)
-    {
-        if (host == null)
-        {
-            return;
-        }
-
-        if (
-            Campaign.Current == null ||
-            MobileParty.MainParty == null)
-        {
-            return;
-        }
-
-        CampaignVec2 position =
-            MobileParty.MainParty.Position;
-
-        int partySize =
-            CampaignWorld.GetMainPartySize();
-
-        byte[] payload =
-            HostSnapshotBuilder.Build(
-                LocalPlayerState.GetNetworkId(),
-                LocalPlayerState.GetDisplayName(),
-                position.X,
-                position.Y,
-                partySize
-            );
-
-        if (payload == null)
-        {
-            return;
-        }
-
-        NetworkMessageData message =
-            new NetworkMessageData(
-                NetworkPacketType.PlayerSnapshot,
-                payload
-            );
-
-        HostClientConnection[] clients =
-            host.GetClientsSnapshot();
-
-        if (clients == null)
-        {
-            return;
-        }
-
-        for (
-            int i = 0;
-            i < clients.Length;
-            i++)
-        {
-            HostClientConnection client =
-                clients[i];
-
-            if (client == null)
-            {
-                continue;
-            }
-
-            if (!client.Ready)
-            {
-                continue;
-            }
-
-            if (
-                !string.IsNullOrWhiteSpace(
-                    targetPlayerId) &&
-                client.PlayerId != targetPlayerId)
-            {
-                continue;
-            }
-
-            try
-            {
-                client.Send(
-                    message
-                );
-            }
-            catch
-            {
-            }
-        }
-    }
-}
-
-
-
-// ============================================================
-// PLAYER READY SERVICE
-// ============================================================
-
-internal static class PlayerReadyService
-{
-    public static void MarkReady(
-        HostClientConnection client)
-    {
-        if (client == null)
-        {
-            return;
-        }
-
-        if (
-            string.IsNullOrWhiteSpace(
-                client.PlayerId))
-        {
-            return;
-        }
-
-        client.Ready =
-            true;
-
-        HostPlayerRegistry.SetReady(
-            client.PlayerId,
-            true
-        );
-
-        HostPlayerRegistry.Update(
-            client.PlayerId,
-            client.PlayerName,
-            client.LastX,
-            client.LastY,
-            client.LastPartySize
-        );
-    }
-}
-
-
 
 // ============================================================
 // REMOTE PLAYER COMMAND FACTORY
@@ -6646,6 +4541,7 @@ internal static class RemotePlayerCommandFactory
             );
     }
 }
+
 
 
 
@@ -6864,6 +4760,7 @@ internal static class RemotePlayerCommandProcessor
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP REGISTRY EXTENSION
 // ============================================================
@@ -6949,6 +4846,7 @@ public static class RemotePlayerMapRegistryExtensions
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP VALIDATOR
 // ============================================================
@@ -6982,6 +4880,7 @@ internal static class RemotePlayerMapValidator
         return true;
     }
 }
+
 
 
 
@@ -7041,6 +4940,7 @@ public static class RemotePlayerDisplayService
             valid.ToArray();
     }
 }
+
 
 
 
@@ -7131,242 +5031,6 @@ internal static class RemotePlayerMasterService
 
 
 
-// ============================================================
-// HOST PLAYER SNAPSHOT CACHE
-// ============================================================
-
-internal static class HostPlayerSnapshotCache
-{
-    private static readonly object Sync =
-        new object();
-
-    private static readonly Dictionary<
-        string,
-        NetworkPlayerSnapshot>
-        Snapshots =
-            new Dictionary<
-                string,
-                NetworkPlayerSnapshot>();
-
-    public static void Set(
-        NetworkPlayerSnapshot snapshot)
-    {
-        if (snapshot == null)
-        {
-            return;
-        }
-
-        if (
-            string.IsNullOrWhiteSpace(
-                snapshot.PlayerId))
-        {
-            return;
-        }
-
-        lock (Sync)
-        {
-            Snapshots[
-                snapshot.PlayerId] =
-                snapshot;
-        }
-    }
-
-    public static bool TryGet(
-        string playerId,
-        out NetworkPlayerSnapshot snapshot)
-    {
-        snapshot =
-            null;
-
-        if (
-            string.IsNullOrWhiteSpace(
-                playerId))
-        {
-            return false;
-        }
-
-        lock (Sync)
-        {
-            return Snapshots.TryGetValue(
-                playerId,
-                out snapshot
-            );
-        }
-    }
-
-    public static NetworkPlayerSnapshot[]
-        Snapshot()
-    {
-        lock (Sync)
-        {
-            NetworkPlayerSnapshot[] result =
-                new NetworkPlayerSnapshot[
-                    Snapshots.Count
-                ];
-
-            int index = 0;
-
-            foreach (
-                NetworkPlayerSnapshot snapshot
-                in Snapshots.Values)
-            {
-                result[index++] =
-                    snapshot;
-            }
-
-            return result;
-        }
-    }
-
-    public static void Remove(
-        string playerId)
-    {
-        if (
-            string.IsNullOrWhiteSpace(
-                playerId))
-        {
-            return;
-        }
-
-        lock (Sync)
-        {
-            Snapshots.Remove(
-                playerId
-            );
-        }
-    }
-
-    public static void Clear()
-    {
-        lock (Sync)
-        {
-            Snapshots.Clear();
-        }
-    }
-}
-
-
-
-// ============================================================
-// HOST PLAYER SNAPSHOT PROCESSOR
-// ============================================================
-
-internal static class HostPlayerSnapshotProcessor
-{
-    public static bool Process(
-        HostClientConnection sender,
-        byte[] payload)
-    {
-        if (sender == null)
-        {
-            return false;
-        }
-
-        if (
-            !PlayerSnapshotCodec.Decode(
-                payload,
-                out NetworkPlayerSnapshot snapshot))
-        {
-            return false;
-        }
-
-        /*
-         * Never trust the sender-provided ID.
-         */
-
-        snapshot.PlayerId =
-            sender.PlayerId;
-
-        snapshot.PlayerName =
-            NetworkUtilities.SafeName(
-                sender.PlayerName
-            );
-
-        sender.LastX =
-            snapshot.X;
-
-        sender.LastY =
-            snapshot.Y;
-
-        sender.LastPartySize =
-            snapshot.PartySize;
-
-        HostPlayerSnapshotCache
-            .Set(
-                snapshot
-            );
-
-        HostPlayerRegistry
-            .Update(
-                snapshot.PlayerId,
-                snapshot.PlayerName,
-                snapshot.X,
-                snapshot.Y,
-                snapshot.PartySize
-            );
-
-        return true;
-    }
-}
-
-
-
-// ============================================================
-// CLIENT REMOTE SNAPSHOT PROCESSOR
-// ============================================================
-
-internal static class ClientRemoteSnapshotProcessor
-{
-    public static void Process(
-        byte[] payload)
-    {
-        NetworkPlayerSnapshot snapshot;
-
-        if (
-            !PlayerSnapshotCodec
-                .Decode(
-                    payload,
-                    out snapshot))
-        {
-            return;
-        }
-
-        if (
-            snapshot.PlayerId ==
-            LocalPlayerState.GetNetworkId())
-        {
-            return;
-        }
-
-        if (
-            snapshot.PlayerId ==
-            NetworkIdentityService
-                .GetCurrentId())
-        {
-            return;
-        }
-
-        RemoteSnapshotDispatcher
-            .Enqueue(
-                snapshot
-            );
-
-        RemotePlayerBridge
-            .Queue(
-                snapshot
-            );
-
-        RemoteSessionProcessor
-            .EnqueueState(
-                snapshot.PlayerId,
-                snapshot.PlayerName,
-                snapshot.GetPosition(),
-                snapshot.PartySize
-            );
-    }
-}
-
-
 
 // ============================================================
 // REMOTE PLAYER REMOVE PACKET
@@ -7438,6 +5102,7 @@ internal static class RemotePlayerLeaveProcessor
 
 
 
+
 // ============================================================
 // REMOTE PLAYER SNAPSHOT RECEIVER
 // ============================================================
@@ -7486,6 +5151,7 @@ internal static class RemotePlayerSnapshotReceiver
 
 
 
+
 // ============================================================
 // REMOTE PLAYER JOIN RECEIVER
 // ============================================================
@@ -7526,6 +5192,7 @@ internal static class RemotePlayerJoinReceiver
             );
     }
 }
+
 
 
 
@@ -7572,127 +5239,6 @@ internal static class RemotePlayerLeaveReceiver
     }
 }
 
-
-
-// ============================================================
-// PLAYER JOIN SERVICE
-// ============================================================
-
-internal static class PlayerJoinService
-{
-    public static void CreateLogicalPlayer(
-        string id,
-        string name,
-        CampaignVec2 position,
-        int partySize)
-    {
-        if (
-            string.IsNullOrWhiteSpace(
-                id))
-        {
-            return;
-        }
-
-        if (
-            id ==
-            LocalPlayerState.GetNetworkId())
-        {
-            return;
-        }
-
-        if (
-            !NetworkUtilities.IsValidPosition(
-                position.X,
-                position.Y))
-        {
-            return;
-        }
-
-        partySize =
-            NetworkUtilities.SafePartySize(
-                partySize
-            );
-
-        RemotePlayerManager
-            .ReceiveSessionInternal(
-                id,
-                NetworkUtilities.SafeName(
-                    name
-                ),
-                position,
-                partySize
-            );
-    }
-
-    public static void RemoveLogicalPlayer(
-        string id)
-    {
-        if (
-            string.IsNullOrWhiteSpace(
-                id))
-        {
-            return;
-        }
-
-        RemotePlayerManager
-            .RemoveSessionInternal(
-                id
-            );
-    }
-}
-
-
-
-// ============================================================
-// PLAYER JOIN VALIDATOR
-// ============================================================
-
-internal static class PlayerJoinValidator
-{
-    public static bool Validate(
-        string id,
-        string name,
-        float x,
-        float y,
-        int partySize)
-    {
-        if (
-            !NetworkUtilities
-                .IsValidPosition(
-                    x,
-                    y))
-        {
-            return false;
-        }
-
-        if (
-            !NetworkStateValidator
-                .IsValidPlayerId(
-                    id))
-        {
-            return false;
-        }
-
-        if (
-            string.IsNullOrWhiteSpace(
-                name))
-        {
-            return false;
-        }
-
-        if (
-            name.Length > 32)
-        {
-            return false;
-        }
-
-        return
-            NetworkStateValidator
-                .IsValidPartySize(
-                    partySize
-                );
-    }
-}
 
 
 
@@ -7793,6 +5339,7 @@ internal static class RemotePlayerCreationController
 
 
 
+
 // ============================================================
 // REMOTE PLAYER POSITION SERVICE
 // ============================================================
@@ -7879,6 +5426,7 @@ internal static class RemotePlayerPositionService
 
 
 
+
 // ============================================================
 // REMOTE PLAYER NAME SERVICE
 // ============================================================
@@ -7926,6 +5474,7 @@ internal static class RemotePlayerNameService
             );
     }
 }
+
 
 
 
@@ -8020,6 +5569,7 @@ internal static class RemotePlayerSnapshotApplier
 
 
 
+
 // ============================================================
 // REMOTE PLAYER SNAPSHOT LOOP
 // ============================================================
@@ -8078,6 +5628,7 @@ internal static class RemotePlayerSnapshotLoop
         }
     }
 }
+
 
 
 
@@ -8142,6 +5693,7 @@ internal static class RemotePlayerLeaveService
             .Update();
     }
 }
+
 
 
 
@@ -8219,6 +5771,7 @@ internal static class RemotePlayerTimeoutService
 
 
 
+
 // ============================================================
 // REMOTE PLAYER UPDATE PIPELINE
 // ============================================================
@@ -8281,6 +5834,7 @@ internal static class RemotePlayerUpdatePipeline
             .Clear();
     }
 }
+
 
 
 
@@ -8362,6 +5916,7 @@ public sealed class CampaignPlayerSnapshot
         }
     }
 }
+
 
 
 
@@ -8566,496 +6121,6 @@ internal static class CampaignPlayerSnapshotCodec
 
 
 
-// ============================================================
-// HOST SNAPSHOT BROADCAST LOOP
-// ============================================================
-
-internal static class HostCampaignSnapshotLoop
-{
-    private static float _timer;
-
-    private static long _sequence;
-
-    public static void Update(
-        float dt,
-        MultiplayerCampaignHost host)
-    {
-        if (host == null)
-        {
-            return;
-        }
-
-        if (
-            Campaign.Current == null ||
-            MobileParty.MainParty == null)
-        {
-            return;
-        }
-
-        _timer +=
-            Math.Max(
-                0f,
-                Math.Min(
-                    1f,
-                    dt
-                )
-            );
-
-        if (_timer < 0.10f)
-        {
-            return;
-        }
-
-        _timer =
-            0f;
-
-        CampaignPlayerSnapshot hostSnapshot =
-            HostCampaignSnapshotBuilder
-                .BuildHostSnapshot();
-
-        hostSnapshot.Sequence =
-            ++_sequence;
-
-        CampaignStateSynchronization
-            .MarkSynced(
-                hostSnapshot.Sequence
-            );
-
-        byte[] hostPayload =
-            CampaignPlayerSnapshotCodec
-                .Encode(
-                    hostSnapshot
-                );
-
-        if (hostPayload == null)
-        {
-            return;
-        }
-
-        NetworkMessageData hostMessage =
-            new NetworkMessageData(
-                NetworkPacketType.PlayerSnapshot,
-                hostPayload
-            );
-
-        HostClientConnection[] clients =
-            host.GetClientsSnapshot();
-
-        if (clients == null)
-        {
-            return;
-        }
-
-        for (
-            int i = 0;
-            i < clients.Length;
-            i++)
-        {
-            HostClientConnection client =
-                clients[i];
-
-            if (
-                client == null ||
-                !client.Ready)
-            {
-                continue;
-            }
-
-            try
-            {
-                client.Send(
-                    hostMessage
-                );
-            }
-            catch
-            {
-            }
-        }
-
-        /*
-         * Broadcast the latest state of the remote client.
-         */
-
-        for (
-            int i = 0;
-            i < clients.Length;
-            i++)
-        {
-            HostClientConnection sender =
-                clients[i];
-
-            if (
-                sender == null ||
-                !sender.Ready)
-            {
-                continue;
-            }
-
-            CampaignPlayerSnapshot clientSnapshot =
-                new CampaignPlayerSnapshot();
-
-            clientSnapshot.PlayerId =
-                sender.PlayerId;
-
-            clientSnapshot.PlayerName =
-                sender.PlayerName;
-
-            clientSnapshot.Position =
-                new CampaignVec2(
-                    new Vec2(
-                        sender.LastX,
-                        sender.LastY
-                    ),
-                    true
-                );
-
-            clientSnapshot.PartySize =
-                sender.LastPartySize;
-
-            clientSnapshot.Connected =
-                true;
-
-            clientSnapshot.Ready =
-                sender.Ready;
-
-            clientSnapshot.Sequence =
-                ++_sequence;
-
-            clientSnapshot.TimestampUtcTicks =
-                DateTime.UtcNow.Ticks;
-
-            byte[] clientPayload =
-                CampaignPlayerSnapshotCodec
-                    .Encode(
-                        clientSnapshot
-                    );
-
-            if (clientPayload == null)
-            {
-                continue;
-            }
-
-            NetworkMessageData clientMessage =
-                new NetworkMessageData(
-                    NetworkPacketType.PlayerSnapshot,
-                    clientPayload
-                );
-
-            for (
-                int j = 0;
-                j < clients.Length;
-                j++)
-            {
-                HostClientConnection receiver =
-                    clients[j];
-
-                if (
-                    receiver == null ||
-                    receiver == sender ||
-                    !receiver.Ready)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    receiver.Send(
-                        clientMessage
-                    );
-                }
-                catch
-                {
-                }
-            }
-        }
-    }
-
-    public static void Reset()
-    {
-        _timer =
-            0f;
-
-        _sequence =
-            0;
-    }
-}
-
-
-
-// ============================================================
-// CLIENT CAMPAIGN SNAPSHOT RECEIVER
-// ============================================================
-
-internal static class ClientCampaignSnapshotReceiver
-{
-    private static readonly ConcurrentQueue<
-        CampaignPlayerSnapshot>
-        Queue =
-            new ConcurrentQueue<
-                CampaignPlayerSnapshot>();
-
-    public static void Receive(
-        byte[] payload)
-    {
-        CampaignPlayerSnapshot snapshot;
-
-        if (
-            !CampaignPlayerSnapshotCodec
-                .Decode(
-                    payload,
-                    out snapshot))
-        {
-            return;
-        }
-
-        if (
-            snapshot == null)
-        {
-            return;
-        }
-
-        if (
-            snapshot.PlayerId ==
-            LocalPlayerState
-                .GetNetworkId())
-        {
-            return;
-        }
-
-        Queue.Enqueue(
-            snapshot
-        );
-    }
-
-    public static void Process()
-    {
-        int processed =
-            0;
-
-        while (
-            processed < 128 &&
-            Queue.TryDequeue(
-                out CampaignPlayerSnapshot snapshot))
-        {
-            processed++;
-
-            if (snapshot == null)
-            {
-                continue;
-            }
-
-            if (
-                snapshot.PlayerId ==
-                LocalPlayerState
-                    .GetNetworkId())
-            {
-                continue;
-            }
-
-            Apply(
-                snapshot
-            );
-        }
-    }
-
-    private static void Apply(
-        CampaignPlayerSnapshot snapshot)
-    {
-        RemotePlayerSnapshotApplier
-            .Apply(
-                new NetworkPlayerSnapshot
-                {
-                    PlayerId =
-                        snapshot.PlayerId,
-
-                    PlayerName =
-                        snapshot.PlayerName,
-
-                    X =
-                        snapshot.PositionX,
-
-                    Y =
-                        snapshot.PositionY,
-
-                    PartySize =
-                        snapshot.PartySize,
-
-                    Timestamp =
-                        snapshot.TimestampUtcTicks
-                }
-            );
-
-        RemotePlayerState state;
-
-        if (
-            RemotePlayerManager
-                .TryGet(
-                    snapshot.PlayerId,
-                    out state) &&
-            state != null)
-        {
-            state.LastPacketUtc =
-                DateTime.UtcNow;
-
-            state.Active =
-                snapshot.Connected;
-
-            state.Spawned =
-                true;
-
-            state.TargetPosition =
-                snapshot.Position;
-        }
-    }
-
-    public static void Clear()
-    {
-        while (
-            Queue.TryDequeue(
-                out _))
-        {
-        }
-    }
-}
-
-
-
-// ============================================================
-// CLIENT PLAYER STATE SENDER
-// ============================================================
-
-internal static class ClientPlayerStateSender
-{
-    private static float _timer;
-
-    private static long _sequence;
-
-    public static void Update(
-        float dt)
-    {
-        MultiplayerNetworkClient client =
-            MultiplayerNetworkClient
-                .Instance;
-
-        if (client == null)
-        {
-            return;
-        }
-
-        if (!client.IsConnected)
-        {
-            return;
-        }
-
-        if (!client.IsWorldLoaded)
-        {
-            return;
-        }
-
-        if (
-            Campaign.Current == null ||
-            MobileParty.MainParty == null)
-        {
-            return;
-        }
-
-        _timer +=
-            Math.Max(
-                0f,
-                Math.Min(
-                    1f,
-                    dt
-                )
-            );
-
-        if (_timer < 0.10f)
-        {
-            return;
-        }
-
-        _timer =
-            0f;
-
-        CampaignVec2 position;
-
-        if (
-            !CampaignWorld
-                .TryGetMainPartyPosition(
-                    out position))
-        {
-            return;
-        }
-
-        int partySize =
-            CampaignWorld
-                .GetMainPartySize();
-
-        CampaignPlayerSnapshot snapshot =
-            new CampaignPlayerSnapshot();
-
-        snapshot.PlayerId =
-            NetworkIdentityService
-                .GetCurrentId();
-
-        if (
-            string.IsNullOrWhiteSpace(
-                snapshot.PlayerId))
-        {
-            snapshot.PlayerId =
-                LocalPlayerState
-                    .GetNetworkId();
-        }
-
-        snapshot.PlayerName =
-            LocalPlayerState
-                .GetDisplayName();
-
-        snapshot.Position =
-            position;
-
-        snapshot.PartySize =
-            partySize;
-
-        snapshot.Connected =
-            true;
-
-        snapshot.Ready =
-            true;
-
-        snapshot.Sequence =
-            ++_sequence;
-
-        snapshot.TimestampUtcTicks =
-            DateTime.UtcNow.Ticks;
-
-        byte[] payload =
-            CampaignPlayerSnapshotCodec
-                .Encode(
-                    snapshot
-                );
-
-        if (payload == null)
-        {
-            return;
-        }
-
-        client.Send(
-            NetworkPacketType.PlayerSnapshot,
-            payload
-        );
-    }
-
-    public static void Reset()
-    {
-        _timer =
-            0f;
-
-        _sequence =
-            0;
-    }
-}
-
-
 
 // ============================================================
 // REMOTE PLAYER MAP MARKER MODEL
@@ -9107,6 +6172,7 @@ public sealed class CampaignRemotePlayerMarker
             1f;
     }
 }
+
 
 
 
@@ -9309,6 +6375,7 @@ public static class CampaignRemotePlayerMarkerRegistry
 
 
 
+
 // ============================================================
 // CAMPAIGN REMOTE PLAYER MAP QUERY
 // ============================================================
@@ -9371,6 +6438,7 @@ public static class CampaignRemotePlayerMapQuery
 
 
 
+
 // ============================================================
 // MAP MARKER CLEANUP
 // ============================================================
@@ -9392,6 +6460,7 @@ internal static class CampaignRemotePlayerMarkerCleanup
             .Clear();
     }
 }
+
 
 
 
@@ -9451,247 +6520,6 @@ internal static class RemotePlayerUpdateService
 
 
 
-// ============================================================
-// FULL MULTIPLAYER TICK
-// ============================================================
-
-internal static class FullMultiplayerTick
-{
-    private static float _timer;
-
-    public static void Update(
-        float dt)
-    {
-        if (
-            dt < 0f ||
-            float.IsNaN(dt) ||
-            float.IsInfinity(dt))
-        {
-            return;
-        }
-
-        CampaignReadinessMonitor
-            .Update(
-                dt
-            );
-
-        if (
-            Campaign.Current == null)
-        {
-            return;
-        }
-
-        MultiplayerNetworkClient
-            .Instance
-            .Update();
-
-        ClientCampaignSnapshotReceiver
-            .Process();
-
-        if (
-            MultiplayerCampaignGameState
-                .CampaignReady)
-        {
-            ClientPlayerStateSender
-                .Update(
-                    dt
-                );
-        }
-
-        RemotePlayerUpdateService
-            .Update(
-                dt
-            );
-
-        _timer +=
-            dt;
-
-        if (_timer >= 1f)
-        {
-            _timer =
-                0f;
-
-            SessionStatusUpdater
-                .Update(
-                    1f
-                );
-        }
-    }
-}
-
-
-
-// ============================================================
-// FINAL PLAYER SYNC SERVICE
-// ============================================================
-
-public static class FinalPlayerSyncService
-{
-    public static void Update(
-        float dt)
-    {
-        FullMultiplayerTick
-            .Update(
-                dt
-            );
-    }
-
-    public static void Reset()
-    {
-        ClientPlayerStateSender
-            .Reset();
-
-        HostCampaignSnapshotLoop
-            .Reset();
-
-        ClientCampaignSnapshotReceiver
-            .Clear();
-
-        CampaignRemotePlayerMarkerCleanup
-            .Clear();
-
-        CampaignStateSynchronization
-            .Reset();
-
-        PlayerSnapshotState
-            .Reset();
-    }
-}
-
-
-
-// ============================================================
-// FINAL ENTRY POINT
-// ============================================================
-
-public static class MultiplayerCampaignEntryPoint
-{
-    public static void Load()
-    {
-        FinalSubModuleState
-            .OnLoad();
-    }
-
-    public static void CampaignStarted()
-    {
-        FinalSubModuleState
-            .OnCampaignStart();
-    }
-
-    public static void Tick(
-        float dt)
-    {
-        FinalMasterUpdateV2
-            .Tick(
-                dt
-            );
-    }
-
-    public static void CampaignEnded()
-    {
-        FinalSubModuleState
-            .OnCampaignEnd();
-    }
-
-    public static void Unload()
-    {
-        FinalSubModuleState
-            .OnUnload();
-    }
-}
-
-
-
-// ============================================================
-// CAMPAIGN BEHAVIOR V2
-// ============================================================
-
-public sealed class MultiplayerCampaignBehaviorV2
-    : CampaignBehaviorBase
-{
-    private bool _initialized;
-
-    public override void RegisterEvents()
-    {
-        CampaignEvents
-            .TickEvent
-            .AddNonSerializedListener(
-                this,
-                OnTick
-            );
-
-        CampaignEvents
-            .OnGameLoadedEvent
-            .AddNonSerializedListener(
-                this,
-                _ => OnGameLoadFinished()
-            );
-    }
-
-    private void OnTick(
-        float dt)
-    {
-        if (
-            !_initialized)
-        {
-            _initialized =
-                true;
-
-            CampaignBehaviorSafePatch
-                .Start();
-        }
-
-        CampaignBehaviorSafePatch
-            .Tick(
-                dt
-            );
-    }
-
-    private void OnGameLoadFinished()
-    {
-        if (
-            Campaign.Current == null)
-        {
-            return;
-        }
-
-        try
-        {
-            CampaignSessionCoordinator
-                .Update();
-
-            CampaignSafeStartup
-                .Initialize();
-
-            CampaignSafeStartup
-                .Update();
-
-            MultiplayerCampaignGameState
-                .SetCampaignReady(
-                    Campaign.Current != null &&
-                    Hero.MainHero != null &&
-                    MobileParty.MainParty != null
-                );
-        }
-        catch
-        {
-        }
-    }
-
-    public override void SyncData(
-        IDataStore dataStore)
-    {
-        /*
-         * Network session data must not be serialized
-         * into Bannerlord's Campaign save.
-         *
-         * The Campaign itself remains authoritative for
-         * local persistent data.
-         */
-    }
-}
-
-
 
 // ============================================================
 // REMOTE PLAYER STATE COPY
@@ -9737,6 +6565,7 @@ internal static class RemotePlayerStateCopy
             };
     }
 }
+
 
 
 
@@ -9800,6 +6629,7 @@ public static class RemotePlayerSnapshotList
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP POSITION
 // ============================================================
@@ -9857,6 +6687,7 @@ public static class RemotePlayerMapPosition
 
 
 
+
 // ============================================================
 // REMOTE PLAYER DISPLAY NAME
 // ============================================================
@@ -9873,6 +6704,7 @@ public static class RemotePlayerDisplayName
                 );
     }
 }
+
 
 
 
@@ -9903,6 +6735,7 @@ public static class RemotePlayerActiveCheck
 
 
 
+
 // ============================================================
 // REMOTE PLAYER MAP DATA
 // ============================================================
@@ -9921,6 +6754,7 @@ public sealed class RemotePlayerMapData
 
     public DateTime LastUpdateUtc;
 }
+
 
 
 
@@ -10012,6 +6846,7 @@ public static class RemotePlayerMapDataService
             result.ToArray();
     }
 }
+
 
 
 
@@ -10125,6 +6960,7 @@ public static class RemotePlayerSyncStatistics
 
 
 
+
 // ============================================================
 // REMOTE PLAYER SYNC VALIDATOR
 // ============================================================
@@ -10203,6 +7039,7 @@ internal static class RemotePlayerSyncValidator
 
 
 
+
 // ============================================================
 // REMOTE PLAYER SYNC APPLIER V2
 // ============================================================
@@ -10259,6 +7096,7 @@ internal static class RemotePlayerSyncApplierV2
         }
     }
 }
+
 
 
 
@@ -10339,383 +7177,6 @@ internal static class RemotePlayerMapRefreshV2
 
 
 
-// ============================================================
-// FINAL MULTIPLAYER TICK V3
-// ============================================================
-
-internal static class FinalMultiplayerTickV3
-{
-    private static float _timer;
-
-    public static void Update(
-        float dt)
-    {
-        if (
-            Campaign.Current == null)
-        {
-            return;
-        }
-
-        _timer +=
-            Math.Max(
-                0f,
-                Math.Min(
-                    1f,
-                    dt
-                )
-            );
-
-        /*
-         * Network receive.
-         */
-
-        MultiplayerNetworkClient
-            .Instance
-            .Update();
-
-        /*
-         * Campaign-thread queue.
-         */
-
-        CampaignThreadDispatcher
-            .Process();
-
-        /*
-         * Remote-player synchronization.
-         */
-
-        RemotePlayerCommandProcessor
-            .Process(
-                dt
-            );
-
-        RemotePlayerSnapshotLoop
-            .Process();
-
-        RemotePlayerManager
-            .Update(
-                dt
-            );
-
-        /*
-         * Local-player state.
-         */
-
-        PlayerSnapshotSendTimer
-            .Update(
-                Math.Min(
-                    dt,
-                    0.10f
-                )
-            );
-
-        /*
-         * Map state.
-         */
-
-        FinalSafeMapUpdate
-            .Update(
-                dt
-            );
-
-        /*
-         * Session maintenance.
-         */
-
-        if (_timer >= 1f)
-        {
-            _timer =
-                0f;
-
-            SessionStatusUpdater
-                .Update(
-                    1f
-                );
-
-            MultiplayerConnectionMonitor
-                .Update(
-                    1f
-                );
-        }
-    }
-
-    public static void Reset()
-    {
-        _timer =
-            0f;
-    }
-}
-
-
-
-// ============================================================
-// FINAL ENTRY SERVICE
-// ============================================================
-
-public static class MultiplayerCampaignFinalService
-{
-    private static bool _active;
-
-    public static bool Active
-    {
-        get
-        {
-            return _active;
-        }
-    }
-
-    public static void Start()
-    {
-        if (_active)
-        {
-            return;
-        }
-
-        _active =
-            true;
-
-        FinalCampaignNetworkController
-            .Initialize();
-
-        CampaignSafeStartup
-            .Initialize();
-
-        MultiplayerConnectionStatus
-            .Set(
-                MultiplayerConnectionState
-                    .Connected
-            );
-    }
-
-    public static void Tick(
-        float dt)
-    {
-        if (!_active)
-        {
-            Start();
-        }
-
-        FinalMultiplayerTickV3
-            .Update(
-                dt
-            );
-    }
-
-    public static void Stop()
-    {
-        if (!_active)
-        {
-            return;
-        }
-
-        _active =
-            false;
-
-        FinalMultiplayerTickV3
-            .Reset();
-
-        FinalCampaignNetworkController
-            .Shutdown();
-
-        FinalStateCleanup
-            .Execute();
-    }
-}
-
-
-
-// ============================================================
-// FINAL CAMPAIGN SERVICE ENTRY
-// ============================================================
-
-public static class MultiplayerCampaignServiceEntry
-{
-    public static void OnLoad()
-    {
-        FinalSubModuleState
-            .OnLoad();
-
-        CampaignSafeStartup
-            .Reset();
-
-        FinalGlobalReset
-            .Execute();
-
-        CampaignSafeStartup
-            .Initialize();
-
-        HostConsole.WriteLine(
-            "[MultiplayerCampaign] " +
-            "Service loaded."
-        );
-    }
-
-    public static void OnCampaignStart()
-    {
-        FinalSafeExecution.Run(
-            "CampaignStart",
-            () =>
-            {
-                CampaignSafeStartup
-                    .Initialize();
-
-                MultiplayerCampaignFinalService
-                    .Start();
-            }
-        );
-    }
-
-    public static void OnTick(
-        float dt)
-    {
-        FinalSafeExecution.Run(
-            "CampaignTick",
-            () =>
-            {
-                if (
-                    Campaign.Current == null)
-                {
-                    return;
-                }
-
-                MultiplayerCampaignFinalService
-                    .Tick(
-                        dt
-                    );
-            }
-        );
-    }
-
-    public static void OnCampaignEnd()
-    {
-        FinalSafeExecution.Run(
-            "CampaignEnd",
-            () =>
-            {
-                MultiplayerCampaignFinalService
-                    .Stop();
-
-                CampaignSafeStartup
-                    .Reset();
-            }
-        );
-    }
-
-    public static void OnUnload()
-    {
-        FinalSafeExecution.Run(
-            "Unload",
-            () =>
-            {
-                MultiplayerCampaignFinalService
-                    .Stop();
-
-                FinalGlobalReset
-                    .Execute();
-
-                FinalSubModuleState
-                    .OnUnload();
-            }
-        );
-    }
-}
-
-
-
-// ============================================================
-// END OF SECTION
-// ============================================================
-// ============================================================
-// FINAL COMPATIBILITY LAYER
-// ============================================================
-
-internal static class MultiplayerCompatibilityLayer
-{
-    public static bool IsCampaignAvailable()
-    {
-        try
-        {
-            return Campaign.Current != null;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    public static bool IsLocalPlayerAvailable()
-    {
-        try
-        {
-            return
-                Campaign.Current != null &&
-                Hero.MainHero != null &&
-                MobileParty.MainParty != null;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    public static CampaignVec2 GetSafePosition()
-    {
-        try
-        {
-            if (
-                MobileParty.MainParty != null)
-            {
-                CampaignVec2 position =
-                    MobileParty.MainParty.Position;
-
-                if (
-                    NetworkUtilities.IsValidPosition(
-                        position.X,
-                        position.Y))
-                {
-                    return position;
-                }
-            }
-        }
-        catch
-        {
-        }
-
-        return
-            new CampaignVec2(
-                new Vec2(
-                    0f,
-                    0f
-                ),
-                true
-            );
-    }
-
-    public static int GetSafePartySize()
-    {
-        try
-        {
-            if (
-                MobileParty.MainParty != null &&
-                MobileParty.MainParty.MemberRoster != null)
-            {
-                return
-                    NetworkUtilities.SafePartySize(
-                        MobileParty.MainParty
-                            .MemberRoster
-                            .TotalManCount
-                    );
-            }
-        }
-        catch
-        {
-        }
-
-        return 1;
-    }
-}
-
-
 
 // ============================================================
 // REMOTE PLAYER FINAL SNAPSHOT
@@ -10738,67 +7199,6 @@ public sealed class FinalRemotePlayerSnapshot
     public DateTime LastUpdateUtc;
 }
 
-
-
-// ============================================================
-// FINAL REMOTE SNAPSHOT FACTORY
-// ============================================================
-
-internal static class FinalRemoteSnapshotFactory
-{
-    public static FinalRemotePlayerSnapshot Create(
-        RemotePlayerState state)
-    {
-        if (state == null)
-        {
-            return null;
-        }
-
-        if (
-            string.IsNullOrWhiteSpace(
-                state.PlayerId))
-        {
-            return null;
-        }
-
-        if (
-            !NetworkUtilities.IsValidPosition(
-                state.CurrentPosition.X,
-                state.CurrentPosition.Y))
-        {
-            return null;
-        }
-
-        return
-            new FinalRemotePlayerSnapshot
-            {
-                Id =
-                    state.PlayerId,
-
-                Name =
-                    NetworkUtilities.SafeName(
-                        state.Name
-                    ),
-
-                X =
-                    state.CurrentPosition.X,
-
-                Y =
-                    state.CurrentPosition.Y,
-
-                PartySize =
-                    NetworkUtilities.SafePartySize(
-                        state.PartySize
-                    ),
-
-                Connected =
-                    state.Active,
-
-                LastUpdateUtc =
-                    state.LastPacketUtc
-            };
-    }
-}
 
 
 
@@ -10863,263 +7263,6 @@ public static class FinalRemotePlayerCollection
 
 
 
-// ============================================================
-// FINAL PLAYER SYNC COORDINATOR
-// ============================================================
-
-internal static class FinalPlayerSyncCoordinator
-{
-    private static float _sendTimer;
-
-    private static float _receiveTimer;
-
-    public static void Update(
-        float dt)
-    {
-        if (
-            Campaign.Current == null)
-        {
-            return;
-        }
-
-        _receiveTimer +=
-            Math.Max(
-                0f,
-                Math.Min(
-                    1f,
-                    dt
-                )
-            );
-
-        if (_receiveTimer >= 0.05f)
-        {
-            _receiveTimer =
-                0f;
-
-            ClientCampaignSnapshotReceiver
-                .Process();
-
-            RemotePlayerCommandProcessor
-                .Process(
-                    dt
-                );
-
-            RemotePlayerManager
-                .Update(
-                    dt
-                );
-
-            FinalRemoteMapState
-                .Update();
-        }
-
-        if (
-            MultiplayerNetworkClient
-                .Instance
-                .IsConnected &&
-            MultiplayerNetworkClient
-                .Instance
-                .IsWorldLoaded &&
-            MobileParty.MainParty != null)
-        {
-            _sendTimer +=
-                Math.Max(
-                    0f,
-                    Math.Min(
-                        1f,
-                        dt
-                    )
-                );
-
-            if (_sendTimer >= 0.10f)
-            {
-                _sendTimer =
-                    0f;
-
-                CampaignVec2 position =
-                    MultiplayerCompatibilityLayer
-                        .GetSafePosition();
-
-                int partySize =
-                    MultiplayerCompatibilityLayer
-                        .GetSafePartySize();
-
-                MultiplayerNetworkClient
-                    .Instance
-                    .SendLocalPlayerState(
-                        position,
-                        partySize
-                    );
-            }
-        }
-    }
-
-    public static void Reset()
-    {
-        _sendTimer =
-            0f;
-
-        _receiveTimer =
-            0f;
-
-        FinalRemoteMapState
-            .Clear();
-    }
-}
-
-
-
-// ============================================================
-// FINAL TWO PLAYER CONTROLLER
-// ============================================================
-
-public static class FinalTwoPlayerController
-{
-    private static bool _active;
-
-    public static void Start()
-    {
-        if (_active)
-        {
-            return;
-        }
-
-        _active =
-            true;
-
-        MultiplayerSessionState
-            .StartClient();
-
-        MultiplayerCampaignGameState
-            .SetNetworkReady(
-                true
-            );
-
-        MultiplayerConnectionStatus
-            .Set(
-                MultiplayerConnectionState
-                    .Connected
-            );
-    }
-
-    public static void Update(
-        float dt)
-    {
-        if (!_active)
-        {
-            return;
-        }
-
-        if (
-            !MultiplayerCompatibilityLayer
-                .IsCampaignAvailable())
-        {
-            return;
-        }
-
-        FinalPlayerSyncCoordinator
-            .Update(
-                dt
-            );
-    }
-
-    public static void Stop()
-    {
-        _active =
-            false;
-
-        FinalPlayerSyncCoordinator
-            .Reset();
-
-        MultiplayerSessionState
-            .Reset();
-    }
-}
-
-
-
-// ============================================================
-// FINAL CAMPAIGN BEHAVIOR
-// ============================================================
-
-public sealed class MultiplayerCampaignFinalBehavior
-    : CampaignBehaviorBase
-{
-    private bool _initialized;
-
-    public override void RegisterEvents()
-    {
-        CampaignEvents
-            .TickEvent
-            .AddNonSerializedListener(
-                this,
-                OnTick
-            );
-
-        CampaignEvents.OnGameLoadedEvent
-            .AddNonSerializedListener(
-                this,
-                starter => OnGameLoaded(starter));
-    }
-
-    private void OnTick(
-        float dt)
-    {
-        if (!_initialized)
-        {
-            _initialized =
-                true;
-
-            FinalModLifecycle
-                .CampaignStart();
-        }
-
-        FinalModLifecycle
-            .Tick(
-                dt
-            );
-    }
-
-    private void OnGameLoaded(CampaignGameStarter starter)
-    {
-        if (
-            Campaign.Current == null)
-        {
-            return;
-        }
-
-        try
-        {
-            CampaignSafeStartup
-                .Update();
-
-            CampaignSessionCoordinator
-                .Update();
-
-            MultiplayerCampaignGameState
-                .SetCampaignReady(
-                    Campaign.Current != null &&
-                    Hero.MainHero != null &&
-                    MobileParty.MainParty != null
-                );
-        }
-        catch
-        {
-        }
-    }
-
-    public override void SyncData(
-        IDataStore dataStore)
-    {
-        /*
-         * Network player state is session-only.
-         *
-         * Do not write it into Campaign save data.
-         */
-    }
-}
-
-
 
 // ============================================================
 // FINAL REMOTE PLAYER CHECK
@@ -11167,6 +7310,7 @@ internal static class FinalRemotePlayerCheck
         return true;
     }
 }
+
 
 
 
@@ -11253,71 +7397,6 @@ public static class FinalRemotePlayerQuery
 
 
 
-// ============================================================
-// END OF REBUILT MULTIPLAYER CAMPAIGN
-// ============================================================
-// ============================================================
-// FINAL MODULE WRAPPER
-// ============================================================
-
-public sealed class MultiplayerCampaignFinalSubModule
-    : MBSubModuleBase
-{
-    protected override void OnSubModuleLoad()
-    {
-        base.OnSubModuleLoad();
-
-        FinalSubmoduleCallback
-            .OnLoad();
-    }
-
-    protected override void OnGameStart(
-        Game game,
-        IGameStarter gameStarter)
-    {
-        base.OnGameStart(
-            game,
-            gameStarter
-        );
-
-        if (
-            game == null ||
-            gameStarter == null)
-        {
-            return;
-        }
-
-        if (
-            game.GameType is Campaign &&
-            gameStarter is CampaignGameStarter starter)
-        {
-            starter.AddBehavior(
-                new MultiplayerCampaignFinalBehavior()
-            );
-        }
-    }
-
-    public override void OnGameEnd(
-        Game game)
-    {
-        FinalSubmoduleCallback
-            .OnCampaignEnd();
-
-        base.OnGameEnd(
-            game
-        );
-    }
-
-    protected override void OnSubModuleUnloaded()
-    {
-        FinalSubmoduleCallback
-            .OnUnload();
-
-        base.OnSubModuleUnloaded();
-    }
-}
-
-
 
 // ============================================================
 // FINAL REMOTE PLAYER ACCESSOR
@@ -11392,362 +7471,6 @@ public static class MultiplayerCampaignPlayers
 
 
 // ============================================================
-// FINAL SESSION STATUS
-// ============================================================
-
-public static class MultiplayerCampaignStatus
-{
-    public static bool CampaignReady
-    {
-        get
-        {
-            try
-            {
-                return
-                    MultiplayerCampaignGameState
-                        .CampaignReady;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-    }
-
-    public static int RemotePlayers
-    {
-        get
-        {
-            return
-                MultiplayerCampaignPlayers
-                    .GetRemotePlayerCount();
-        }
-    }
-
-    public static bool IsHost
-    {
-        get
-        {
-            try
-            {
-                return
-                    MultiplayerSessionState
-                        .IsHost;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-    }
-
-    public static bool IsClient
-    {
-        get
-        {
-            try
-            {
-                return
-                    MultiplayerSessionState
-                        .IsClient;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-    }
-}
-
-
-
-// ============================================================
-// FINAL SAFE API
-// ============================================================
-
-internal static class MultiplayerCampaignSafeApi
-{
-    public static void Tick(
-        float dt)
-    {
-        try
-        {
-            FinalCampaignLoop
-                .Tick(
-                    dt
-                );
-        }
-        catch (Exception ex)
-        {
-            FinalErrorReporter
-                .Report(
-                    "CampaignLoop",
-                    ex
-                );
-        }
-    }
-
-    public static void Shutdown()
-    {
-        try
-        {
-            FinalCampaignLoop
-                .Reset();
-        }
-        catch
-        {
-        }
-
-        FinalShutdown
-            .Execute();
-    }
-}
-
-
-
-// ============================================================
-// FINAL FILE TERMINATOR
-// ============================================================
-
-internal static class MultiplayerCampaignFileTerminator
-{
-    public static void Execute()
-    {
-        MultiplayerCampaignSafeApi
-            .Shutdown();
-    }
-}
-
-
-
-// ============================================================
-// END OF REBUILT FILE
-// ============================================================
-// ============================================================
-// FINAL CLOSE
-// ============================================================
-
-internal static class MultiplayerCampaignClose
-{
-    public static void Execute()
-    {
-        try
-        {
-            MultiplayerCampaignSafeApi
-                .Shutdown();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            MultiplayerCleanup
-                .Execute();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            MultiplayerSessionState
-                .Reset();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            MultiplayerCampaignGameState
-                .Reset();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            MultiplayerConnectionStatus
-                .Reset();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            CampaignStateSynchronization
-                .Reset();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            RemotePlayerManager
-                .Clear();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            RemotePlayerMapRegistry
-                .Clear();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            CampaignRemotePlayerMarkerRegistry
-                .Clear();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            RemoteSessionRegistry
-                .Clear();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            HostPlayerRegistry
-                .Clear();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            HostClientStateRegistry
-                .Clear();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            WorldTransferService
-                .Reset();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            MultiplayerWorldTransfer
-                .Clear();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            PlayerSnapshotState
-                .Reset();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            NetworkIdentityService
-                .Reset();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            HandshakeState
-                .Reset();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            MultiplayerSessionId
-                .Reset();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            PlayerIdentity
-                .Reset();
-        }
-        catch
-        {
-        }
-    }
-}
-
-
-
-// ============================================================
-// FINAL END
-// ============================================================
-// ============================================================
-// FINAL END OF MULTIPLAYER CAMPAIGN
-// ============================================================
-
-internal static class MultiplayerCampaignFinalization
-{
-    public static void Execute()
-    {
-        try
-        {
-            MultiplayerCampaignClose
-                .Execute();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            FinalInitializationGuard
-                .Reset();
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            FinalGlobalReset
-                .Execute();
-        }
-        catch
-        {
-        }
-    }
-}
-
-
-// ============================================================
 // EOF
 // ============================================================
 
@@ -11760,6 +7483,7 @@ internal static class PlayerIdentity
 }
 
 
+
 internal static class RemotePlayerMapMarkerCleanup
 {
     public static void Remove(string playerId)
@@ -11770,643 +7494,191 @@ internal static class RemotePlayerMapMarkerCleanup
 }
 
 
-namespace MultiplayerCampaign
+
+
+// ============================================================
+// REMOTE PLAYER WORLD VIEW
+// ============================================================
+
+public sealed class RemotePlayerWorldView
 {
+    public string PlayerId;
 
+    public string Name;
 
-    /*
-     * ============================================================
-     * CAMPAIGN BEHAVIOR
-     * ============================================================
-     */
+    public CampaignVec2 Position;
 
-    public sealed class MultiplayerCampaignBehavior
-        : CampaignBehaviorBase
-    {
-        private float _networkTimer;
+    public int PartySize;
 
-        private bool _playerReadySent;
+    public bool Active;
 
-        private bool _worldInitialized;
-
-        public override void RegisterEvents()
-        {
-            CampaignEvents
-                .TickEvent
-                .AddNonSerializedListener(
-                    this,
-                    OnCampaignTick
-                );
-        }
-
-        private void OnCampaignTick(
-            float dt)
-        {
-            /*
-             * HOST
-             */
-
-            MultiplayerCampaignSubModule
-                .StartHostIfReady();
-
-            /*
-             * PROCESS NETWORK QUEUE
-             *
-             * Game Thread.
-             */
-
-            MultiplayerNetworkClient
-                .Instance
-                .Update();
-
-            /*
-             * CLIENT WORLD
-             */
-
-            if (
-                MultiplayerNetworkClient
-                    .Instance
-                    .IsWorldLoaded)
-            {
-                _worldInitialized = true;
-            }
-
-            /*
-             * PLAYER READY
-             */
-
-            if (
-                _worldInitialized &&
-                !_playerReadySent &&
-                MobileParty.MainParty != null)
-            {
-                _playerReadySent = true;
-
-                HostConsole.WriteLine(
-                    "[*] Client Campaign is active."
-                );
-
-                MultiplayerNetworkClient
-                    .Instance
-                    .SendPlayerReady();
-            }
-
-            /*
-             * REMOTE PLAYERS
-             *
-             * All Hero/MobileParty changes happen here,
-             * on the Campaign/Game thread.
-             */
-
-            RemotePlayerManager.Update(dt);
-
-            /*
-             * NPC WORLD SYNCHRONIZATION
-             */
-
-            WorldPartySynchronizer
-                .ApplyPending(dt);
-
-            /*
-             * FIXED NETWORK RATE
-             *
-             * 10 updates/sec.
-             */
-
-            _networkTimer += dt;
-
-            if (_networkTimer < 0.10f)
-            {
-                return;
-            }
-
-            _networkTimer = 0f;
-
-            MultiplayerCampaignHost host =
-                MultiplayerCampaignSubModule
-                    .GetHost();
-
-            if (host != null)
-            {
-                host.Update();
-            }
-
-            MultiplayerNetworkClient client =
-                MultiplayerNetworkClient.Instance;
-
-            /*
-             * LOCAL PLAYER STATE
-             *
-             * Game Thread only.
-             */
-
-            if (
-                client.IsConnected &&
-                client.IsWorldLoaded &&
-                MobileParty.MainParty != null)
-            {
-                client.SendLocalPlayerState(
-                    MobileParty.MainParty.Position,
-                    CampaignWorld.GetMainPartySize()
-                );
-            }
-        }
-
-        public override void SyncData(
-            IDataStore dataStore)
-        {
-        }
-    }
-
-
-
-    /*
-     * ============================================================
-     * VIEW MODEL
-     * ============================================================
-     */
-
-    public sealed class MultiplayerCampaignVM
-        : ViewModel
-    {
-        private string _ipAddress =
-            "127.0.0.1";
-
-        private string _playerName =
-            "Player";
-
-        private string _statusText =
-            "";
-
-        private bool _showMain =
-            true;
-
-        private bool _showCreate;
-
-        private bool _showJoin;
-
-        public MultiplayerCampaignVM()
-        {
-            MultiplayerNetworkClient
-                .Instance
-                .SetViewModel(this);
-
-            _playerName =
-                LocalPlayerState
-                    .GetDisplayName();
-        }
-
-        [DataSourceProperty]
-        public string IpAddress
-        {
-            get
-            {
-                return _ipAddress;
-            }
-
-            set
-            {
-                if (_ipAddress == value)
-                {
-                    return;
-                }
-
-                _ipAddress = value;
-
-                OnPropertyChangedWithValue(
-                    value,
-                    nameof(IpAddress)
-                );
-            }
-        }
-
-        [DataSourceProperty]
-        public string PlayerName
-        {
-            get
-            {
-                return _playerName;
-            }
-
-            set
-            {
-                if (_playerName == value)
-                {
-                    return;
-                }
-
-                _playerName = value;
-
-                OnPropertyChangedWithValue(
-                    value,
-                    nameof(PlayerName)
-                );
-            }
-        }
-
-        [DataSourceProperty]
-        public string StatusText
-        {
-            get
-            {
-                return _statusText;
-            }
-
-            set
-            {
-                if (_statusText == value)
-                {
-                    return;
-                }
-
-                _statusText = value;
-
-                OnPropertyChangedWithValue(
-                    value,
-                    nameof(StatusText)
-                );
-            }
-        }
-
-        [DataSourceProperty]
-        public bool ShowMain
-        {
-            get
-            {
-                return _showMain;
-            }
-
-            private set
-            {
-                if (_showMain == value)
-                {
-                    return;
-                }
-
-                _showMain = value;
-
-                OnPropertyChangedWithValue(
-                    value,
-                    nameof(ShowMain)
-                );
-            }
-        }
-
-        [DataSourceProperty]
-        public bool ShowCreate
-        {
-            get
-            {
-                return _showCreate;
-            }
-
-            private set
-            {
-                if (_showCreate == value)
-                {
-                    return;
-                }
-
-                _showCreate = value;
-
-                OnPropertyChangedWithValue(
-                    value,
-                    nameof(ShowCreate)
-                );
-            }
-        }
-
-        [DataSourceProperty]
-        public bool ShowJoin
-        {
-            get
-            {
-                return _showJoin;
-            }
-
-            private set
-            {
-                if (_showJoin == value)
-                {
-                    return;
-                }
-
-                _showJoin = value;
-
-                OnPropertyChangedWithValue(
-                    value,
-                    nameof(ShowJoin)
-                );
-            }
-        }
-
-        public void SetStatus(
-            string text)
-        {
-            StatusText = text;
-        }
-
-        public void ExecuteOpenCreate()
-        {
-            ShowMain = false;
-            ShowCreate = true;
-            ShowJoin = false;
-
-            StatusText = "";
-        }
-
-        public void ExecuteOpenJoin()
-        {
-            ShowMain = false;
-            ShowCreate = false;
-            ShowJoin = true;
-
-            StatusText = "";
-        }
-
-        public void ExecuteBackToMain()
-        {
-            ShowMain = true;
-            ShowCreate = false;
-            ShowJoin = false;
-
-            StatusText = "";
-        }
-
-        public void ExecuteBack()
-        {
-            MultiplayerNetworkClient
-                .Instance
-                .Disconnect();
-
-            ScreenManager.PopScreen();
-        }
-
-        /*
-         * ========================================================
-         * CREATE HOST
-         * ========================================================
-         */
-
-        public void ExecuteStartHost()
-        {
-            string name =
-                string.IsNullOrWhiteSpace(
-                    PlayerName)
-                    ? "Host"
-                    : PlayerName.Trim();
-
-            LocalPlayerState
-                .SetDisplayName(
-                    name
-                );
-
-            StatusText =
-                "LOADING MCC...";
-
-            MultiplayerCampaignSubModule
-                .RequestHost();
-
-            if (
-                !MultiplayerCampaignSubModule
-                    .LoadHostCampaign())
-            {
-                StatusText =
-                    "MCC LOAD FAILED";
-
-                MultiplayerCampaignSubModule
-                    .StopHost();
-
-                return;
-            }
-
-            StatusText =
-                "MCC LOADED";
-        }
-
-        /*
-         * ========================================================
-         * JOIN
-         * ========================================================
-         */
-
-        public void ExecuteJoinHost()
-        {
-            if (
-                string.IsNullOrWhiteSpace(
-                    IpAddress))
-            {
-                StatusText =
-                    "HOST IP REQUIRED";
-
-                return;
-            }
-
-            if (
-                string.IsNullOrWhiteSpace(
-                    PlayerName))
-            {
-                StatusText =
-                    "PLAYER NAME REQUIRED";
-
-                return;
-            }
-
-            LocalPlayerState
-                .SetDisplayName(
-                    PlayerName.Trim()
-                );
-
-            StatusText =
-                "CONNECTING...";
-
-            MultiplayerNetworkClient
-                .Instance
-                .Connect(
-                    IpAddress.Trim()
-                );
-        }
-
-        public void UpdateNetwork()
-        {
-            MultiplayerNetworkClient
-                .Instance
-                .Update();
-
-            if (
-                MultiplayerNetworkClient
-                    .Instance
-                    .ConsumeWorldReady())
-            {
-                StatusText =
-                    "LOADING HOST WORLD...";
-
-                MultiplayerWorldTransfer
-                    .FinishClientLoad();
-            }
-        }
-    }
-
-    internal sealed class MpcFinalCharacterSlotV2
-    {
-        public int Slot;
-        public string CharacterId;
-        public string Name;
-        public string CharacterData;
-        public long CreatedUtcTicks;
-    }
-
-
-    internal static class MpcFinalCharacterSystemV2
-    {
-        private const int SlotCount = 3;
-        private static readonly object Sync = new object();
-        private static readonly MpcFinalCharacterSlotV2[] Slots = new MpcFinalCharacterSlotV2[SlotCount];
-        private static bool Loaded;
-        private static int SelectedSlot = -1;
-
-        private static string FilePath
-        {
-            get
-            {
-                string root = System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData);
-                return System.IO.Path.Combine(root, "MultiplayerCampaign", "final-characters.dat");
-            }
-        }
-
-        public static void EnsureLoaded()
-        {
-            lock (Sync)
-            {
-                if (Loaded) return;
-                Loaded = true;
-                LoadLocked();
-            }
-        }
-
-        public static bool HasSelection
-        {
-            get { EnsureLoaded(); lock (Sync) return SelectedSlot >= 0 && SelectedSlot < SlotCount; }
-        }
-
-        public static int Selected
-        {
-            get { EnsureLoaded(); lock (Sync) return SelectedSlot; }
-        }
-
-        public static bool SelectSlot(int slot)
-        {
-            EnsureLoaded();
-            if (slot < 0 || slot >= SlotCount) return false;
-            lock (Sync)
-            {
-                SelectedSlot = slot;
-                SaveLocked();
-                return true;
-            }
-        }
-
-        public static MpcFinalCharacterSlotV2 CreateSlot(int slot, string name, string data)
-        {
-            EnsureLoaded();
-            if (slot < 0 || slot >= SlotCount) return null;
-            lock (Sync)
-            {
-                MpcFinalCharacterSlotV2 record = new MpcFinalCharacterSlotV2
-                {
-                    Slot = slot,
-                    CharacterId = System.Guid.NewGuid().ToString("N"),
-                    Name = SafeName(name),
-                    CharacterData = data ?? "",
-                    CreatedUtcTicks = System.DateTime.UtcNow.Ticks
-                };
-                Slots[slot] = record;
-                SelectedSlot = slot;
-                SaveLocked();
-                return record;
-            }
-        }
-
-        public static MpcFinalCharacterSlotV2 GetSlot(int slot)
-        {
-            EnsureLoaded();
-            if (slot < 0 || slot >= SlotCount) return null;
-            lock (Sync) return Slots[slot];
-        }
-
-        public static bool IsEmpty(int slot) { return GetSlot(slot) == null; }
-        public static string GetSelectedCharacterId()
-        {
-            EnsureLoaded();
-            lock (Sync)
-            {
-                return SelectedSlot >= 0 && SelectedSlot < SlotCount && Slots[SelectedSlot] != null ? Slots[SelectedSlot].CharacterId : null;
-            }
-        }
-
-        public static string GetSelectedName()
-        {
-            EnsureLoaded();
-            lock (Sync)
-            {
-                return SelectedSlot >= 0 && SelectedSlot < SlotCount && Slots[SelectedSlot] != null ? Slots[SelectedSlot].Name : "Player";
-            }
-        }
-
-        public static void ResetSelection()
-        {
-            EnsureLoaded();
-            lock (Sync) { SelectedSlot = -1; SaveLocked(); }
-        }
-
-        private static string SafeName(string name)
-        {
-            if (string.IsNullOrWhiteSpace(name)) return "Player";
-            name = name.Trim();
-            return name.Length > 32 ? name.Substring(0, 32) : name;
-        }
-
-        private static void SaveLocked()
-        {
-            try
-            {
-                string directory = System.IO.Path.GetDirectoryName(FilePath);
-                if (!System.IO.Directory.Exists(directory)) System.IO.Directory.CreateDirectory(directory);
-                using (var stream = new System.IO.FileStream(FilePath, System.IO.FileMode.Create, System.IO.FileAccess.Write, System.IO.FileShare.None))
-                using (var writer = new System.IO.BinaryWriter(stream, System.Text.Encoding.UTF8, true))
-                {
-                    writer.Write(1); writer.Write(SelectedSlot);
-                    for (int i = 0; i < SlotCount; i++)
-                    {
-                        var s = Slots[i]; writer.Write(s != null); if (s == null) continue;
-                        writer.Write(s.Slot); writer.Write(s.CharacterId ?? ""); writer.Write(s.Name ?? "Player"); writer.Write(s.CharacterData ?? ""); writer.Write(s.CreatedUtcTicks);
-                    }
-                }
-            } catch { }
-        }
-
-        private static void LoadLocked()
-        {
-            try
-            {
-                if (!System.IO.File.Exists(FilePath)) return;
-                using (var stream = new System.IO.FileStream(FilePath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.Read))
-                using (var reader = new System.IO.BinaryReader(stream, System.Text.Encoding.UTF8, true))
-                {
-                    if (reader.ReadInt32() != 1) return;
-                    SelectedSlot = reader.ReadInt32();
-                    for (int i = 0; i < SlotCount; i++)
-                    {
-                        if (!reader.ReadBoolean()) { Slots[i] = null; continue; }
-                        Slots[i] = new MpcFinalCharacterSlotV2
-                        { Slot = reader.ReadInt32(), CharacterId = reader.ReadString(), Name = reader.ReadString(), CharacterData = reader.ReadString(), CreatedUtcTicks = reader.ReadInt64() };
-                    }
-                }
-            } catch { SelectedSlot = -1; for (int i = 0; i < SlotCount; i++) Slots[i] = null; }
-        }
-    }
-
+    public DateTime UpdatedUtc;
 }
+
+
+
+
+// ============================================================
+// REMOTE PLAYER WORLD VIEW REGISTRY
+// ============================================================
+
+public static class RemotePlayerWorldViewRegistry
+{
+    private static readonly object Sync =
+        new object();
+
+    private static readonly Dictionary<
+        string,
+        RemotePlayerWorldView>
+        Views =
+            new Dictionary<
+                string,
+                RemotePlayerWorldView>();
+
+    public static void Update()
+    {
+        RemotePlayerState[] states =
+            RemotePlayerManager
+                .Snapshot();
+
+        lock (Sync)
+        {
+            HashSet<string> activeIds =
+                new HashSet<string>();
+
+            if (states != null)
+            {
+                for (
+                    int i = 0;
+                    i < states.Length;
+                    i++)
+                {
+                    RemotePlayerState state =
+                        states[i];
+
+                    if (state == null)
+                    {
+                        continue;
+                    }
+
+                    if (
+                        string.IsNullOrWhiteSpace(
+                            state.PlayerId))
+                    {
+                        continue;
+                    }
+
+                    activeIds.Add(
+                        state.PlayerId
+                    );
+
+                    RemotePlayerWorldView view;
+
+                    if (
+                        !Views.TryGetValue(
+                            state.PlayerId,
+                            out view))
+                    {
+                        view =
+                            new RemotePlayerWorldView();
+
+                        Views.Add(
+                            state.PlayerId,
+                            view
+                        );
+                    }
+
+                    view.PlayerId =
+                        state.PlayerId;
+
+                    view.Name =
+                        NetworkUtilities
+                            .SafeName(
+                                state.Name
+                            );
+
+                    view.Position =
+                        state.CurrentPosition;
+
+                    view.PartySize =
+                        NetworkUtilities
+                            .SafePartySize(
+                                state.PartySize
+                            );
+
+                    view.Active =
+                        state.Active;
+
+                    view.UpdatedUtc =
+                        state.LastPacketUtc;
+                }
+            }
+
+            List<string> remove =
+                new List<string>();
+
+            foreach (
+                KeyValuePair<
+                    string,
+                    RemotePlayerWorldView>
+                item in Views)
+            {
+                if (
+                    !activeIds.Contains(
+                        item.Key))
+                {
+                    remove.Add(
+                        item.Key
+                    );
+                }
+            }
+
+            for (
+                int i = 0;
+                i < remove.Count;
+                i++)
+            {
+                Views.Remove(
+                    remove[i]
+                );
+            }
+        }
+    }
+
+    public static RemotePlayerWorldView[]
+        Snapshot()
+    {
+        lock (Sync)
+        {
+            RemotePlayerWorldView[] result =
+                new RemotePlayerWorldView[
+                    Views.Count
+                ];
+
+            int index =
+                0;
+
+            foreach (
+                RemotePlayerWorldView view
+                in Views.Values)
+            {
+                result[index++] =
+                    view;
+            }
+
+            return result;
+        }
+    }
+
+    public static void Clear()
+    {
+        lock (Sync)
+        {
+            Views.Clear();
+        }
+    }
+}
+
 
 namespace MultiplayerCampaignRebuildLayer
 {
@@ -12427,6 +7699,7 @@ namespace MultiplayerCampaignRebuildLayer
             }
         }
     }
+
 
 
     internal static class CharacterSlotStore
@@ -12563,28 +7836,6 @@ namespace MultiplayerCampaignRebuildLayer
                 }
             }
         }
-    }
-
-
-    internal sealed class PlayerSyncState
-    {
-        public string Id;
-        public string Name;
-        public float X;
-        public float Y;
-        public float TargetX;
-        public float TargetY;
-        public float BearingX;
-        public float BearingY;
-        public int PartySize;
-        public bool Moving;
-        public bool Active;
-        public long Sequence;
-        public long Revision;
-        public double ServerTimeMs;
-        public int TimeSpeed;
-        public int TimeMode;
-        public DateTime LastUpdateUtc;
     }
 
 }
