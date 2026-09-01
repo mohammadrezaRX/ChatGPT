@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   patch:
-    if: contains(github.event.head_commit.message, 'prepare one-time network reconnect patch')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,206 +25,195 @@ jobs:
           $text = Get-Content $path -Raw
 
           $fieldOld = @'
-          private bool _connectionRunning;
-'@
-          $fieldNew = @'
-          private bool _connectionRunning;
-
-          private int _connectionGeneration;
+        private bool _connectionRunning;
 '@
           if (($text.Split($fieldOld).Count - 1) -ne 1) { throw 'Field anchor not found exactly once.' }
+          $fieldNew = @'
+        private bool _connectionRunning;
+
+        private int _connectionGeneration;
+'@
           $text = $text.Replace($fieldOld, $fieldNew)
 
           $connectOld = @'
-          public void Connect(
-              string ip)
-          {
-              lock (_connectionLock)
-              {
-                  if (_connectionRunning)
-                  {
-                      return;
-                  }
+        public void Connect(
+            string ip)
+        {
+            lock (_connectionLock)
+            {
+                if (_connectionRunning)
+                {
+                    return;
+                }
 
-                  DisconnectInternal();
+                DisconnectInternal();
 
-                  _cts =
-                      new CancellationTokenSource();
+                _cts =
+                    new CancellationTokenSource();
 
-                  _connectionRunning =
-                      true;
+                _connectionRunning =
+                    true;
 
-                  _ =
-                      ConnectAsync(
-                          ip,
-                          _cts.Token
-                      );
-              }
-          }
+                _ =
+                    ConnectAsync(
+                        ip,
+                        _cts.Token
+                    );
+            }
+        }
+
+        private async Task ConnectAsync(
 '@
           $connectNew = @'
-          public void Connect(
-              string ip)
-          {
-              if (string.IsNullOrWhiteSpace(ip))
-              {
-                  _vm?.SetStatus("CONNECTION FAILED: INVALID ADDRESS");
-                  return;
-              }
+        public void Connect(
+            string ip)
+        {
+            if (string.IsNullOrWhiteSpace(ip))
+            {
+                _vm?.SetStatus("CONNECTION FAILED: INVALID ADDRESS");
+                return;
+            }
 
-              lock (_connectionLock)
-              {
-                  _connectionGeneration++;
-                  int generation = _connectionGeneration;
+            lock (_connectionLock)
+            {
+                _connectionGeneration++;
+                int generation = _connectionGeneration;
 
-                  DisconnectInternal();
+                DisconnectInternal();
 
-                  HandshakeState.Reset();
-                  NetworkIdentityService.Reset();
-                  MultiplayerConnectionStatus.Set(
-                      MultiplayerConnectionState.Connecting
-                  );
+                HandshakeState.Reset();
+                NetworkIdentityService.Reset();
+                MultiplayerConnectionStatus.Set(
+                    MultiplayerConnectionState.Connecting
+                );
 
-                  try { WorldTransferService.Reset(); } catch { }
-                  try { MultiplayerWorldTransfer.Clear(); } catch { }
+                try { WorldTransferService.Reset(); } catch { }
+                try { MultiplayerWorldTransfer.Clear(); } catch { }
 
-                  _cts =
-                      new CancellationTokenSource();
+                _cts = new CancellationTokenSource();
+                _connectionRunning = true;
 
-                  _connectionRunning =
-                      true;
+                _ = ConnectAsync(
+                    ip.Trim(),
+                    _cts.Token,
+                    generation
+                );
+            }
+        }
 
-                  _ =
-                      ConnectAsync(
-                          ip.Trim(),
-                          _cts.Token,
-                          generation
-                      );
-              }
-          }
+        private async Task ConnectAsync(
 '@
           if (($text.Split($connectOld).Count - 1) -ne 1) { throw 'Connect anchor not found exactly once.' }
           $text = $text.Replace($connectOld, $connectNew)
 
           $sigOld = @'
-          private async Task ConnectAsync(
-              string ip,
-              CancellationToken token)
+        private async Task ConnectAsync(
+            string ip,
+            CancellationToken token)
 '@
           $sigNew = @'
-          private async Task ConnectAsync(
-              string ip,
-              CancellationToken token,
-              int generation)
+        private async Task ConnectAsync(
+            string ip,
+            CancellationToken token,
+            int generation)
 '@
           if (($text.Split($sigOld).Count - 1) -ne 1) { throw 'ConnectAsync signature anchor not found exactly once.' }
           $text = $text.Replace($sigOld, $sigNew)
 
-          $callOld = @'
-                  await client.ConnectAsync(
-                      ip,
-                      25565
-                  );
+          $bodyOld = @'
+                await client.ConnectAsync(
+                    ip,
+                    25565
+                );
 
-                  if (
-                      token.IsCancellationRequested)
-                  {
-                      client.Close();
-                      return;
-                  }
+                if (
+                    token.IsCancellationRequested)
+                {
+                    client.Close();
+                    return;
+                }
 
-                  _tcpClient =
-                      client;
+                _tcpClient =
+                    client;
 '@
-          $callNew = @'
-                  Task connectTask =
-                      client.ConnectAsync(
-                          ip,
-                          25565
-                      );
+          $bodyNew = @'
+                Task connectTask = client.ConnectAsync(ip, 25565);
 
-                  Task completed =
-                      await Task.WhenAny(
-                          connectTask,
-                          Task.Delay(
-                              TimeSpan.FromSeconds(10),
-                              token
-                          )
-                      );
+                Task completed = await Task.WhenAny(
+                    connectTask,
+                    Task.Delay(TimeSpan.FromSeconds(10), token)
+                );
 
-                  if (completed != connectTask)
-                  {
-                      client.Close();
-                      token.ThrowIfCancellationRequested();
-                      throw new TimeoutException(
-                          "Connection attempt timed out after 10 seconds."
-                      );
-                  }
+                if (completed != connectTask)
+                {
+                    client.Close();
+                    token.ThrowIfCancellationRequested();
+                    throw new TimeoutException(
+                        "Connection attempt timed out after 10 seconds."
+                    );
+                }
 
-                  await connectTask;
+                await connectTask;
 
-                  if (
-                      token.IsCancellationRequested ||
-                      generation != _connectionGeneration)
-                  {
-                      client.Close();
-                      return;
-                  }
+                if (
+                    token.IsCancellationRequested ||
+                    generation != _connectionGeneration)
+                {
+                    client.Close();
+                    return;
+                }
 
-                  _tcpClient =
-                      client;
+                _tcpClient = client;
 '@
-          if (($text.Split($callOld).Count - 1) -ne 1) { throw 'ConnectAsync body anchor not found exactly once.' }
-          $text = $text.Replace($callOld, $callNew)
+          if (($text.Split($bodyOld).Count - 1) -ne 1) { throw 'ConnectAsync body anchor not found exactly once.' }
+          $text = $text.Replace($bodyOld, $bodyNew)
 
           $finallyOld = @'
-              finally
-              {
-                  IsConnected =
-                      false;
+            finally
+            {
+                IsConnected =
+                    false;
 
-                  lock (_connectionLock)
-                  {
-                      _connectionRunning =
-                          false;
-                  }
-              }
+                lock (_connectionLock)
+                {
+                    _connectionRunning =
+                        false;
+                }
+            }
 '@
           $finallyNew = @'
-              finally
-              {
-                  lock (_connectionLock)
-                  {
-                      if (generation == _connectionGeneration)
-                      {
-                          IsConnected =
-                              false;
-
-                          _connectionRunning =
-                              false;
-                      }
-                  }
-              }
+            finally
+            {
+                lock (_connectionLock)
+                {
+                    if (generation == _connectionGeneration)
+                    {
+                        IsConnected = false;
+                        _connectionRunning = false;
+                    }
+                }
+            }
 '@
           if (($text.Split($finallyOld).Count - 1) -ne 1) { throw 'ConnectAsync finally anchor not found exactly once.' }
           $text = $text.Replace($finallyOld, $finallyNew)
 
           $disconnectOld = @'
-          private void DisconnectInternal()
-          {
-              try
+        private void DisconnectInternal()
+        {
 '@
           $disconnectNew = @'
-          private void DisconnectInternal()
-          {
-              _connectionGeneration++;
-
-              try
+        private void DisconnectInternal()
+        {
+            _connectionGeneration++;
 '@
           if (($text.Split($disconnectOld).Count - 1) -ne 1) { throw 'DisconnectInternal anchor not found exactly once.' }
           $text = $text.Replace($disconnectOld, $disconnectNew)
 
           Set-Content $path -Value $text -Encoding UTF8
+          $verify = Get-Content $path -Raw
+          foreach ($needle in @('_connectionGeneration', 'Task.WhenAny', 'Connection attempt timed out after 10 seconds.', 'int generation')) {
+            if ($verify -notmatch [regex]::Escape($needle)) { throw "Network patch verification failed: $needle" }
+          }
           Write-Host 'NETWORK_RECONNECT_PATCH=TRUE'
 
       - name: Build patched network
