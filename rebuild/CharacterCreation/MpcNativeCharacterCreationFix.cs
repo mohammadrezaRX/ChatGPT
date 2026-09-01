@@ -1,7 +1,6 @@
 using System;
 using HarmonyLib;
 using TaleWorlds.Core;
-using TaleWorlds.CampaignSystem.CharacterCreationContent;
 using TaleWorlds.MountAndBlade;
 
 namespace MultiplayerCampaign
@@ -18,28 +17,24 @@ namespace MultiplayerCampaign
     }
 
     [HarmonyPatch(typeof(MultiplayerCampaignVM), "ExecuteOpenCreate")]
-    internal static class MpcCreateHostButtonPatch
+    internal static class MpcCreateCharacterButtonPatch
     {
         private static bool Prefix(MultiplayerCampaignVM __instance)
         {
             try
             {
-                __instance.SetStatus("CREATE HOST");
+                if (MpcCharacterSlots.SelectedSlot < 0)
+                    MpcCharacterSlots.Select(0);
 
                 var type = __instance.GetType();
-                var showMain = type.GetProperty("ShowMain");
-                var showCharacter = type.GetProperty("ShowCharacter");
-                var showCreate = type.GetProperty("ShowCreate");
-                var showJoin = type.GetProperty("ShowJoin");
-
-                showMain?.SetValue(__instance, false, null);
-                showCharacter?.SetValue(__instance, false, null);
-                showCreate?.SetValue(__instance, true, null);
-                showJoin?.SetValue(__instance, false, null);
+                type.GetProperty("ShowMain")?.SetValue(__instance, false, null);
+                type.GetProperty("ShowCharacter")?.SetValue(__instance, true, null);
+                type.GetProperty("ShowCreate")?.SetValue(__instance, false, null);
+                type.GetProperty("ShowJoin")?.SetValue(__instance, false, null);
+                __instance.SetStatus("SELECT A SLOT, THEN OPEN BANNERLORD CHARACTER CREATOR");
             }
             catch
             {
-                try { __instance.ExecuteStartHost(); } catch { }
             }
 
             return false;
@@ -79,7 +74,6 @@ namespace MultiplayerCampaign
                 if (slot < 0)
                 {
                     MpcCharacterSlots.Select(0);
-                    slot = 0;
                 }
 
                 if (__instance == null ||
