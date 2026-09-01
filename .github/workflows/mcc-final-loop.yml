@@ -62,18 +62,19 @@ jobs:
           $files | ForEach-Object { Write-Host $_.Name }
           $main = $files | Where-Object { $_.Name -eq 'MultiplayerCampaignSubModule.cs' }
           if ($null -eq $main) { throw "Main submodule source is missing." }
-          if ($files.Count -lt 8 -or $files.Count -gt 12) { throw "Expected a compact thematic layout of roughly 10 C# files, got $($files.Count)." }
+          if ($files.Count -ne 10) { throw "Expected exactly 10 thematic C# files, got $($files.Count)." }
           if (Test-Path "rebuild/MpcConnectionRecoveryFix.cs") { throw "Old standalone recovery file was not merged." }
           $map = Get-Content "rebuild/REFACTOR_MAP.txt" -Raw
           if ($map -notmatch 'DECLARATIONS=\d+') { throw "REFACTOR_MAP declaration count missing." }
           if ($map -notmatch 'EMITTED=\d+') { throw "REFACTOR_MAP emitted count missing." }
           if ($map -notmatch 'FILES=10') { throw "Thematic layout is not exactly 10 files." }
-          if ($map -notmatch 'MultiplayerCampaign\.MultiplayerCampaignBehavior -> MpcCampaign\.cs') { throw "Campaign behavior is not in MpcCampaign.cs." }
-          if ($map -notmatch 'MultiplayerCampaign\.MultiplayerCampaignVM -> MpcUI\.cs') { throw "Campaign UI VM is not in MpcUI.cs." }
-          if ($map -notmatch 'MultiplayerCampaign\.MultiplayerNetworkClient -> MpcNetwork\.cs') { throw "Network client is not in MpcNetwork.cs." }
-          if ($map -notmatch 'MultiplayerCampaign\.MultiplayerCampaignHost -> MpcNetwork\.cs') { throw "Campaign host network service is not in MpcNetwork.cs." }
-          if ($map -notmatch '\.RemotePlayerManager -> MpcPlayers\.cs') { throw "RemotePlayerManager is not in MpcPlayers.cs." }
-          if ($map -notmatch 'MultiplayerCampaign\.MpcRecoveryRuntime -> MpcSaveRecovery\.cs') { throw "Recovery runtime is not in MpcSaveRecovery.cs." }
+          if ($map -notmatch 'MultiplayerCampaignBehavior -> MpcCampaign\.cs') { throw "Campaign behavior is not in MpcCampaign.cs." }
+          if ($map -notmatch 'MultiplayerCampaignVM -> MpcUI\.cs') { throw "Campaign UI VM is not in MpcUI.cs." }
+          if ($map -notmatch 'MultiplayerNetworkClient -> MpcNetwork\.cs') { throw "Network client is not in MpcNetwork.cs." }
+          if ($map -notmatch 'MultiplayerCampaignHost -> MpcNetwork\.cs') { throw "Campaign host network service is not in MpcNetwork.cs." }
+          if ($map -notmatch 'RemotePlayerManager -> MpcPlayers\.cs') { throw "RemotePlayerManager is not in MpcPlayers.cs." }
+          if ($map -notmatch 'MpcRecoveryRuntime -> MpcSaveRecovery\.cs') { throw "Recovery runtime is not in MpcSaveRecovery.cs." }
+          if ($map -notmatch 'MpcSaveTransferPatch -> MpcSaveRecovery\.cs') { throw "Save transfer patch is not in MpcSaveRecovery.cs." }
 
       - name: Restore
         shell: pwsh
@@ -104,7 +105,7 @@ jobs:
             Select-String -Path build.log -Pattern '(?i)error [A-Z0-9]+|: error |error\s*CS[0-9]+|Build FAILED' |
               Select-Object -Last 120 | ForEach-Object { Write-Host $_.Line }
             Write-Host "--- Warnings ---"
-            Select-String -Path build.log -Pattern '(?i)warning [A-Z0-9]+|: warning |warning\s*CS[0-9]+ ' |
+            Select-String -Path build.log -Pattern '(?i)warning [A-Z0-9]+|: warning |warning\s*CS[0-9]+' |
               Select-Object -Last 120 | ForEach-Object { Write-Host $_.Line }
             Write-Host "--- Tail ---"
             Get-Content build.log -Tail 180
