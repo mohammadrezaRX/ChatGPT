@@ -101,8 +101,6 @@ internal static class Program
                 File.WriteAllText(Path.Combine(outputDir, file), sb.ToString(), new UTF8Encoding(false));
             }
 
-            PatchNetworkReconnect(Path.Combine(outputDir, "MpcNetwork.cs"));
-
             var expected = declarations.GroupBy(d => (d.Namespace, d.Name)).ToDictionary(g => g.Key, g => g.Count());
             var emitted = new List<DeclInfo>();
             foreach (string file in TargetFiles)
@@ -145,16 +143,6 @@ internal static class Program
                 return 6;
             }
 
-            string networkText = await File.ReadAllTextAsync(Path.Combine(outputDir, "MpcNetwork.cs"), Encoding.UTF8);
-            foreach (string needle in new[] { "private int _connectionGeneration;", "Task.WhenAny", "Connection attempt timed out after 10 seconds.", "int generation" })
-            {
-                if (!networkText.Contains(needle, StringComparison.Ordinal))
-                {
-                    Console.WriteLine($"NETWORK_RECONNECT_PATCH_MISSING={needle}");
-                    return 7;
-                }
-            }
-
             var existingFiles = TargetFiles.Where(f => File.Exists(Path.Combine(outputDir, f))).ToList();
             var map = new StringBuilder();
             map.AppendLine("THEMATIC MPC REFACTOR");
@@ -162,7 +150,6 @@ internal static class Program
             map.AppendLine($"EMITTED={emitted.Count}");
             map.AppendLine($"FILES={existingFiles.Count}");
             map.AppendLine("RECOVERY_MERGED=TRUE");
-            map.AppendLine("NETWORK_RECONNECT_PATCH=TRUE");
             map.AppendLine();
             map.AppendLine("FILES:");
             foreach (var file in existingFiles) map.AppendLine(file);
@@ -171,12 +158,11 @@ internal static class Program
             foreach (var item in classified.OrderBy(x => x.Declaration.Order)) map.AppendLine($"{item.Declaration.Namespace}.{item.Declaration.Name} -> {item.File}");
 
             await File.WriteAllTextAsync(Path.Combine(outputDir, "REFACTOR_MAP.txt"), map.ToString(), new UTF8Encoding(false));
-            await File.WriteAllTextAsync(Path.Combine(outputDir, "BUILD_BASELINE.txt"), $"Declarations preserved: {declarations.Count}\nDeclarations emitted: {emitted.Count}\nFiles generated: {existingFiles.Count}\nNetwork reconnect patch: TRUE\n", new UTF8Encoding(false));
+            await File.WriteAllTextAsync(Path.Combine(outputDir, "BUILD_BASELINE.txt"), $"Declarations preserved: {declarations.Count}\nDeclarations emitted: {emitted.Count}\nFiles generated: {existingFiles.Count}\n", new UTF8Encoding(false));
             Console.WriteLine(map.ToString());
             Console.WriteLine($"MODULAR_FILES={existingFiles.Count}");
             Console.WriteLine($"DECLARATIONS={declarations.Count}");
             Console.WriteLine($"EMITTED={emitted.Count}");
-            Console.WriteLine("NETWORK_RECONNECT_PATCH=TRUE");
             Console.WriteLine("THEMATIC_SPLIT_SUCCESS=TRUE");
             return 0;
         }
@@ -186,66 +172,6 @@ internal static class Program
             Console.WriteLine(ex);
             return 99;
         }
-    }
-
-    private static void PatchNetworkReconnect(string path)
-    {
-        if (!File.Exists(path))
-            throw new FileNotFoundException("MpcNetwork.cs was not generated.", path);
-
-        string text = File.ReadAllText(path, Encoding.UTF8);
-
-        if (!text.Contains("private bool _connectionRunning;", StringComparison.Ordinal))
-            throw new InvalidOperationException("Network client anchor missing.");
-
-        if (!text.Contains("private int _connectionGeneration;", StringComparison.Ordinal))
-        {
-            text = text.Replace(
-                "        private bool _connectionRunning;",
-                "        private bool _connectionRunning;\n\n        private int _connectionGeneration;",
-                StringComparison.Ordinal);
-        }
-
-        string connectStart = "        public void Connect(\n            string ip)\n        {";
-        int connectIndex = text.IndexOf(connectStart, StringComparison.Ordinal);
-        if (connectIndex < 0)
-            throw new InvalidOperationException("Connect method was not found.");
-
-        int asyncIndex = text.IndexOf("        private async Task ConnectAsync(", connectIndex, StringComparison.Ordinal);
-        if (asyncIndex < 0)
-            throw new InvalidOperationException("ConnectAsync method was not found.");
-
-        string connectPrefix = text.Substring(0, connectIndex);
-        string connectSuffix = text.Substring(asyncIndex);
-        string currentConnect = text.Substring(connectIndex, asyncIndex - connectIndex);
-        string connectReplacement = "        public void Connect(\n            string ip)\n        {\n            if (string.IsNullOrWhiteSpace(ip))\n            {\n                _vm?.SetStatus(\"CONNECTION FAILED: INVALID ADDRESS\");\n                return;\n            }\n\n            lock (_connectionLock)\n            {\n                _connectionGeneration++;\n                int generation = _connectionGeneration;\n\n                DisconnectInternal();\n\n                HandshakeState.Reset();\n                NetworkIdentityService.Reset();\n                MultiplayerConnectionStatus.Set(\n                    MultiplayerConnectionState.Connecting\n                );\n\n                try { WorldTransferService.Reset(); } catch { }\n                try { MultiplayerWorldTransfer.Clear(); } catch { }\n\n                _cts = new CancellationTokenSource();\n                _connectionRunning = true;\n\n                _ = ConnectAsync(\n                    ip.Trim(),\n                    _cts.Token,\n                    generation\n                );\n            }\n        }\n\n";
-        text = connectPrefix + connectReplacement + connectSuffix;
-
-        string sigOld = "        private async Task ConnectAsync(\n            string ip,\n            CancellationToken token)";
-        string sigNew = "        private async Task ConnectAsync(\n            string ip,\n            CancellationToken token,\n            int generation)";
-        if (!text.Contains(sigOld, StringComparison.Ordinal))
-            throw new InvalidOperationException("ConnectAsync signature was not found.");
-        text = text.Replace(sigOld, sigNew, StringComparison.Ordinal);
-
-        string bodyOld = "                await client.ConnectAsync(\n                    ip,\n                    25565\n                );\n\n                if (\n                    token.IsCancellationRequested)\n                {\n                    client.Close();\n                    return;\n                }\n\n                _tcpClient =\n                    client;";
-        string bodyNew = "                Task connectTask = client.ConnectAsync(ip, 25565);\n\n                Task completed = await Task.WhenAny(\n                    connectTask,\n                    Task.Delay(TimeSpan.FromSeconds(10), token)\n                );\n\n                if (completed != connectTask)\n                {\n                    client.Close();\n                    token.ThrowIfCancellationRequested();\n                    throw new TimeoutException(\n                        \"Connection attempt timed out after 10 seconds.\"\n                    );\n                }\n\n                await connectTask;\n\n                if (\n                    token.IsCancellationRequested ||\n                    generation != _connectionGeneration)\n                {\n                    client.Close();\n                    return;\n                }\n\n                _tcpClient = client;";
-        if (!text.Contains(bodyOld, StringComparison.Ordinal))
-            throw new InvalidOperationException("ConnectAsync body was not found.");
-        text = text.Replace(bodyOld, bodyNew, StringComparison.Ordinal);
-
-        string finallyOld = "            finally\n            {\n                IsConnected =\n                    false;\n\n                lock (_connectionLock)\n                {\n                    _connectionRunning =\n                        false;\n                }\n            }";
-        string finallyNew = "            finally\n            {\n                lock (_connectionLock)\n                {\n                    if (generation == _connectionGeneration)\n                    {\n                        IsConnected = false;\n                        _connectionRunning = false;\n                    }\n                }\n            }";
-        if (!text.Contains(finallyOld, StringComparison.Ordinal))
-            throw new InvalidOperationException("ConnectAsync finally block was not found.");
-        text = text.Replace(finallyOld, finallyNew, StringComparison.Ordinal);
-
-        string disconnectOld = "        private void DisconnectInternal()\n        {";
-        string disconnectNew = "        private void DisconnectInternal()\n        {\n            _connectionGeneration++;";
-        if (!text.Contains(disconnectOld, StringComparison.Ordinal))
-            throw new InvalidOperationException("DisconnectInternal method was not found.");
-        text = text.Replace(disconnectOld, disconnectNew, StringComparison.Ordinal);
-
-        File.WriteAllText(path, text, new UTF8Encoding(false));
     }
 
     private static void CollectMembers(IEnumerable<MemberDeclarationSyntax> members, string namespaceName, List<string> inheritedUsings, string inputPath, List<DeclInfo> declarations, ref int order)
