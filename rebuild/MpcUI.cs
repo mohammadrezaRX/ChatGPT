@@ -7,7 +7,8 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
-using HarmonyLib;
+using TaleWorlds.CampaignSystem;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
@@ -16,7 +17,7 @@ using HarmonyLib;
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
-using TaleWorlds.CampaignSystem;
+using HarmonyLib;
 using BinaryReader = System.IO.BinaryReader;
 using HarmonyLib;
 using Helpers;
@@ -98,12 +99,14 @@ namespace MultiplayerCampaign
 
 
 
+
     internal static class MultiplayerUIStateManager
     {
         private static readonly MultiplayerUIState State = new MultiplayerUIState();
         public static MultiplayerUIState Current { get { return State; } }
         public static void Reset() { State.Reset(); }
     }
+
 
 
 
@@ -355,6 +358,7 @@ namespace MultiplayerCampaign
 
 
 
+
     [HarmonyPatch(typeof(InitialMenuVM), "RefreshMenuOptions")]
     public static class InitialMenuPatch
     {
@@ -386,6 +390,7 @@ namespace MultiplayerCampaign
             ScreenManager.PushScreen(ViewCreatorManager.CreateScreenView<MultiplayerCampaignScreen>());
         }
     }
+
 
 
 
