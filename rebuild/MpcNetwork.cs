@@ -4,13 +4,14 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
-using HarmonyLib;
+using TaleWorlds.CampaignSystem;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
-using TaleWorlds.CampaignSystem;
+using HarmonyLib;
 using BinaryReader = System.IO.BinaryReader;
 using HarmonyLib;
 using Helpers;
@@ -43,6 +44,7 @@ using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
+
 
 
 
@@ -630,6 +632,7 @@ internal sealed class HostClientConnection
 
 
 
+
 /*
  * ============================================================
  * NETWORK MESSAGE DATA
@@ -654,6 +657,7 @@ internal sealed class NetworkMessageData
             Array.Empty<byte>();
     }
 }
+
 
 
 
@@ -832,6 +836,7 @@ public static class MultiplayerSessionState
 
 
 
+
 // ============================================================
 // END OF CORRECTED SECTION
 // ============================================================
@@ -910,6 +915,7 @@ internal static class NetworkUtilities
 
 
 
+
 // ============================================================
 // REMOTE PLAYER SNAPSHOT MODEL
 // ============================================================
@@ -970,6 +976,7 @@ public sealed class NetworkPlayerSnapshot
             );
     }
 }
+
 
 
 
@@ -1058,6 +1065,7 @@ internal static class LocalPlayerNetworkSender
 
 
 
+
 // ============================================================
 // SESSION CONTROLLER
 // ============================================================
@@ -1124,6 +1132,7 @@ public static class MultiplayerSessionController
 
 
 
+
 // ============================================================
 // NETWORK STATE VALIDATOR
 // ============================================================
@@ -1177,6 +1186,7 @@ internal static class NetworkStateValidator
 
 
 
+
 // ============================================================
 // CONNECTION STATE
 // ============================================================
@@ -1199,6 +1209,7 @@ public enum MultiplayerConnectionState
 
     Disconnecting
 }
+
 
 
 
@@ -1277,6 +1288,7 @@ public static class MultiplayerConnectionStatus
 
 
 
+
 // ============================================================
 // SESSION ID
 // ============================================================
@@ -1314,6 +1326,7 @@ internal static class MultiplayerSessionId
         }
     }
 }
+
 
 
 
@@ -1425,6 +1438,7 @@ public static class MultiplayerSessionStartup
 
 
 
+
 // ============================================================
 // SESSION SHUTDOWN
 // ============================================================
@@ -1512,6 +1526,7 @@ public static class MultiplayerSessionShutdown
 
 
 
+
 // ============================================================
 // SAFE NETWORK SHUTDOWN HOOK
 // ============================================================
@@ -1561,6 +1576,7 @@ internal static class SafeNetworkShutdownHook
         }
     }
 }
+
 
 
 
@@ -1630,6 +1646,7 @@ public sealed class RemotePlayerSessionData
         Sequence = 0;
     }
 }
+
 
 
 
@@ -1775,6 +1792,7 @@ public static class RemoteSessionRegistry
         }
     }
 }
+
 
 
 
@@ -2037,6 +2055,7 @@ internal static class RemoteSessionProcessor
 
 
 
+
 // ============================================================
 // NETWORK UPDATE INTEGRATION
 // ============================================================
@@ -2102,6 +2121,7 @@ internal static class MultiplayerNetworkUpdateBridge
 
 
 
+
 // ============================================================
 // SESSION VALIDATOR
 // ============================================================
@@ -2144,6 +2164,7 @@ internal static class MultiplayerSessionValidator
         return true;
     }
 }
+
 
 
 
@@ -2257,6 +2278,7 @@ internal static class HostClientSnapshotHandler
         }
     }
 }
+
 
 
 
@@ -2393,6 +2415,7 @@ internal static class RemotePlayerNetworkAdapter
 
 
 
+
 // ============================================================
 // REMOTE PLAYER SESSION MAINTENANCE
 // ============================================================
@@ -2470,6 +2493,7 @@ internal static class RemotePlayerSessionMaintenance
         }
     }
 }
+
 
 
 
@@ -2566,6 +2590,7 @@ internal static class PlayerReadyPacket
         }
     }
 }
+
 
 
 
@@ -2776,6 +2801,7 @@ internal static class SessionHandshake
 
 
 
+
 // ============================================================
 // CONNECTION HANDSHAKE STATE
 // ============================================================
@@ -2897,6 +2923,7 @@ internal static class HandshakeState
 
 
 
+
 // ============================================================
 // NETWORK IDENTITY SERVICE
 // ============================================================
@@ -2951,6 +2978,7 @@ internal static class NetworkIdentityService
         }
     }
 }
+
 
 
 
@@ -3129,6 +3157,7 @@ internal static class NetworkPlayerSnapshotService
             false;
     }
 }
+
 
 
 
@@ -3332,6 +3361,7 @@ internal static class ClientNetworkMessageRouter
 
 
 
+
 // ============================================================
 // CAMPAIGN SESSION COORDINATOR
 // ============================================================
@@ -3476,6 +3506,7 @@ public static class CampaignSessionCoordinator
 
 
 
+
 // ============================================================
 // HOST CLIENT STATE
 // ============================================================
@@ -3531,6 +3562,7 @@ public sealed class HostClientState
             0;
     }
 }
+
 
 
 
@@ -3774,6 +3806,7 @@ internal static class HostClientStateRegistry
 
 
 
+
 // ============================================================
 // HOST CLIENT SNAPSHOT BROADCASTER
 // ============================================================
@@ -3939,6 +3972,7 @@ internal static class HostClientSnapshotBroadcaster
 
 
 
+
 // ============================================================
 // HOST CONNECTION EVENTS
 // ============================================================
@@ -4045,6 +4079,7 @@ internal static class HostConnectionEvents
 
 
 
+
 // ============================================================
 // CONNECTION MONITOR
 // ============================================================
@@ -4102,6 +4137,7 @@ internal static class MultiplayerConnectionMonitor
 
 
 
+
 // ============================================================
 // MASTER SESSION UPDATE
 // ============================================================
@@ -4148,6 +4184,7 @@ internal static class MasterSessionUpdate
             .Update();
     }
 }
+
 
 
 
@@ -4378,6 +4415,7 @@ internal static class FinalSessionReset
 
 
 
+
 // ============================================================
 // FINAL SESSION FLAGS
 // ============================================================
@@ -4482,6 +4520,7 @@ internal static class FinalSessionFlags
 
 
 
+
 // ============================================================
 // SESSION STATUS UPDATER
 // ============================================================
@@ -4557,6 +4596,7 @@ internal static class SessionStatusUpdater
             );
     }
 }
+
 
 
 
@@ -4804,6 +4844,7 @@ internal static class NetworkPacketProcessor
 
 
 
+
 // ============================================================
 // NETWORK UPDATE CONTROLLER
 // ============================================================
@@ -4842,6 +4883,7 @@ internal static class NetworkUpdateController
             );
     }
 }
+
 
 
 
@@ -4917,6 +4959,7 @@ internal static class NetworkUpdateController2
 
 
 
+
 // ============================================================
 // NETWORK CLIENT SEND OVERLOAD
 // ============================================================
@@ -4950,6 +4993,7 @@ internal static class NetworkClientSendAdapter
             );
     }
 }
+
 
 
 
@@ -5098,6 +5142,7 @@ internal static class MultiplayerPlayerConnectionEvents
 
 
 
+
 // ============================================================
 // SESSION JOIN PACKET
 // ============================================================
@@ -5199,6 +5244,7 @@ internal static class SessionJoinPacket
         }
     }
 }
+
 
 
 
@@ -5322,6 +5368,7 @@ internal static class SessionWelcomePacket
 
 
 
+
 // ============================================================
 // SESSION JOIN CONTROLLER
 // ============================================================
@@ -5406,6 +5453,7 @@ internal static class SessionJoinController
 
 
 
+
 // ============================================================
 // TWO PLAYER SESSION VALIDATOR
 // ============================================================
@@ -5456,6 +5504,7 @@ internal static class TwoPlayerSessionValidator
         return active < 1;
     }
 }
+
 
 
 
@@ -5572,6 +5621,7 @@ internal static class MultiplayerSessionDiagnostics
 
 
 
+
 // ============================================================
 // FINAL NETWORK SESSION CONTROLLER
 // ============================================================
@@ -5666,6 +5716,7 @@ public static class FinalNetworkSessionController
             .Execute();
     }
 }
+
 
 
 
@@ -5891,6 +5942,7 @@ internal static class FinalNetworkMessageRouter
         );
     }
 }
+
 
 
 
@@ -6173,6 +6225,7 @@ public static class FinalCampaignNetworkController
 
 
 
+
 // ============================================================
 // FINAL NETWORK HEALTH CHECK
 // ============================================================
@@ -6220,6 +6273,7 @@ internal static class FinalNetworkHealthCheck
             0f;
     }
 }
+
 
 
 
@@ -6363,6 +6417,7 @@ public static class FinalRemotePlayerSession
 
 
 
+
 // ============================================================
 // FINAL SESSION TICK
 // ============================================================
@@ -6454,6 +6509,7 @@ internal static class FinalSessionTick
 
 
 
+
 // ============================================================
 // FINAL CONNECTION ACCESSOR
 // ============================================================
@@ -6502,6 +6558,7 @@ public static class MultiplayerCampaignConnection
             .Execute();
     }
 }
+
 
 
 
@@ -7589,6 +7646,7 @@ public sealed class MultiplayerCampaignHost
 
 
 
+
 // ============================================================
 // PLAYER READY SERVICE
 // ============================================================
@@ -7627,6 +7685,7 @@ internal static class PlayerReadyService
         );
     }
 }
+
 
 
 
@@ -7745,6 +7804,7 @@ namespace MultiplayerCampaign
 
         WorldJoinAck = 13
     }
+
 
 
 
@@ -7879,12 +7939,14 @@ namespace MultiplayerCampaign
 
 
 
+
     internal sealed class NetworkMessage
     {
         public NetworkPacketType Type;
 
         public byte[] Payload;
     }
+
 
 
 
@@ -8722,6 +8784,7 @@ namespace MultiplayerCampaignRebuildLayer
             LocalPlayerState.SetDisplayName(name);
         }
     }
+
 
 
 

@@ -57,7 +57,6 @@ DECLARATION MAP:
 MultiplayerCampaign.CampaignMessageFeed -> MpcCampaign.cs
 MultiplayerCampaign.MultiplayerCampaignBehavior -> MpcCampaign.cs
 MultiplayerCampaign.CampaignWorld -> MpcCampaign.cs
-MultiplayerCampaign.MpcCharacterSlots -> MpcCore.cs
 .HostConsole -> MpcCore.cs
 .HostStateUpdateService -> MpcCore.cs
 .MasterCleanupRegistry -> MpcCore.cs
@@ -101,6 +100,7 @@ MultiplayerCampaign.MpcCharacterSlots -> MpcCore.cs
 .FinalTwoPlayerController -> MpcCore.cs
 .HostSnapshotBuilder -> MpcCore.cs
 .FinalWorldCheck -> MpcCore.cs
+MultiplayerCampaign.MpcCharacterSlots -> MpcCore.cs
 MultiplayerCampaign.MpcFinalOwnershipGuardV2 -> MpcCore.cs
 MultiplayerCampaign.MpcFinalRuntimeStatusV2 -> MpcCore.cs
 MultiplayerCampaign.MpcFinalCharacterSlotV2 -> MpcCore.cs
@@ -279,8 +279,8 @@ MultiplayerCampaignRebuildLayer.CharacterSlotStore -> MpcPlayers.cs
 .SafeCampaignSaveGuard -> MpcSaveRecovery.cs
 MultiplayerCampaign.MpcRecoveryRuntime -> MpcSaveRecovery.cs
 MultiplayerCampaign.MpcSaveTransferPatch -> MpcSaveRecovery.cs
-.MultiplayerUIState -> MpcUI.cs
-.MultiplayerUIStateManager -> MpcUI.cs
+MultiplayerCampaign.MultiplayerUIState -> MpcUI.cs
+MultiplayerCampaign.MultiplayerUIStateManager -> MpcUI.cs
 MultiplayerCampaign.MultiplayerCampaignVM -> MpcUI.cs
 MultiplayerCampaign.InitialMenuPatch -> MpcUI.cs
 MultiplayerCampaign.MultiplayerCampaignScreen -> MpcUI.cs
