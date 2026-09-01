@@ -1,6 +1,8 @@
 using System;
 using HarmonyLib;
+using SandBox;
 using TaleWorlds.Core;
+using TaleWorlds.CampaignSystem.CharacterCreationContent;
 using TaleWorlds.MountAndBlade;
 
 namespace MultiplayerCampaign
@@ -10,7 +12,8 @@ namespace MultiplayerCampaign
         public static void OpenNativeCharacterCreation()
         {
             CharacterCreationState state =
-                Game.Current.GameStateManager.CreateState<CharacterCreationState>();
+                Game.Current.GameStateManager.CreateState<CharacterCreationState>(
+                    new object[] { new SandboxCharacterCreationContent() });
 
             Game.Current.GameStateManager.CleanAndPushState(state, 0);
         }
@@ -33,9 +36,7 @@ namespace MultiplayerCampaign
                 type.GetProperty("ShowJoin")?.SetValue(__instance, false, null);
                 __instance.SetStatus("SELECT A SLOT, THEN OPEN BANNERLORD CHARACTER CREATOR");
             }
-            catch
-            {
-            }
+            catch { }
 
             return false;
         }
@@ -70,16 +71,16 @@ namespace MultiplayerCampaign
         {
             try
             {
+                if (__instance == null ||
+                    __instance.CharacterCreationManager == null ||
+                    __instance.CharacterCreationManager.CharacterCreationContent == null)
+                    return;
+
                 int slot = MpcCharacterSlots.SelectedSlot;
                 if (slot < 0)
                 {
                     MpcCharacterSlots.Select(0);
                 }
-
-                if (__instance == null ||
-                    __instance.CharacterCreationManager == null ||
-                    __instance.CharacterCreationManager.CharacterCreationContent == null)
-                    return;
 
                 string name = __instance.CharacterCreationManager.CharacterCreationContent.MainCharacterName;
                 if (string.IsNullOrWhiteSpace(name))
@@ -88,9 +89,7 @@ namespace MultiplayerCampaign
                 MpcCharacterSlots.SaveSelected(name);
                 LocalPlayerState.SetDisplayName(name);
             }
-            catch
-            {
-            }
+            catch { }
         }
     }
 }
