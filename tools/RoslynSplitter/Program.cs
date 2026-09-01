@@ -3,97 +3,78 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Text;
 
-if (args.Length < 4)
-    throw new ArgumentException("Usage: ThematicSplitter <source.cs> <recovery.cs> <output-dir> <main-source-name>");
+if (args.Length < 3)
+    throw new ArgumentException("Usage: ThematicSplitter <source.cs> <output-dir> [recovery.cs]");
 
 var sourcePath = Path.GetFullPath(args[0]);
-var recoveryPath = Path.GetFullPath(args[1]);
-var outputDir = Path.GetFullPath(args[2]);
-var mainSourceName = args[3];
+var outputDir = Path.GetFullPath(args[1]);
+var recoveryPath = args.Length >= 3 ? Path.GetFullPath(args[2]) : null;
 
-Directory.CreateDirectory(outputDir);
-foreach (var f in Directory.EnumerateFiles(outputDir, "*.cs", SearchOption.TopDirectoryOnly))
-    File.Delete(f);
+var sourceText = await File.ReadAllTextAsync(sourcePath, Encoding.UTF8);
+var inputs = new List<(string Path, string Text)> { (sourcePath, sourceText) };
+if (!string.IsNullOrWhiteSpace(recoveryPath) && File.Exists(recoveryPath))
+    inputs.Add((recoveryPath, await File.ReadAllTextAsync(recoveryPath, Encoding.UTF8)));
 
-var inputFiles = new[] { sourcePath, recoveryPath };
 var allDecls = new List<DeclInfo>();
-var globalUsingTexts = new SortedSet<string>(StringComparer.Ordinal);
-var globalExternTexts = new SortedSet<string>(StringComparer.Ordinal);
-var sourceIndex = 0;
+var globalUsings = new SortedSet<string>(StringComparer.Ordinal);
+var globalExterns = new SortedSet<string>(StringComparer.Ordinal);
+var ordinal = 0;
 
-foreach (var input in inputFiles)
+foreach (var input in inputs)
 {
-    var text = await File.ReadAllTextAsync(input, Encoding.UTF8);
-    var tree = CSharpSyntaxTree.ParseText(text, new CSharpParseOptions(LanguageVersion.Latest));
-    var errors = tree.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
-    if (errors.Count > 0)
+    var tree = CSharpSyntaxTree.ParseText(input.Text, new CSharpParseOptions(LanguageVersion.Latest));
+    var parseErrors = tree.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+    if (parseErrors.Count > 0)
     {
-        Console.WriteLine($"SOURCE_PARSE_ERRORS in {Path.GetFileName(input)} = {errors.Count}");
-        foreach (var d in errors.Take(50)) Console.WriteLine(d.ToString());
+        Console.WriteLine($"SOURCE_PARSE_ERRORS={parseErrors.Count} FILE={Path.GetFileName(input.Path)}");
+        foreach (var error in parseErrors.Take(50)) Console.WriteLine(error);
         return 2;
     }
 
-    var root = await tree.GetRootAsync();
-    foreach (var ext in root.ChildNodes().OfType<ExternAliasDirectiveSyntax>())
-        globalExternTexts.Add(ext.ToFullString().TrimEnd());
-    foreach (var u in root.ChildNodes().OfType<UsingDirectiveSyntax>())
-        globalUsingTexts.Add(u.ToFullString().TrimEnd());
+    var root = tree.GetCompilationUnitRoot();
+    foreach (var ext in root.Externs)
+        globalExterns.Add(ext.ToFullString().TrimEnd());
+    foreach (var use in root.Usings)
+        globalUsings.Add(use.ToFullString().TrimEnd());
 
-    Collect(root.ChildNodes().OfType<MemberDeclarationSyntax>(), "", new List<string>(), input);
-    sourceIndex++;
+    CollectMembers(root.Members, "", new List<string>(), input.Path);
 }
 
-void Collect(IEnumerable<MemberDeclarationSyntax> members, string ns, List<string> inheritedUsings, string input)
+void CollectMembers(IEnumerable<MemberDeclarationSyntax> members, string namespaceName, List<string> inheritedUsings, string inputPath)
 {
     var localUsings = new List<string>(inheritedUsings);
 
     foreach (var member in members)
     {
-        if (member is UsingDirectiveSyntax u)
-        {
-            localUsings.Add(u.ToFullString().TrimEnd());
-            continue;
-        }
-
-        if (member is NamespaceDeclarationSyntax blockNs)
+        if (member is NamespaceDeclarationSyntax ns)
         {
             var nestedUsings = new List<string>(localUsings);
-            nestedUsings.AddRange(blockNs.Members.OfType<UsingDirectiveSyntax>().Select(x => x.ToFullString().TrimEnd()));
-            Collect(blockNs.Members, CombineNamespace(ns, blockNs.Name.ToString()), nestedUsings, input);
+            nestedUsings.AddRange(ns.Usings.Select(x => x.ToFullString().TrimEnd()));
+            CollectMembers(ns.Members, CombineNamespace(namespaceName, ns.Name.ToString()), nestedUsings, inputPath);
             continue;
         }
 
-        if (member is FileScopedNamespaceDeclarationSyntax fileNs)
+        if (member is FileScopedNamespaceDeclarationSyntax fns)
         {
             var nestedUsings = new List<string>(localUsings);
-            nestedUsings.AddRange(fileNs.Members.OfType<UsingDirectiveSyntax>().Select(x => x.ToFullString().TrimEnd()));
-            Collect(fileNs.Members, CombineNamespace(ns, fileNs.Name.ToString()), nestedUsings, input);
+            nestedUsings.AddRange(fns.Usings.Select(x => x.ToFullString().TrimEnd()));
+            CollectMembers(fns.Members, CombineNamespace(namespaceName, fns.Name.ToString()), nestedUsings, inputPath);
             continue;
         }
 
-        if (member is BaseTypeDeclarationSyntax baseType)
+        if (member is BaseTypeDeclarationSyntax type)
         {
-            var name = GetIdentifier(baseType);
-            if (name == null) continue;
-            allDecls.Add(new DeclInfo(
-                ns,
-                name,
-                member.ToFullString(),
-                Distinct(localUsings),
-                input,
-                allDecls.Count));
+            var name = GetIdentifier(type);
+            if (name != null)
+            {
+                allDecls.Add(new DeclInfo(namespaceName, name, member.ToFullString(), Distinct(localUsings), inputPath, ordinal++));
+            }
             continue;
         }
 
         if (member is DelegateDeclarationSyntax del)
         {
-            allDecls.Add(new DeclInfo(
-                ns,
-                del.Identifier.Text,
-                member.ToFullString(),
-                Distinct(localUsings),
-                input,
-                allDecls.Count));
+            allDecls.Add(new DeclInfo(namespaceName, del.Identifier.Text, member.ToFullString(), Distinct(localUsings), inputPath, ordinal++));
         }
     }
 }
@@ -114,7 +95,8 @@ static string? GetIdentifier(BaseTypeDeclarationSyntax type)
 
 static string Classify(DeclInfo d)
 {
-    if (d.Name.Equals("MultiplayerCampaignSubModule", StringComparison.Ordinal)) return "MultiplayerCampaignSubModule.cs";
+    if (d.Name.Equals("MultiplayerCampaignSubModule", StringComparison.Ordinal))
+        return "MultiplayerCampaignSubModule.cs";
 
     var n = d.Name;
     var lower = n.ToLowerInvariant();
@@ -123,7 +105,7 @@ static string Classify(DeclInfo d)
     if (lower.Contains("ui") || lower.Contains("gui") || lower.Contains("screen") || lower.Contains("viewmodel") || lower.Contains("menu"))
         return "MpcUI.cs";
 
-    if (lower.Contains("save") || lower.Contains("recovery") || lower.Contains("load"))
+    if (lower.Contains("save") || lower.Contains("recovery") || lower.Contains("load") || text.Contains("MCC_Transfer", StringComparison.Ordinal) || text.Contains("WriteTransferSave", StringComparison.Ordinal))
         return "MpcSaveRecovery.cs";
 
     if (lower.Contains("patch") || text.Contains("HarmonyPatch", StringComparison.Ordinal))
@@ -147,79 +129,130 @@ static string Classify(DeclInfo d)
     return "MpcCore.cs";
 }
 
-var grouped = allDecls
-    .GroupBy(d => (File: Classify(d), Namespace: d.Namespace), d => d)
-    .OrderBy(g => g.Key.File, StringComparer.OrdinalIgnoreCase)
-    .ThenBy(g => g.Key.Namespace, StringComparer.OrdinalIgnoreCase)
-    .ToList();
+var groups = allDecls.GroupBy(Classify, StringComparer.OrdinalIgnoreCase).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase).ToList();
 
-var expected = allDecls.Count;
-var emitted = 0;
-var duplicateKeys = allDecls
-    .GroupBy(d => (d.Namespace, d.Name))
-    .Where(g => g.Count() > 1)
-    .Select(g => $"{g.Key.Namespace}.{g.Key.Name} x{g.Count()}")
-    .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-    .ToList();
-
-foreach (var fileGroup in grouped.GroupBy(g => g.Key.File, StringComparer.OrdinalIgnoreCase))
+var targetFiles = new[]
 {
-    var sb = new StringBuilder();
-    sb.AppendLine("// Modularized from MultiplayerCampaignSubModule.cs; declarations preserved and grouped by responsibility.");
-    foreach (var ext in globalExternTexts) sb.AppendLine(ext);
-    foreach (var u in globalUsingTexts) sb.AppendLine(u);
-    sb.AppendLine();
+    "MultiplayerCampaignSubModule.cs",
+    "MpcCore.cs",
+    "MpcNetwork.cs",
+    "MpcWorld.cs",
+    "MpcPlayers.cs",
+    "MpcCampaign.cs",
+    "MpcParty.cs",
+    "MpcUI.cs",
+    "MpcSaveRecovery.cs",
+    "MpcPatches.cs"
+};
 
-    foreach (var nsGroup in fileGroup.OrderBy(g => g.Key.Namespace, StringComparer.OrdinalIgnoreCase))
-    {
-        if (!string.IsNullOrWhiteSpace(nsGroup.Key.Namespace))
-        {
-            sb.Append("namespace ").Append(nsGroup.Key.Namespace).AppendLine();
-            sb.AppendLine("{");
-        }
-
-        foreach (var usingText in nsGroup.SelectMany(x => x.SelectMany(d => d.Usings)).Distinct(StringComparer.Ordinal))
-        {
-            if (!globalUsingTexts.Contains(usingText)) sb.AppendLine(usingText);
-        }
-
-        foreach (var d in nsGroup.OrderBy(x => x.Order))
-        {
-            sb.AppendLine(d.Text.TrimEnd());
-            sb.AppendLine();
-            emitted++;
-        }
-
-        if (!string.IsNullOrWhiteSpace(nsGroup.Key.Namespace)) sb.AppendLine("}");
-        sb.AppendLine();
-    }
-
-    File.WriteAllText(Path.Combine(outputDir, fileGroup.Key), sb.ToString(), new UTF8Encoding(false));
+Directory.CreateDirectory(outputDir);
+foreach (var file in targetFiles)
+{
+    var path = Path.Combine(outputDir, file);
+    if (File.Exists(path)) File.Delete(path);
 }
 
-if (emitted != expected)
-    throw new InvalidOperationException($"Declaration preservation failed: expected {expected}, emitted {emitted}.");
+var oldSplit = Path.Combine(outputDir, "split");
+if (Directory.Exists(oldSplit)) Directory.Delete(oldSplit, true);
 
-var mainPath = Path.Combine(outputDir, mainSourceName);
-if (!File.Exists(mainPath))
-    throw new InvalidOperationException("Main submodule output was not generated.");
+foreach (var file in targetFiles)
+{
+    var group = groups.FirstOrDefault(g => string.Equals(g.Key, file, StringComparison.OrdinalIgnoreCase));
+    var sb = new StringBuilder();
+    sb.AppendLine("// Thematic MPC module. Original declarations are preserved and grouped by responsibility.");
+    foreach (var ext in globalExterns) sb.AppendLine(ext);
+    foreach (var use in globalUsings) sb.AppendLine(use);
+    sb.AppendLine();
+
+    if (group != null)
+    {
+        foreach (var nsGroup in group.GroupBy(d => d.Namespace, StringComparer.OrdinalIgnoreCase).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(nsGroup.Key))
+            {
+                sb.Append("namespace ").Append(nsGroup.Key).AppendLine();
+                sb.AppendLine("{");
+            }
+
+            foreach (var decl in nsGroup.OrderBy(d => d.Order))
+            {
+                sb.AppendLine(decl.Text.TrimEnd());
+                sb.AppendLine();
+            }
+
+            if (!string.IsNullOrWhiteSpace(nsGroup.Key)) sb.AppendLine("}");
+            sb.AppendLine();
+        }
+    }
+
+    if (group != null)
+        File.WriteAllText(Path.Combine(outputDir, file), sb.ToString(), new UTF8Encoding(false));
+}
+
+var expectedKeys = allDecls.GroupBy(d => (d.Namespace, d.Name)).ToDictionary(g => g.Key, g => g.Count());
+var emittedDecls = new List<DeclInfo>();
+foreach (var file in targetFiles)
+{
+    var path = Path.Combine(outputDir, file);
+    if (!File.Exists(path)) continue;
+    var tree = CSharpSyntaxTree.ParseText(await File.ReadAllTextAsync(path, Encoding.UTF8), new CSharpParseOptions(LanguageVersion.Latest));
+    emittedDecls.AddRange(ExtractDecls(tree.GetCompilationUnitRoot(), file));
+}
+
+static IEnumerable<DeclInfo> ExtractDecls(CompilationUnitSyntax root, string outputFile)
+{
+    var result = new List<DeclInfo>();
+    void Visit(IEnumerable<MemberDeclarationSyntax> members, string ns)
+    {
+        foreach (var member in members)
+        {
+            if (member is NamespaceDeclarationSyntax n)
+            {
+                Visit(n.Members, CombineNamespace(ns, n.Name.ToString()));
+                continue;
+            }
+            if (member is FileScopedNamespaceDeclarationSyntax f)
+            {
+                Visit(f.Members, CombineNamespace(ns, f.Name.ToString()));
+                continue;
+            }
+            if (member is BaseTypeDeclarationSyntax type)
+            {
+                var id = GetIdentifier(type);
+                if (id != null) result.Add(new DeclInfo(ns, id, "", new List<string>(), outputFile, 0));
+                continue;
+            }
+            if (member is DelegateDeclarationSyntax del)
+                result.Add(new DeclInfo(ns, del.Identifier.Text, "", new List<string>(), outputFile, 0));
+        }
+    }
+    Visit(root.Members, "");
+    return result;
+}
+
+var actualKeys = emittedDecls.GroupBy(d => (d.Namespace, d.Name)).ToDictionary(g => g.Key, g => g.Count());
+if (expectedKeys.Count != actualKeys.Count || expectedKeys.Any(kv => !actualKeys.TryGetValue(kv.Key, out var count) || count != kv.Value))
+    throw new InvalidOperationException("Declaration preservation failed: source and generated type multisets differ.");
+
+var mainPath = Path.Combine(outputDir, "MultiplayerCampaignSubModule.cs");
+if (!File.Exists(mainPath)) throw new InvalidOperationException("Main submodule was not generated.");
 
 var map = new StringBuilder();
-map.AppendLine("THEMATIC MODULARIZATION MAP");
-map.AppendLine($"DECLARATIONS={expected}");
-map.AppendLine($"EMITTED={emitted}");
-map.AppendLine($"FILES={grouped.Select(g => g.Key.File).Distinct(StringComparer.OrdinalIgnoreCase).Count()}");
+map.AppendLine("THEMATIC MPC REFACTOR");
+map.AppendLine($"DECLARATIONS={allDecls.Count}");
+map.AppendLine($"EMITTED={emittedDecls.Count}");
+map.AppendLine($"FILES={groups.Count}");
 map.AppendLine();
-foreach (var d in allDecls.OrderBy(d => d.Order))
-    map.AppendLine($"{d.Namespace}.{d.Name} -> {Classify(d)}");
+map.AppendLine("FILES:");
+foreach (var g in groups) map.AppendLine(g.Key);
 map.AppendLine();
-map.AppendLine("DUPLICATE DECLARATIONS:");
-foreach (var x in duplicateKeys) map.AppendLine(x);
-await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(outputDir)!, "REFACTOR_MAP.txt"), map.ToString(), new UTF8Encoding(false));
+map.AppendLine("DECLARATION MAP:");
+foreach (var d in allDecls.OrderBy(d => d.Order)) map.AppendLine($"{d.Namespace}.{d.Name} -> {Classify(d)}");
 
+await File.WriteAllTextAsync(Path.Combine(outputDir, "REFACTOR_MAP.txt"), map.ToString(), new UTF8Encoding(false));
+await File.WriteAllTextAsync(Path.Combine(outputDir, "BUILD_BASELINE.txt"), $"Declarations preserved: {allDecls.Count}\nFiles generated: {groups.Count}\n", new UTF8Encoding(false));
 Console.WriteLine(map.ToString());
-Console.WriteLine($"MODULAR_FILES={grouped.Select(g => g.Key.File).Distinct(StringComparer.OrdinalIgnoreCase).Count()}");
-Console.WriteLine($"DECLARATIONS={expected}");
-Console.WriteLine($"EMITTED={emitted}");
-
-record DeclInfo(string Namespace, string Name, string Text, List<string> Usings, string SourceFile, int Order);
+Console.WriteLine($"MODULAR_FILES={groups.Count}");
+Console.WriteLine($"DECLARATIONS={allDecls.Count}");
+Console.WriteLine($"EMITTED={emittedDecls.Count}");
+return 0;
