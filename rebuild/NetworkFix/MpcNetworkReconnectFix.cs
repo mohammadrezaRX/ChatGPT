@@ -4,7 +4,6 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using HarmonyLib;
-using TaleWorlds.Library;
 
 namespace MultiplayerCampaign
 {
@@ -12,6 +11,7 @@ namespace MultiplayerCampaign
     {
         private static readonly object Sync = new object();
         private static int Generation;
+        private static CancellationTokenSource ActiveCts;
 
         public static void Start(MultiplayerNetworkClient client, string ip)
         {
@@ -29,12 +29,14 @@ namespace MultiplayerCampaign
 
             lock (Sync)
             {
-                generation = ++Generation;
                 CancelAndClose(client);
+                generation = ++Generation;
 
                 ResetNetworkState();
 
                 cts = new CancellationTokenSource();
+                ActiveCts = cts;
+
                 SetField(client, "_cts", cts);
                 SetField(client, "_connectionRunning", true);
                 SetField(client, "_worldReady", false);
@@ -54,6 +56,8 @@ namespace MultiplayerCampaign
             lock (Sync)
             {
                 ++Generation;
+                ActiveCts = null;
+
                 CancelAndClose(client);
                 SetField(client, "_connectionRunning", false);
                 SetField(client, "_worldReady", false);
@@ -126,6 +130,8 @@ namespace MultiplayerCampaign
                 if (IsCurrent(generation, cts))
                 {
                     SetPropertyBackingField(client, "IsConnected", false);
+                    SetField(client, "_connectionRunning", false);
+                    TrySetConnectionState(MultiplayerConnectionState.Disconnected);
                     SetStatus(client, "CONNECTION FAILED: " + ex.Message);
                     WriteConsole("[!] TCP connection error: " + ex.Message);
                 }
@@ -144,6 +150,8 @@ namespace MultiplayerCampaign
                         {
                             SetField(client, "_stream", null);
                             SetField(client, "_tcpClient", null);
+                            SetField(client, "_cts", null);
+                            ActiveCts = null;
                         }
 
                         TrySetConnectionState(MultiplayerConnectionState.Disconnected);
@@ -159,13 +167,8 @@ namespace MultiplayerCampaign
             lock (Sync)
             {
                 return generation == Generation &&
-                       ReferenceEquals(CurrentCancellation(), cts);
+                       ReferenceEquals(ActiveCts, cts);
             }
-        }
-
-        private static CancellationTokenSource CurrentCancellation()
-        {
-            return null;
         }
 
         private static void CancelAndClose(MultiplayerNetworkClient client)
@@ -215,6 +218,7 @@ namespace MultiplayerCampaign
             FieldInfo field = AccessTools.Field(instance.GetType(), name);
             if (field == null)
                 return default(T);
+
             object value = field.GetValue(instance);
             return value is T typed ? typed : default(T);
         }
@@ -236,6 +240,7 @@ namespace MultiplayerCampaign
                 FieldInfo field = AccessTools.Field(
                     instance.GetType(),
                     "<" + propertyName + ">k__BackingField");
+
                 field?.SetValue(instance, value);
             }
             catch { }
@@ -251,7 +256,10 @@ namespace MultiplayerCampaign
             catch { }
         }
 
-        private static Task InvokePrivateTask(object instance, string methodName, CancellationToken token)
+        private static Task InvokePrivateTask(
+            object instance,
+            string methodName,
+            CancellationToken token)
         {
             try
             {
@@ -260,7 +268,10 @@ namespace MultiplayerCampaign
                     methodName,
                     new[] { typeof(CancellationToken) });
 
-                object result = method?.Invoke(instance, new object[] { token });
+                object result = method?.Invoke(
+                    instance,
+                    new object[] { token });
+
                 return result as Task;
             }
             catch
