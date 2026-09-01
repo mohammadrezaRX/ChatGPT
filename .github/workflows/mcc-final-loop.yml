@@ -53,6 +53,24 @@ jobs:
             throw "Thematic splitter did not produce REFACTOR_MAP.txt"
           }
 
+      - name: Normalize generated using directives
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem rebuild -Filter *.cs -File | ForEach-Object {
+            $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+            $output = New-Object System.Collections.Generic.List[string]
+            foreach ($line in [System.IO.File]::ReadAllLines($_.FullName)) {
+              if ($line -match '^\s*using\s+[^;]+;\s*$') {
+                $key = $line.Trim()
+                if (!$seen.Add($key)) { continue }
+              }
+              [void]$output.Add($line)
+            }
+            [System.IO.File]::WriteAllLines($_.FullName, $output, (New-Object System.Text.UTF8Encoding($false)))
+          }
+          Write-Host "Normalized duplicate using directives."
+
       - name: Verify source layout
         shell: pwsh
         run: |
