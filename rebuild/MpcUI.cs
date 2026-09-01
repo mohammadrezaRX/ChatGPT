@@ -109,6 +109,11 @@ namespace MultiplayerCampaign
             set { if (_statusText == value) return; _statusText = value; OnPropertyChangedWithValue(value, nameof(StatusText)); }
         }
 
+        public void SetStatus(string text)
+        {
+            StatusText = text;
+        }
+
         [DataSourceProperty]
         public bool ShowMain
         {
@@ -186,7 +191,7 @@ namespace MultiplayerCampaign
 
         private void SelectCharacterSlot(int slot)
         {
-            if (!MpcCharacterSlots.Select(slot)) return;
+            MpcCharacterSlots.Select(slot);
             CharacterName = MpcCharacterSlots.GetName(slot);
             if (CharacterName == "Empty Slot") CharacterName = "";
             RefreshCharacterBindings();
