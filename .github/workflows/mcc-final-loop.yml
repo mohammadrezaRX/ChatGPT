@@ -48,7 +48,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          dotnet run --project tools/RoslynSplitter/RoslynSplitter.csproj -- rebuild/MultiplayerCampaignSubModule.cs rebuild rebuild/MpcConnectionRecoveryFix.cs
+          dotnet run --project tools/RoslynSplitter/RoslynSplitter.csproj -- rebuild rebuild
           if (!(Test-Path "rebuild/REFACTOR_MAP.txt")) {
             throw "Thematic splitter did not produce REFACTOR_MAP.txt"
           }
@@ -67,6 +67,13 @@ jobs:
           $map = Get-Content "rebuild/REFACTOR_MAP.txt" -Raw
           if ($map -notmatch 'DECLARATIONS=\d+') { throw "REFACTOR_MAP declaration count missing." }
           if ($map -notmatch 'EMITTED=\d+') { throw "REFACTOR_MAP emitted count missing." }
+          if ($map -notmatch 'FILES=10') { throw "Thematic layout is not exactly 10 files." }
+          if ($map -notmatch 'MultiplayerCampaign\.MultiplayerCampaignBehavior -> MpcCampaign\.cs') { throw "Campaign behavior is not in MpcCampaign.cs." }
+          if ($map -notmatch 'MultiplayerCampaign\.MultiplayerCampaignVM -> MpcUI\.cs') { throw "Campaign UI VM is not in MpcUI.cs." }
+          if ($map -notmatch 'MultiplayerCampaign\.MultiplayerNetworkClient -> MpcNetwork\.cs') { throw "Network client is not in MpcNetwork.cs." }
+          if ($map -notmatch 'MultiplayerCampaign\.MultiplayerCampaignHost -> MpcNetwork\.cs') { throw "Campaign host network service is not in MpcNetwork.cs." }
+          if ($map -notmatch '\.RemotePlayerManager -> MpcPlayers\.cs') { throw "RemotePlayerManager is not in MpcPlayers.cs." }
+          if ($map -notmatch 'MultiplayerCampaign\.MpcRecoveryRuntime -> MpcSaveRecovery\.cs') { throw "Recovery runtime is not in MpcSaveRecovery.cs." }
 
       - name: Restore
         shell: pwsh
