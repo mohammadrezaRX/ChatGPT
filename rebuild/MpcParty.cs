@@ -2,15 +2,17 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-
-using TaleWorlds.CampaignSystem;
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
 using HarmonyLib;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using TaleWorlds.CampaignSystem;
 using BinaryReader = System.IO.BinaryReader;
+using HarmonyLib;
 using Helpers;
 using MultiplayerCampaign;
 using SandBox;
@@ -29,8 +31,10 @@ using System;
 using TaleWorlds.CampaignSystem.Actions;
 using TaleWorlds.CampaignSystem.CharacterCreationContent;
 using TaleWorlds.CampaignSystem.Party;
+using TaleWorlds.CampaignSystem;
 using TaleWorlds.Core;
 using TaleWorlds.Engine.GauntletUI;
+using TaleWorlds.GauntletUI;
 using TaleWorlds.Library;
 using TaleWorlds.Localization;
 using TaleWorlds.MountAndBlade.View;
@@ -39,6 +43,7 @@ using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
+
 
 
 
@@ -187,6 +192,7 @@ internal static class CampaignMapRemotePartyCache
 
 
 
+
 // ============================================================
 // REMOTE PLAYER PARTY SIZE REGISTRY
 // ============================================================
@@ -292,6 +298,7 @@ public static class RemotePlayerPartyRegistry
 
 
 
+
 // ============================================================
 // REMOTE PLAYER PARTY SERVICE
 // ============================================================
@@ -339,6 +346,7 @@ internal static class RemotePlayerPartyService
             );
     }
 }
+
 
 
 

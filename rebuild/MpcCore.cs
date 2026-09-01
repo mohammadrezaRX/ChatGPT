@@ -2,15 +2,17 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-
-using TaleWorlds.CampaignSystem;
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
 using HarmonyLib;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using TaleWorlds.CampaignSystem;
 using BinaryReader = System.IO.BinaryReader;
+using HarmonyLib;
 using Helpers;
 using MultiplayerCampaign;
 using SandBox;
@@ -29,8 +31,10 @@ using System;
 using TaleWorlds.CampaignSystem.Actions;
 using TaleWorlds.CampaignSystem.CharacterCreationContent;
 using TaleWorlds.CampaignSystem.Party;
+using TaleWorlds.CampaignSystem;
 using TaleWorlds.Core;
 using TaleWorlds.Engine.GauntletUI;
+using TaleWorlds.GauntletUI;
 using TaleWorlds.Library;
 using TaleWorlds.Localization;
 using TaleWorlds.MountAndBlade.View;
@@ -39,6 +43,7 @@ using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
+
 
 
 
@@ -112,6 +117,7 @@ internal static class HostConsole
         }
     }
 }
+
 
 
 
@@ -304,6 +310,7 @@ internal static class HostStateUpdateService
 
 
 
+
 // ============================================================
 // MASTER CLEANUP REGISTRY
 // ============================================================
@@ -484,6 +491,7 @@ internal static class MasterCleanupRegistry
         }
     }
 }
+
 
 
 
@@ -776,6 +784,7 @@ internal static class FinalStateCleanup
 
 
 
+
 // ============================================================
 // SAFE PLAYER POSITION APPLICATION
 // ============================================================
@@ -844,6 +853,7 @@ internal static class SafeRemotePositionApplication
 
 
 
+
 // ============================================================
 // FINAL ERROR GUARD
 // ============================================================
@@ -885,6 +895,7 @@ internal static class FinalErrorGuard
         }
     }
 }
+
 
 
 
@@ -976,6 +987,7 @@ internal static class FinalSubModuleState
 
 
 
+
 // ============================================================
 // FINAL HOST UPDATE
 // ============================================================
@@ -1009,6 +1021,7 @@ internal static class FinalHostUpdate
         host.Update();
     }
 }
+
 
 
 
@@ -1054,6 +1067,7 @@ internal static class FinalMasterUpdateV2
             .Update();
     }
 }
+
 
 
 
@@ -1165,6 +1179,7 @@ internal static class FinalResetV2
 
 
 
+
 // ============================================================
 // FINAL SAFE MAP UPDATE
 // ============================================================
@@ -1198,6 +1213,7 @@ internal static class FinalSafeMapUpdate
             );
     }
 }
+
 
 
 
@@ -1533,6 +1549,7 @@ internal static class FinalGlobalReset
 
 
 
+
 // ============================================================
 // FINAL ERROR REPORTER
 // ============================================================
@@ -1562,6 +1579,7 @@ internal static class FinalErrorReporter
         );
     }
 }
+
 
 
 
@@ -1617,6 +1635,7 @@ internal static class FinalSafeExecution
         }
     }
 }
+
 
 
 
@@ -1759,6 +1778,7 @@ internal static class FinalRemoteMapState
 
 
 
+
 // ============================================================
 // FINAL MOD LIFECYCLE
 // ============================================================
@@ -1876,6 +1896,7 @@ internal static class FinalModLifecycle
 
 
 
+
 // ============================================================
 // FINAL MASTER SERVICE
 // ============================================================
@@ -1940,6 +1961,7 @@ public static class FinalMasterService
             .Execute();
     }
 }
+
 
 
 
@@ -2306,6 +2328,7 @@ internal static class UltimateCleanup
 
 
 
+
 // ============================================================
 // FINAL HOST STATE EXPORT
 // ============================================================
@@ -2399,6 +2422,7 @@ internal static class HostStateExporter
 
 
 
+
 // ============================================================
 // FINAL CLIENT STATE IMPORT
 // ============================================================
@@ -2468,6 +2492,7 @@ internal static class ClientStateImporter
 
 
 
+
 // ============================================================
 // FINAL REMOTE PLAYER VALIDATOR
 // ============================================================
@@ -2519,6 +2544,7 @@ internal static class FinalRemoteValidator
         return true;
     }
 }
+
 
 
 
@@ -2606,6 +2632,7 @@ internal static class FinalSubmoduleCallback
 
 
 
+
 // ============================================================
 // FINAL SAFETY CHECK
 // ============================================================
@@ -2662,6 +2689,7 @@ internal static class FinalSafetyCheck
                     state.CurrentPosition.Y);
     }
 }
+
 
 
 
@@ -2788,6 +2816,7 @@ internal static class FinalShutdown
 
 
 
+
 /*
  * ============================================================
  * FINAL CLEANUP
@@ -2857,6 +2886,7 @@ internal static class MultiplayerCleanup
 
 
 
+
 // ============================================================
 // CLIENT SNAPSHOT RECEIVE
 // ============================================================
@@ -2888,6 +2918,7 @@ internal static class RemoteSnapshotProcessor
         );
     }
 }
+
 
 
 
@@ -3035,6 +3066,7 @@ internal static class RemoteSnapshotDecoder
 
 
 
+
 // ============================================================
 // HOST PLAYER STATE
 // ============================================================
@@ -3113,6 +3145,7 @@ public sealed class HostPlayerState
         }
     }
 }
+
 
 
 
@@ -3326,6 +3359,7 @@ public static class HostPlayerRegistry
 
 
 
+
 // ============================================================
 // HOST PLAYER SNAPSHOT SERVICE
 // ============================================================
@@ -3399,6 +3433,7 @@ internal static class HostPlayerSnapshotService
         }
     }
 }
+
 
 
 
@@ -3532,6 +3567,7 @@ internal static class HostPlayerSnapshotCache
 
 
 
+
 // ============================================================
 // HOST PLAYER SNAPSHOT PROCESSOR
 // ============================================================
@@ -3603,6 +3639,7 @@ internal static class HostPlayerSnapshotProcessor
 
 
 
+
 // ============================================================
 // CLIENT REMOTE SNAPSHOT PROCESSOR
 // ============================================================
@@ -3657,6 +3694,7 @@ internal static class ClientRemoteSnapshotProcessor
             );
     }
 }
+
 
 
 
@@ -3743,6 +3781,7 @@ internal static class PlayerJoinService
 
 
 
+
 // ============================================================
 // PLAYER JOIN VALIDATOR
 // ============================================================
@@ -3793,6 +3832,7 @@ internal static class PlayerJoinValidator
                 );
     }
 }
+
 
 
 
@@ -3947,6 +3987,7 @@ internal static class ClientPlayerStateSender
 
 
 
+
 // ============================================================
 // FINAL PLAYER SYNC SERVICE
 // ============================================================
@@ -3983,6 +4024,7 @@ public static class FinalPlayerSyncService
             .Reset();
     }
 }
+
 
 
 
@@ -4095,6 +4137,7 @@ internal static class MultiplayerCompatibilityLayer
 
 
 
+
 // ============================================================
 // FINAL REMOTE SNAPSHOT FACTORY
 // ============================================================
@@ -4154,6 +4197,7 @@ internal static class FinalRemoteSnapshotFactory
             };
     }
 }
+
 
 
 
@@ -4277,6 +4321,7 @@ internal static class FinalPlayerSyncCoordinator
 
 
 
+
 // ============================================================
 // FINAL TWO PLAYER CONTROLLER
 // ============================================================
@@ -4353,6 +4398,7 @@ public static class FinalTwoPlayerController
 
 
 
+
 // ============================================================
 // HOST SNAPSHOT BUILDER
 // ============================================================
@@ -4419,6 +4465,7 @@ internal static class HostSnapshotBuilder
 
 
 
+
 // ============================================================
 // FINAL SAFE WORLD CHECK
 // ============================================================
@@ -4452,6 +4499,163 @@ internal static class FinalWorldCheck
 
 namespace MultiplayerCampaign
 {
+    internal static class MpcCharacterSlots
+    {
+        private const int SlotCount = 3;
+        private static readonly object Sync = new object();
+        private static readonly string[] Names = new string[SlotCount];
+        private static bool _loaded;
+        private static int _selectedSlot = -1;
+
+        private static string FilePath
+        {
+            get
+            {
+                string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                string directory = Path.Combine(documents, "Mount and Blade II Bannerlord", "Game Saves");
+                return Path.Combine(directory, "MultiplayerCampaignCharacterSlots.txt");
+            }
+        }
+
+        public static int SelectedSlot
+        {
+            get
+            {
+                lock (Sync)
+                {
+                    EnsureLoaded();
+                    return _selectedSlot;
+                }
+            }
+        }
+
+        public static bool HasSelectedCharacter
+        {
+            get
+            {
+                lock (Sync)
+                {
+                    EnsureLoaded();
+                    return _selectedSlot >= 0 &&
+                           _selectedSlot < SlotCount &&
+                           !string.IsNullOrWhiteSpace(Names[_selectedSlot]);
+                }
+            }
+        }
+
+        public static string GetName(int slot)
+        {
+            lock (Sync)
+            {
+                EnsureLoaded();
+                if (slot < 0 || slot >= SlotCount)
+                    return "Empty Slot";
+                return string.IsNullOrWhiteSpace(Names[slot]) ? "Empty Slot" : Names[slot];
+            }
+        }
+
+        public static void Select(int slot)
+        {
+            lock (Sync)
+            {
+                EnsureLoaded();
+                if (slot < 0 || slot >= SlotCount)
+                    return;
+                _selectedSlot = slot;
+            }
+        }
+
+        public static bool SaveSelected(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return false;
+
+            name = name.Trim();
+            if (name.Length > 32)
+                name = name.Substring(0, 32);
+
+            lock (Sync)
+            {
+                EnsureLoaded();
+                if (_selectedSlot < 0 || _selectedSlot >= SlotCount)
+                    return false;
+
+                Names[_selectedSlot] = name;
+                SaveToDisk();
+                return true;
+            }
+        }
+
+        public static void EnsureSelectedFromExisting()
+        {
+            lock (Sync)
+            {
+                EnsureLoaded();
+                if (_selectedSlot >= 0 && _selectedSlot < SlotCount &&
+                    !string.IsNullOrWhiteSpace(Names[_selectedSlot]))
+                    return;
+
+                for (int i = 0; i < SlotCount; i++)
+                {
+                    if (!string.IsNullOrWhiteSpace(Names[i]))
+                    {
+                        _selectedSlot = i;
+                        return;
+                    }
+                }
+            }
+        }
+
+        private static void EnsureLoaded()
+        {
+            if (_loaded)
+                return;
+
+            _loaded = true;
+            try
+            {
+                string path = FilePath;
+                if (!File.Exists(path))
+                    return;
+
+                string[] lines = File.ReadAllLines(path, Encoding.UTF8);
+                for (int i = 0; i < SlotCount && i < lines.Length; i++)
+                {
+                    Names[i] = string.IsNullOrWhiteSpace(lines[i]) ? null : lines[i].Trim();
+                }
+            }
+            catch
+            {
+                for (int i = 0; i < SlotCount; i++)
+                    Names[i] = null;
+            }
+        }
+
+        private static void SaveToDisk()
+        {
+            try
+            {
+                string path = FilePath;
+                string directory = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(directory))
+                    Directory.CreateDirectory(directory);
+
+                File.WriteAllLines(
+                    path,
+                    new[]
+                    {
+                        Names[0] ?? string.Empty,
+                        Names[1] ?? string.Empty,
+                        Names[2] ?? string.Empty
+                    },
+                    Encoding.UTF8);
+            }
+            catch
+            {
+            }
+        }
+    }
+
 
     internal static class MpcFinalOwnershipGuardV2
     {
@@ -4465,6 +4669,7 @@ namespace MultiplayerCampaign
             } catch { return false; }
         }
     }
+
 
 
 
@@ -4489,6 +4694,7 @@ namespace MultiplayerCampaign
 
 
 
+
     internal sealed class MpcFinalCharacterSlotV2
     {
         public int Slot;
@@ -4497,6 +4703,7 @@ namespace MultiplayerCampaign
         public string CharacterData;
         public long CreatedUtcTicks;
     }
+
 
 
 
@@ -4857,6 +5064,7 @@ namespace MultiplayerCampaignRebuildLayer
             return true;
         }
     }
+
 
 
 

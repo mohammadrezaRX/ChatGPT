@@ -1,6 +1,6 @@
 THEMATIC MPC REFACTOR
-DECLARATIONS=281
-EMITTED=281
+DECLARATIONS=282
+EMITTED=282
 FILES=10
 RECOVERY_MERGED=TRUE
 
@@ -57,6 +57,7 @@ DECLARATION MAP:
 MultiplayerCampaign.CampaignMessageFeed -> MpcCampaign.cs
 MultiplayerCampaign.MultiplayerCampaignBehavior -> MpcCampaign.cs
 MultiplayerCampaign.CampaignWorld -> MpcCampaign.cs
+MultiplayerCampaign.MpcCharacterSlots -> MpcCore.cs
 .HostConsole -> MpcCore.cs
 .HostStateUpdateService -> MpcCore.cs
 .MasterCleanupRegistry -> MpcCore.cs
