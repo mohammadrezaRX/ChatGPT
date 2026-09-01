@@ -4,16 +4,17 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-
-using TaleWorlds.CampaignSystem;
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
 using HarmonyLib;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using TaleWorlds.CampaignSystem;
 using BinaryReader = System.IO.BinaryReader;
 using HarmonyLib;
 using Helpers;
@@ -46,6 +47,7 @@ using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
+
 
 
 
@@ -123,6 +125,7 @@ internal static class HostConsole
         }
     }
 }
+
 
 
 
@@ -323,6 +326,7 @@ internal static class HostStateUpdateService
 
 
 
+
 // ============================================================
 // MASTER CLEANUP REGISTRY
 // ============================================================
@@ -503,6 +507,7 @@ internal static class MasterCleanupRegistry
         }
     }
 }
+
 
 
 
@@ -803,6 +808,7 @@ internal static class FinalStateCleanup
 
 
 
+
 // ============================================================
 // SAFE PLAYER POSITION APPLICATION
 // ============================================================
@@ -875,6 +881,7 @@ internal static class SafeRemotePositionApplication
 
 
 
+
 // ============================================================
 // FINAL ERROR GUARD
 // ============================================================
@@ -916,6 +923,7 @@ internal static class FinalErrorGuard
         }
     }
 }
+
 
 
 
@@ -1015,6 +1023,7 @@ internal static class FinalSubModuleState
 
 
 
+
 // ============================================================
 // FINAL HOST UPDATE
 // ============================================================
@@ -1048,6 +1057,7 @@ internal static class FinalHostUpdate
         host.Update();
     }
 }
+
 
 
 
@@ -1097,6 +1107,7 @@ internal static class FinalMasterUpdateV2
             .Update();
     }
 }
+
 
 
 
@@ -1216,6 +1227,7 @@ internal static class FinalResetV2
 
 
 
+
 // ============================================================
 // FINAL SAFE MAP UPDATE
 // ============================================================
@@ -1249,6 +1261,7 @@ internal static class FinalSafeMapUpdate
             );
     }
 }
+
 
 
 
@@ -1592,6 +1605,7 @@ internal static class FinalGlobalReset
 
 
 
+
 // ============================================================
 // FINAL ERROR REPORTER
 // ============================================================
@@ -1621,6 +1635,7 @@ internal static class FinalErrorReporter
         );
     }
 }
+
 
 
 
@@ -1680,6 +1695,7 @@ internal static class FinalSafeExecution
         }
     }
 }
+
 
 
 
@@ -1830,6 +1846,7 @@ internal static class FinalRemoteMapState
 
 
 
+
 // ============================================================
 // FINAL MOD LIFECYCLE
 // ============================================================
@@ -1951,6 +1968,7 @@ internal static class FinalModLifecycle
 
 
 
+
 // ============================================================
 // FINAL MASTER SERVICE
 // ============================================================
@@ -2015,6 +2033,7 @@ public static class FinalMasterService
             .Execute();
     }
 }
+
 
 
 
@@ -2389,6 +2408,7 @@ internal static class UltimateCleanup
 
 
 
+
 // ============================================================
 // FINAL HOST STATE EXPORT
 // ============================================================
@@ -2486,6 +2506,7 @@ internal static class HostStateExporter
 
 
 
+
 // ============================================================
 // FINAL CLIENT STATE IMPORT
 // ============================================================
@@ -2559,6 +2580,7 @@ internal static class ClientStateImporter
 
 
 
+
 // ============================================================
 // FINAL REMOTE PLAYER VALIDATOR
 // ============================================================
@@ -2610,6 +2632,7 @@ internal static class FinalRemoteValidator
         return true;
     }
 }
+
 
 
 
@@ -2705,6 +2728,7 @@ internal static class FinalSubmoduleCallback
 
 
 
+
 // ============================================================
 // FINAL SAFETY CHECK
 // ============================================================
@@ -2761,6 +2785,7 @@ internal static class FinalSafetyCheck
                     state.CurrentPosition.Y);
     }
 }
+
 
 
 
@@ -2895,6 +2920,7 @@ internal static class FinalShutdown
 
 
 
+
 /*
  * ============================================================
  * FINAL CLEANUP
@@ -2968,6 +2994,7 @@ internal static class MultiplayerCleanup
 
 
 
+
 // ============================================================
 // CLIENT SNAPSHOT RECEIVE
 // ============================================================
@@ -2999,6 +3026,7 @@ internal static class RemoteSnapshotProcessor
         );
     }
 }
+
 
 
 
@@ -3154,6 +3182,7 @@ internal static class RemoteSnapshotDecoder
 
 
 
+
 // ============================================================
 // HOST PLAYER STATE
 // ============================================================
@@ -3232,6 +3261,7 @@ public sealed class HostPlayerState
         }
     }
 }
+
 
 
 
@@ -3453,6 +3483,7 @@ public static class HostPlayerRegistry
 
 
 
+
 // ============================================================
 // HOST PLAYER SNAPSHOT SERVICE
 // ============================================================
@@ -3526,6 +3557,7 @@ internal static class HostPlayerSnapshotService
         }
     }
 }
+
 
 
 
@@ -3667,6 +3699,7 @@ internal static class HostPlayerSnapshotCache
 
 
 
+
 // ============================================================
 // HOST PLAYER SNAPSHOT PROCESSOR
 // ============================================================
@@ -3742,6 +3775,7 @@ internal static class HostPlayerSnapshotProcessor
 
 
 
+
 // ============================================================
 // CLIENT REMOTE SNAPSHOT PROCESSOR
 // ============================================================
@@ -3796,6 +3830,7 @@ internal static class ClientRemoteSnapshotProcessor
             );
     }
 }
+
 
 
 
@@ -3890,6 +3925,7 @@ internal static class PlayerJoinService
 
 
 
+
 // ============================================================
 // PLAYER JOIN VALIDATOR
 // ============================================================
@@ -3940,6 +3976,7 @@ internal static class PlayerJoinValidator
                 );
     }
 }
+
 
 
 
@@ -4102,6 +4139,7 @@ internal static class ClientPlayerStateSender
 
 
 
+
 // ============================================================
 // FINAL PLAYER SYNC SERVICE
 // ============================================================
@@ -4138,6 +4176,7 @@ public static class FinalPlayerSyncService
             .Reset();
     }
 }
+
 
 
 
@@ -4258,6 +4297,7 @@ internal static class MultiplayerCompatibilityLayer
 
 
 
+
 // ============================================================
 // FINAL REMOTE SNAPSHOT FACTORY
 // ============================================================
@@ -4317,6 +4357,7 @@ internal static class FinalRemoteSnapshotFactory
             };
     }
 }
+
 
 
 
@@ -4448,6 +4489,7 @@ internal static class FinalPlayerSyncCoordinator
 
 
 
+
 // ============================================================
 // FINAL TWO PLAYER CONTROLLER
 // ============================================================
@@ -4528,6 +4570,7 @@ public static class FinalTwoPlayerController
 
 
 
+
 // ============================================================
 // HOST SNAPSHOT BUILDER
 // ============================================================
@@ -4584,6 +4627,7 @@ internal static class HostSnapshotBuilder
             );
     }
 }
+
 
 
 
@@ -4792,6 +4836,7 @@ namespace MultiplayerCampaign
 
 
 
+
     internal static class MpcFinalOwnershipGuardV2
     {
         public static bool IsSafeClientParty(TaleWorlds.CampaignSystem.Party.MobileParty party)
@@ -4804,6 +4849,7 @@ namespace MultiplayerCampaign
             } catch { return false; }
         }
     }
+
 
 
 
@@ -4836,6 +4882,7 @@ namespace MultiplayerCampaign
 
 
 
+
     internal sealed class MpcFinalCharacterSlotV2
     {
         public int Slot;
@@ -4844,6 +4891,7 @@ namespace MultiplayerCampaign
         public string CharacterData;
         public long CreatedUtcTicks;
     }
+
 
 
 
@@ -5208,6 +5256,7 @@ namespace MultiplayerCampaignRebuildLayer
             return true;
         }
     }
+
 
 
 
