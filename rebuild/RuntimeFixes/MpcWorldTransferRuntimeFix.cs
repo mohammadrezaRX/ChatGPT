@@ -1,9 +1,5 @@
-using System;
 using System.Collections.Generic;
 using HarmonyLib;
-using SandBox;
-using TaleWorlds.MountAndBlade;
-using TaleWorlds.SaveSystem.Load;
 
 namespace MultiplayerCampaign
 {
@@ -50,7 +46,7 @@ namespace MultiplayerCampaign
 
             try
             {
-                HostConsole.WriteLine("[*] World transfer already sent for this client; duplicate suppressed.");
+                HostConsole.WriteLine("[*] Duplicate world transfer suppressed for this client.");
             }
             catch
             {
@@ -71,60 +67,6 @@ namespace MultiplayerCampaign
             }
             catch
             {
-            }
-        }
-    }
-
-    [HarmonyPatch(typeof(MultiplayerWorldTransfer), "FinishClientLoad")]
-    internal static class MpcWorldTransferFinishLoadPatch
-    {
-        private static bool Prefix()
-        {
-            try
-            {
-                byte[] world = MultiplayerWorldTransfer.GetReceivedWorld();
-                if (world == null || world.Length == 0)
-                {
-                    MpcRecoveryRuntime.AbortLoad("No transferred world bytes were received.");
-                    return false;
-                }
-
-                string path = MpcRecoveryRuntime.WriteTransferSave(world);
-                if (path == null)
-                {
-                    MpcRecoveryRuntime.AbortLoad("Transferred save could not be written.");
-                    return false;
-                }
-
-                MultiplayerWorldTransfer.Clear();
-                MpcRecoveryRuntime.BeginLoad();
-
-                LoadResult result = MBSaveLoad.LoadSaveGameData("MCC_Transfer");
-                if (result == null || !result.Successful)
-                {
-                    MpcRecoveryRuntime.AbortLoad("MCC transfer save could not be loaded.");
-                    return false;
-                }
-
-                MpcRecoveryRuntime.MarkLoadStarted();
-                MpcRecoveryRuntime.SetClientWorldReady(false);
-                MpcRecoveryRuntime.SetClientWorldLoaded(false);
-                MBGameManager.StartNewGame(new SandBoxGameManager(result));
-
-                HostConsole.WriteLine("[*] MCC transferred world load started.");
-                return false;
-            }
-            catch (Exception ex)
-            {
-                try
-                {
-                    MpcRecoveryRuntime.AbortLoad(ex.ToString());
-                }
-                catch
-                {
-                }
-
-                return false;
             }
         }
     }
