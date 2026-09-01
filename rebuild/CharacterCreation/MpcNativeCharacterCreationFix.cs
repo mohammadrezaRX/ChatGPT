@@ -11,25 +11,28 @@ namespace MultiplayerCampaign
     {
         public static void OpenNativeCharacterCreation()
         {
-            if (Game.Current == null || Game.Current.GameStateManager == null)
-                throw new InvalidOperationException("Bannerlord GameStateManager is not available.");
+            GameStateManager manager =
+                Game.Current != null && Game.Current.GameStateManager != null
+                    ? Game.Current.GameStateManager
+                    : GameStateManager.Current;
+
+            if (manager == null)
+                throw new InvalidOperationException("Bannerlord GameStateManager is not available yet.");
 
             object content = CreateSandboxCharacterCreationContent();
             if (content == null)
                 throw new InvalidOperationException("SandboxCharacterCreationContent could not be created.");
 
-            CharacterCreationState state = CreateCharacterCreationState(content);
+            CharacterCreationState state = CreateCharacterCreationState(manager, content);
             if (state == null)
                 throw new InvalidOperationException("Bannerlord CharacterCreationState could not be created.");
 
-            Game.Current.GameStateManager.CleanAndPushState(state, 0);
+            manager.CleanAndPushState(state, 0);
         }
 
-        private static CharacterCreationState CreateCharacterCreationState(object content)
+        private static CharacterCreationState CreateCharacterCreationState(GameStateManager manager, object content)
         {
-            GameStateManager manager = Game.Current.GameStateManager;
             Type stateType = typeof(CharacterCreationState);
-
             MethodInfo[] methods = typeof(GameStateManager).GetMethods(
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
@@ -60,7 +63,9 @@ namespace MultiplayerCampaign
                             manager,
                             new object[] { new object[] { content } });
 
-                        return result as CharacterCreationState;
+                        CharacterCreationState state = result as CharacterCreationState;
+                        if (state != null)
+                            return state;
                     }
                 }
                 catch
@@ -68,14 +73,20 @@ namespace MultiplayerCampaign
                 }
             }
 
-            return null;
+            try
+            {
+                return manager.CreateState<CharacterCreationState>(content);
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static object CreateSandboxCharacterCreationContent()
         {
             Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
-            // Prefer the exact Bannerlord Sandbox type.
             for (int a = 0; a < assemblies.Length; a++)
             {
                 Type type = FindTypeByName(
@@ -135,18 +146,13 @@ namespace MultiplayerCampaign
         {
             try
             {
-                var type = __instance.GetType();
-                type.GetProperty("ShowMain")?.SetValue(__instance, false, null);
-                type.GetProperty("ShowCharacter")?.SetValue(__instance, true, null);
-                type.GetProperty("ShowCreate")?.SetValue(__instance, false, null);
-                type.GetProperty("ShowJoin")?.SetValue(__instance, false, null);
                 __instance.SetStatus("CREATE OR SELECT CHARACTER");
             }
             catch (Exception ex)
             {
                 try { HostConsole.WriteLine("[!] Character page: " + ex); } catch { }
             }
-            return false;
+            return true;
         }
     }
 
