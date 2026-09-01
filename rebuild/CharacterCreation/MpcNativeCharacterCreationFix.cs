@@ -6,6 +6,7 @@ using TaleWorlds.MountAndBlade;
 
 namespace MultiplayerCampaign
 {
+    // Final build verification marker.
     internal static class MpcNativeCharacterCreationFix
     {
         public static void OpenNativeCharacterCreation()
