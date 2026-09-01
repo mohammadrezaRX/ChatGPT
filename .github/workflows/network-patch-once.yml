@@ -1,0 +1,257 @@
+name: MPC Network One-Time Patch
+
+on:
+  push:
+    branches:
+      - edit
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: contains(github.event.head_commit.message, 'prepare one-time network reconnect patch')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: edit
+          fetch-depth: 0
+
+      - name: Patch MpcNetwork.cs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'rebuild/MpcNetwork.cs'
+          $text = Get-Content $path -Raw
+
+          $fieldOld = @'
+          private bool _connectionRunning;
+'@
+          $fieldNew = @'
+          private bool _connectionRunning;
+
+          private int _connectionGeneration;
+'@
+          if (($text.Split($fieldOld).Count - 1) -ne 1) { throw 'Field anchor not found exactly once.' }
+          $text = $text.Replace($fieldOld, $fieldNew)
+
+          $connectOld = @'
+          public void Connect(
+              string ip)
+          {
+              lock (_connectionLock)
+              {
+                  if (_connectionRunning)
+                  {
+                      return;
+                  }
+
+                  DisconnectInternal();
+
+                  _cts =
+                      new CancellationTokenSource();
+
+                  _connectionRunning =
+                      true;
+
+                  _ =
+                      ConnectAsync(
+                          ip,
+                          _cts.Token
+                      );
+              }
+          }
+'@
+          $connectNew = @'
+          public void Connect(
+              string ip)
+          {
+              if (string.IsNullOrWhiteSpace(ip))
+              {
+                  _vm?.SetStatus("CONNECTION FAILED: INVALID ADDRESS");
+                  return;
+              }
+
+              lock (_connectionLock)
+              {
+                  // A previous attempt may still be stuck in ConnectAsync/ReceiveLoop.
+                  // Always invalidate and cancel that attempt so pressing Connect again
+                  // starts a genuinely new connection attempt.
+                  _connectionGeneration++;
+                  int generation = _connectionGeneration;
+
+                  DisconnectInternal();
+
+                  HandshakeState.Reset();
+                  NetworkIdentityService.Reset();
+                  MultiplayerConnectionStatus.Set(
+                      MultiplayerConnectionState.Connecting
+                  );
+
+                  try { WorldTransferService.Reset(); } catch { }
+                  try { MultiplayerWorldTransfer.Clear(); } catch { }
+
+                  _cts =
+                      new CancellationTokenSource();
+
+                  _connectionRunning =
+                      true;
+
+                  _ =
+                      ConnectAsync(
+                          ip.Trim(),
+                          _cts.Token,
+                          generation
+                      );
+              }
+          }
+'@
+          if (($text.Split($connectOld).Count - 1) -ne 1) { throw 'Connect anchor not found exactly once.' }
+          $text = $text.Replace($connectOld, $connectNew)
+
+          $sigOld = @'
+          private async Task ConnectAsync(
+              string ip,
+              CancellationToken token)
+'@
+          $sigNew = @'
+          private async Task ConnectAsync(
+              string ip,
+              CancellationToken token,
+              int generation)
+'@
+          if (($text.Split($sigOld).Count - 1) -ne 1) { throw 'ConnectAsync signature anchor not found exactly once.' }
+          $text = $text.Replace($sigOld, $sigNew)
+
+          $callOld = @'
+                  await client.ConnectAsync(
+                      ip,
+                      25565
+                  );
+
+                  if (
+                      token.IsCancellationRequested)
+                  {
+                      client.Close();
+                      return;
+                  }
+
+                  _tcpClient =
+                      client;
+'@
+          $callNew = @'
+                  Task connectTask =
+                      client.ConnectAsync(
+                          ip,
+                          25565
+                      );
+
+                  Task completed =
+                      await Task.WhenAny(
+                          connectTask,
+                          Task.Delay(
+                              TimeSpan.FromSeconds(10),
+                              token
+                          )
+                      );
+
+                  if (completed != connectTask)
+                  {
+                      client.Close();
+
+                      token.ThrowIfCancellationRequested();
+
+                      throw new TimeoutException(
+                          "Connection attempt timed out after 10 seconds."
+                      );
+                  }
+
+                  await connectTask;
+
+                  if (
+                      token.IsCancellationRequested ||
+                      generation != _connectionGeneration)
+                  {
+                      client.Close();
+                      return;
+                  }
+
+                  _tcpClient =
+                      client;
+'@
+          if (($text.Split($callOld).Count - 1) -ne 1) { throw 'ConnectAsync body anchor not found exactly once.' }
+          $text = $text.Replace($callOld, $callNew)
+
+          $finallyOld = @'
+              finally
+              {
+                  IsConnected =
+                      false;
+
+                  lock (_connectionLock)
+                  {
+                      _connectionRunning =
+                          false;
+                  }
+              }
+'@
+          $finallyNew = @'
+              finally
+              {
+                  lock (_connectionLock)
+                  {
+                      if (generation == _connectionGeneration)
+                      {
+                          IsConnected =
+                              false;
+
+                          _connectionRunning =
+                              false;
+                      }
+                  }
+              }
+'@
+          if (($text.Split($finallyOld).Count - 1) -ne 1) { throw 'ConnectAsync finally anchor not found exactly once.' }
+          $text = $text.Replace($finallyOld, $finallyNew)
+
+          $disconnectOld = @'
+          private void DisconnectInternal()
+          {
+              try
+'@
+          $disconnectNew = @'
+          private void DisconnectInternal()
+          {
+              _connectionGeneration++;
+
+              try
+'@
+          if (($text.Split($disconnectOld).Count - 1) -ne 1) { throw 'DisconnectInternal anchor not found exactly once.' }
+          $text = $text.Replace($disconnectOld, $disconnectNew)
+
+          Set-Content $path -Value $text -Encoding UTF8
+
+          if ((Get-Content $path -Raw) -notmatch '_connectionGeneration') { throw 'Patch verification failed.' }
+          Write-Host 'NETWORK_RECONNECT_PATCH=TRUE'
+
+      - name: Build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git fetch origin main --depth=1
+          git checkout origin/main -- DLLs
+          dotnet restore rebuild/MultiplayerCampaignRebuild.csproj
+          dotnet build rebuild/MultiplayerCampaignRebuild.csproj --configuration Release --no-restore
+
+      - name: Commit patched network only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -r --cached --ignore-unmatch DLLs 2>$null
+          git add rebuild/MpcNetwork.cs
+          if (git diff --cached --quiet) { throw 'No MpcNetwork.cs change detected.' }
+          git commit -m "fix: make MPC client reconnectable with timeout [skip ci]"
+          git push origin HEAD:edit
