@@ -17,54 +17,39 @@ jobs:
           ref: edit
           fetch-depth: 0
 
-      - name: Patch MpcNetwork.cs
+      - name: Patch active MultiplayerNetworkClient only
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $path = 'rebuild/MpcNetwork.cs'
-          $text = Get-Content $path -Raw
+          $text = [System.IO.File]::ReadAllText($path)
+          $text = $text.Replace("`r`n", "`n").Replace("`r", "`n")
 
-          $fieldOld = @'
-        private bool _connectionRunning;
-'@
-          if (($text.Split($fieldOld).Count - 1) -ne 1) { throw 'Field anchor not found exactly once.' }
-          $fieldNew = @'
-        private bool _connectionRunning;
+          $namespaceMarker = 'namespace MultiplayerCampaign'
+          $classMarker = 'public sealed class MultiplayerNetworkClient'
+          $nextNamespaceMarker = 'namespace MultiplayerCampaignRebuildLayer'
 
-        private int _connectionGeneration;
-'@
-          $text = $text.Replace($fieldOld, $fieldNew)
+          $ns = $text.IndexOf($namespaceMarker, [System.StringComparison]::Ordinal)
+          if ($ns -lt 0) { throw 'MultiplayerCampaign namespace not found.' }
+          $classStart = $text.IndexOf($classMarker, $ns, [System.StringComparison]::Ordinal)
+          if ($classStart -lt 0) { throw 'Active MultiplayerNetworkClient not found.' }
+          $nextNs = $text.IndexOf($nextNamespaceMarker, $classStart, [System.StringComparison]::Ordinal)
+          if ($nextNs -lt 0) { $nextNs = $text.Length }
 
-          $connectOld = @'
-        public void Connect(
-            string ip)
-        {
-            lock (_connectionLock)
-            {
-                if (_connectionRunning)
-                {
-                    return;
-                }
+          $prefix = $text.Substring(0, $classStart)
+          $segment = $text.Substring($classStart, $nextNs - $classStart)
+          $suffix = $text.Substring($nextNs)
 
-                DisconnectInternal();
+          if ($segment -notmatch 'private bool _connectionRunning;') { throw 'Connection running field not found.' }
+          if ($segment -notmatch 'private int _connectionGeneration;') {
+            $segment = $segment.Replace(
+              '        private bool _connectionRunning;',
+              "        private bool _connectionRunning;`n`n        private int _connectionGeneration;"
+            )
+          }
 
-                _cts =
-                    new CancellationTokenSource();
-
-                _connectionRunning =
-                    true;
-
-                _ =
-                    ConnectAsync(
-                        ip,
-                        _cts.Token
-                    );
-            }
-        }
-
-        private async Task ConnectAsync(
-'@
-          $connectNew = @'
+          $connectPattern = '(?s)        public void Connect\(\s*string ip\s*\)\s*\{.*?\n        \}\s*\n\s*private async Task ConnectAsync\('
+          $connectReplacement = @'
         public void Connect(
             string ip)
         {
@@ -76,10 +61,9 @@ jobs:
 
             lock (_connectionLock)
             {
-                _connectionGeneration++;
-                int generation = _connectionGeneration;
-
+                // Invalidate and cancel every previous attempt before starting a new one.
                 DisconnectInternal();
+                int generation = _connectionGeneration;
 
                 HandshakeState.Reset();
                 NetworkIdentityService.Reset();
@@ -103,40 +87,23 @@ jobs:
 
         private async Task ConnectAsync(
 '@
-          if (($text.Split($connectOld).Count - 1) -ne 1) { throw 'Connect anchor not found exactly once.' }
-          $text = $text.Replace($connectOld, $connectNew)
+          $patched = [regex]::Replace($segment, $connectPattern, $connectReplacement, 1)
+          if ($patched -eq $segment) { throw 'Connect method patch failed.' }
+          $segment = $patched
 
-          $sigOld = @'
-        private async Task ConnectAsync(
-            string ip,
-            CancellationToken token)
-'@
-          $sigNew = @'
-        private async Task ConnectAsync(
+          $sigPattern = '(?s)private async Task ConnectAsync\(\s*string ip,\s*CancellationToken token\)'
+          $sigReplacement = @'
+private async Task ConnectAsync(
             string ip,
             CancellationToken token,
             int generation)
 '@
-          if (($text.Split($sigOld).Count - 1) -ne 1) { throw 'ConnectAsync signature anchor not found exactly once.' }
-          $text = $text.Replace($sigOld, $sigNew)
+          $patched = [regex]::Replace($segment, $sigPattern, $sigReplacement, 1)
+          if ($patched -eq $segment) { throw 'ConnectAsync signature patch failed.' }
+          $segment = $patched
 
-          $bodyOld = @'
-                await client.ConnectAsync(
-                    ip,
-                    25565
-                );
-
-                if (
-                    token.IsCancellationRequested)
-                {
-                    client.Close();
-                    return;
-                }
-
-                _tcpClient =
-                    client;
-'@
-          $bodyNew = @'
+          $bodyPattern = '(?s)                await client\.ConnectAsync\(.*?                _tcpClient\s*=\s*client;'
+          $bodyReplacement = @'
                 Task connectTask = client.ConnectAsync(ip, 25565);
 
                 Task completed = await Task.WhenAny(
@@ -165,23 +132,12 @@ jobs:
 
                 _tcpClient = client;
 '@
-          if (($text.Split($bodyOld).Count - 1) -ne 1) { throw 'ConnectAsync body anchor not found exactly once.' }
-          $text = $text.Replace($bodyOld, $bodyNew)
+          $patched = [regex]::Replace($segment, $bodyPattern, $bodyReplacement, 1)
+          if ($patched -eq $segment) { throw 'ConnectAsync body patch failed.' }
+          $segment = $patched
 
-          $finallyOld = @'
-            finally
-            {
-                IsConnected =
-                    false;
-
-                lock (_connectionLock)
-                {
-                    _connectionRunning =
-                        false;
-                }
-            }
-'@
-          $finallyNew = @'
+          $finallyPattern = '(?s)            finally\s*\{\s*IsConnected\s*=\s*false;\s*lock \(_connectionLock\)\s*\{\s*_connectionRunning\s*=\s*false;\s*\}\s*\}'
+          $finallyReplacement = @'
             finally
             {
                 lock (_connectionLock)
@@ -194,25 +150,24 @@ jobs:
                 }
             }
 '@
-          if (($text.Split($finallyOld).Count - 1) -ne 1) { throw 'ConnectAsync finally anchor not found exactly once.' }
-          $text = $text.Replace($finallyOld, $finallyNew)
+          $patched = [regex]::Replace($segment, $finallyPattern, $finallyReplacement, 1)
+          if ($patched -eq $segment) { throw 'ConnectAsync finally patch failed.' }
+          $segment = $patched
 
-          $disconnectOld = @'
-        private void DisconnectInternal()
-        {
-'@
-          $disconnectNew = @'
-        private void DisconnectInternal()
-        {
-            _connectionGeneration++;
-'@
-          if (($text.Split($disconnectOld).Count - 1) -ne 1) { throw 'DisconnectInternal anchor not found exactly once.' }
-          $text = $text.Replace($disconnectOld, $disconnectNew)
+          $disconnectPattern = '(?s)        private void DisconnectInternal\(\)\s*\{'
+          $disconnectReplacement = "        private void DisconnectInternal()`n        {`n            _connectionGeneration++;"
+          $patched = [regex]::Replace($segment, $disconnectPattern, $disconnectReplacement, 1)
+          if ($patched -eq $segment) { throw 'DisconnectInternal patch failed.' }
+          $segment = $patched
 
-          Set-Content $path -Value $text -Encoding UTF8
-          $verify = Get-Content $path -Raw
-          foreach ($needle in @('_connectionGeneration', 'Task.WhenAny', 'Connection attempt timed out after 10 seconds.', 'int generation')) {
-            if ($verify -notmatch [regex]::Escape($needle)) { throw "Network patch verification failed: $needle" }
+          $result = $prefix + $segment + $suffix
+          [System.IO.File]::WriteAllText($path, $result, (New-Object System.Text.UTF8Encoding($false)))
+
+          $verify = [System.IO.File]::ReadAllText($path)
+          foreach ($needle in @('private int _connectionGeneration;', 'Task.WhenAny', 'Connection attempt timed out after 10 seconds.', 'int generation')) {
+            if ($verify.IndexOf($needle, [System.StringComparison]::Ordinal) -lt 0) {
+              throw "Verification failed: $needle"
+            }
           }
           Write-Host 'NETWORK_RECONNECT_PATCH=TRUE'
 
@@ -223,7 +178,7 @@ jobs:
           git fetch origin main --depth=1
           git checkout origin/main -- DLLs
           dotnet restore rebuild/MultiplayerCampaignRebuild.csproj
-          dotnet build rebuild/MultiplayerCampaignRebuild.csproj --configuration Release --no-restore
+          dotnet build rebuild/MultiplayerCampaignRebuild.csproj --configuration Release --no-restore --verbosity normal
 
       - name: Commit patched network only
         shell: pwsh
