@@ -1,5 +1,4 @@
 using System;
-using System.Reflection;
 using HarmonyLib;
 using TaleWorlds.CampaignSystem.CharacterCreationContent;
 using TaleWorlds.Core;
@@ -14,117 +13,13 @@ namespace MultiplayerCampaign
             if (Game.Current == null || Game.Current.GameStateManager == null)
                 throw new InvalidOperationException("Bannerlord GameStateManager is not available.");
 
-            GameStateManager manager = Game.Current.GameStateManager;
-            Type stateType = typeof(CharacterCreationState);
-            object state = null;
-            object content = CreateCompatibleContent(stateType);
-
-            MethodInfo[] methods = typeof(GameStateManager).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            for (int i = 0; i < methods.Length && state == null; i++)
-            {
-                MethodInfo method = methods[i];
-                if (method.Name != "CreateState" || !method.IsGenericMethodDefinition || method.GetGenericArguments().Length != 1)
-                    continue;
-
-                ParameterInfo[] parameters = method.GetParameters();
-                MethodInfo closed;
-                try { closed = method.MakeGenericMethod(stateType); }
-                catch { continue; }
-
-                try
-                {
-                    if (parameters.Length == 0 && content == null)
-                        state = closed.Invoke(manager, null);
-                    else if (parameters.Length == 1 && parameters[0].ParameterType == typeof(object[]))
-                        state = closed.Invoke(manager, new object[] { content == null ? new object[0] : new object[] { content } });
-                }
-                catch { }
-            }
-
-            if (state == null && content != null)
-            {
-                ConstructorInfo[] constructors = stateType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                for (int i = 0; i < constructors.Length && state == null; i++)
-                {
-                    ParameterInfo[] parameters = constructors[i].GetParameters();
-                    if (parameters.Length != 1 || !parameters[0].ParameterType.IsInstanceOfType(content))
-                        continue;
-                    try { state = constructors[i].Invoke(new object[] { content }); }
-                    catch { }
-                }
-            }
+            CharacterCreationState state =
+                Game.Current.GameStateManager.CreateState<CharacterCreationState>();
 
             if (state == null)
-                throw new InvalidOperationException("Bannerlord CharacterCreationState could not be created with a compatible character-creation content object.");
+                throw new InvalidOperationException("Bannerlord returned a null CharacterCreationState.");
 
-            manager.CleanAndPushState((CharacterCreationState)state, 0);
-        }
-
-        private static object CreateCompatibleContent(Type stateType)
-        {
-            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
-            ConstructorInfo[] constructors = stateType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
-            // Prefer the known Sandbox content type when this Bannerlord build exposes it.
-            for (int a = 0; a < assemblies.Length; a++)
-            {
-                try
-                {
-                    Type[] types = assemblies[a].GetTypes();
-                    for (int t = 0; t < types.Length; t++)
-                    {
-                        Type candidate = types[t];
-                        if (candidate == null || candidate.IsAbstract)
-                            continue;
-                        if (!string.Equals(candidate.Name, "SandboxCharacterCreationContent", StringComparison.OrdinalIgnoreCase))
-                            continue;
-                        try
-                        {
-                            object value = Activator.CreateInstance(candidate, true);
-                            if (value != null)
-                                return value;
-                        }
-                        catch { }
-                    }
-                }
-                catch { }
-            }
-
-            // Otherwise find any concrete type assignable to the constructor parameter.
-            for (int c = 0; c < constructors.Length; c++)
-            {
-                ParameterInfo[] parameters = constructors[c].GetParameters();
-                if (parameters.Length != 1)
-                    continue;
-
-                Type required = parameters[0].ParameterType;
-                for (int a = 0; a < assemblies.Length; a++)
-                {
-                    try
-                    {
-                        Type[] types = assemblies[a].GetTypes();
-                        for (int t = 0; t < types.Length; t++)
-                        {
-                            Type candidate = types[t];
-                            if (candidate == null || candidate.IsAbstract || candidate == required)
-                                continue;
-                            if (!required.IsAssignableFrom(candidate))
-                                continue;
-
-                            try
-                            {
-                                object value = Activator.CreateInstance(candidate, true);
-                                if (value != null)
-                                    return value;
-                            }
-                            catch { }
-                        }
-                    }
-                    catch { }
-                }
-            }
-
-            return null;
+            Game.Current.GameStateManager.CleanAndPushState(state, 0);
         }
     }
 
@@ -159,6 +54,7 @@ namespace MultiplayerCampaign
             {
                 if (MpcCharacterSlots.SelectedSlot < 0)
                     MpcCharacterSlots.Select(0);
+
                 __instance.SetStatus("OPENING BANNERLORD CHARACTER CREATION...");
                 MpcNativeCharacterCreationFix.OpenNativeCharacterCreation();
             }
@@ -178,13 +74,20 @@ namespace MultiplayerCampaign
         {
             try
             {
-                if (__instance == null || __instance.CharacterCreationManager == null || __instance.CharacterCreationManager.CharacterCreationContent == null)
+                if (__instance == null ||
+                    __instance.CharacterCreationManager == null ||
+                    __instance.CharacterCreationManager.CharacterCreationContent == null)
                     return;
+
                 if (MpcCharacterSlots.SelectedSlot < 0)
                     MpcCharacterSlots.Select(0);
-                string name = __instance.CharacterCreationManager.CharacterCreationContent.MainCharacterName;
+
+                string name =
+                    __instance.CharacterCreationManager.CharacterCreationContent.MainCharacterName;
+
                 if (string.IsNullOrWhiteSpace(name))
                     return;
+
                 MpcCharacterSlots.SaveSelected(name);
                 LocalPlayerState.SetDisplayName(name);
             }
