@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -39,34 +39,33 @@ jobs:
           git fetch origin main --depth=1
           git checkout origin/main -- DLLs
           if (!(Test-Path "DLLs")) {
-            Write-Error "DLLs directory from main was not imported"
-            exit 1
+            throw "DLLs directory from main was not imported"
           }
           Write-Host "Imported Bannerlord DLLs from main."
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Roslyn split sources
+      - name: Thematic modular split
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          dotnet run --project tools/RoslynSplitter/RoslynSplitter.csproj -- rebuild/MultiplayerCampaignSubModule.cs rebuild/split rebuild
+          dotnet run --project tools/RoslynSplitter/RoslynSplitter.csproj -- rebuild/MultiplayerCampaignSubModule.cs rebuild rebuild/MpcConnectionRecoveryFix.cs
           if (!(Test-Path "rebuild/REFACTOR_MAP.txt")) {
-            throw "Roslyn splitter did not produce REFACTOR_MAP.txt"
+            throw "Thematic splitter did not produce REFACTOR_MAP.txt"
           }
 
       - name: Verify source layout
         shell: pwsh
         run: |
-          $files = Get-ChildItem rebuild -Filter *.cs -File
-          $split = Get-ChildItem rebuild/split -Filter *.cs -File -ErrorAction SilentlyContinue
+          $ErrorActionPreference = 'Stop'
+          $files = @(Get-ChildItem rebuild -Filter *.cs -File)
           Write-Host "Root C# files: $($files.Count)"
-          Write-Host "Split C# files: $($split.Count)"
-          if ($files.Count -lt 2) { throw "Expected main source plus recovery source." }
-          if ($split.Count -lt 1) { throw "No split sources were generated." }
+          $files | ForEach-Object { Write-Host $_.Name }
+          $main = $files | Where-Object { $_.Name -eq 'MultiplayerCampaignSubModule.cs' }
+          if ($null -eq $main) { throw "Main submodule source is missing." }
+          if ($files.Count -lt 8 -or $files.Count -gt 12) { throw "Expected a compact thematic layout of roughly 10 C# files, got $($files.Count)." }
+          if (Test-Path "rebuild/MpcConnectionRecoveryFix.cs") { throw "Old standalone recovery file was not merged." }
+          $map = Get-Content "rebuild/REFACTOR_MAP.txt" -Raw
+          if ($map -notmatch 'DECLARATIONS=\d+') { throw "REFACTOR_MAP declaration count missing." }
+          if ($map -notmatch 'EMITTED=\d+') { throw "REFACTOR_MAP emitted count missing." }
 
       - name: Restore
         shell: pwsh
@@ -95,12 +94,12 @@ jobs:
           if (Test-Path build.log) {
             Write-Host "--- Errors ---"
             Select-String -Path build.log -Pattern '(?i)error [A-Z0-9]+|: error |error\s*CS[0-9]+|Build FAILED' |
-              Select-Object -Last 100 | ForEach-Object { Write-Host $_.Line }
+              Select-Object -Last 120 | ForEach-Object { Write-Host $_.Line }
             Write-Host "--- Warnings ---"
             Select-String -Path build.log -Pattern '(?i)warning [A-Z0-9]+|: warning |warning\s*CS[0-9]+' |
-              Select-Object -Last 100 | ForEach-Object { Write-Host $_.Line }
+              Select-Object -Last 120 | ForEach-Object { Write-Host $_.Line }
             Write-Host "--- Tail ---"
-            Get-Content build.log -Tail 160
+            Get-Content build.log -Tail 180
           }
           Write-Host "============================="
 
@@ -115,10 +114,27 @@ jobs:
             rebuild/REFACTOR_MAP.txt
           if-no-files-found: warn
 
+      - name: Commit modular source after successful build
+        if: success()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add rebuild
+          if (git diff --cached --quiet) {
+            Write-Host "No modular source changes to commit."
+            exit 0
+          }
+          git commit -m "refactor: modularize MPC into thematic modules [skip ci]"
+          git push origin HEAD:edit
+
       - name: Verify success
+        if: success()
         shell: pwsh
         run: |
           Write-Host "================================"
           Write-Host "BUILD SUCCESS"
+          Write-Host "THEMATIC MODULES READY"
           Write-Host "ERRORS = 0"
           Write-Host "================================"
