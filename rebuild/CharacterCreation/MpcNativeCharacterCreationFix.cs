@@ -1,6 +1,6 @@
 using System;
+using System.Reflection;
 using HarmonyLib;
-using SandBox;
 using TaleWorlds.Core;
 using TaleWorlds.CampaignSystem.CharacterCreationContent;
 using TaleWorlds.MountAndBlade;
@@ -11,11 +11,56 @@ namespace MultiplayerCampaign
     {
         public static void OpenNativeCharacterCreation()
         {
-            CharacterCreationState state =
-                Game.Current.GameStateManager.CreateState<CharacterCreationState>(
-                    new object[] { new SandboxCharacterCreationContent() });
+            GameStateManager manager = Game.Current.GameStateManager;
+            Type contentType = FindType("TaleWorlds.CampaignSystem.CharacterCreationContent.SandboxCharacterCreationContent");
+            if (contentType == null)
+                throw new InvalidOperationException("SandboxCharacterCreationContent type was not found in loaded Bannerlord assemblies.");
 
-            Game.Current.GameStateManager.CleanAndPushState(state, 0);
+            object content = Activator.CreateInstance(contentType);
+            MethodInfo createState = FindCreateStateWithParameters();
+            if (createState == null)
+                throw new MissingMethodException("GameStateManager.CreateState<T>(params object[]) was not found.");
+
+            MethodInfo closedCreateState = createState.MakeGenericMethod(typeof(CharacterCreationState));
+            CharacterCreationState state = (CharacterCreationState)closedCreateState.Invoke(
+                manager,
+                new object[] { new object[] { content } });
+
+            manager.CleanAndPushState(state, 0);
+        }
+
+        private static Type FindType(string fullName)
+        {
+            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            for (int i = 0; i < assemblies.Length; i++)
+            {
+                try
+                {
+                    Type type = assemblies[i].GetType(fullName, false);
+                    if (type != null)
+                        return type;
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
+        private static MethodInfo FindCreateStateWithParameters()
+        {
+            MethodInfo[] methods = typeof(GameStateManager).GetMethods(BindingFlags.Instance | BindingFlags.Public);
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo method = methods[i];
+                if (!method.IsGenericMethodDefinition || method.Name != "CreateState")
+                    continue;
+
+                ParameterInfo[] parameters = method.GetParameters();
+                if (parameters.Length == 1 && parameters[0].ParameterType == typeof(object[]))
+                    return method;
+            }
+
+            return null;
         }
     }
 
@@ -76,11 +121,8 @@ namespace MultiplayerCampaign
                     __instance.CharacterCreationManager.CharacterCreationContent == null)
                     return;
 
-                int slot = MpcCharacterSlots.SelectedSlot;
-                if (slot < 0)
-                {
+                if (MpcCharacterSlots.SelectedSlot < 0)
                     MpcCharacterSlots.Select(0);
-                }
 
                 string name = __instance.CharacterCreationManager.CharacterCreationContent.MainCharacterName;
                 if (string.IsNullOrWhiteSpace(name))
