@@ -1,11 +1,11 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-
-using TaleWorlds.CampaignSystem;
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
 using HarmonyLib;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using TaleWorlds.CampaignSystem;
 using BinaryReader = System.IO.BinaryReader;
-using HarmonyLib;
 using Helpers;
 using MultiplayerCampaign;
 using SandBox;
@@ -34,6 +34,7 @@ using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
+
 
 
 
@@ -170,6 +171,7 @@ internal static class CampaignMapRemotePartyCache
 
 
 
+
 // ============================================================
 // REMOTE PLAYER PARTY SIZE REGISTRY
 // ============================================================
@@ -269,6 +271,7 @@ public static class RemotePlayerPartyRegistry
 
 
 
+
 // ============================================================
 // REMOTE PLAYER PARTY SERVICE
 // ============================================================
@@ -316,6 +319,7 @@ internal static class RemotePlayerPartyService
             );
     }
 }
+
 
 
 

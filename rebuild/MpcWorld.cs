@@ -1,11 +1,11 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-
-using TaleWorlds.CampaignSystem;
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
 using HarmonyLib;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using TaleWorlds.CampaignSystem;
 using BinaryReader = System.IO.BinaryReader;
-using HarmonyLib;
 using Helpers;
 using MultiplayerCampaign;
 using SandBox;
@@ -34,6 +34,7 @@ using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
+
 
 
 
@@ -200,6 +201,7 @@ public static class WorldPartySynchronizer
 
 
 
+
 // ============================================================
 // WORLD TRANSFER PACKET BUILDER
 // ============================================================
@@ -271,6 +273,7 @@ internal static class WorldTransferPacketBuilder
             );
     }
 }
+
 
 
 
@@ -621,6 +624,7 @@ public static class MultiplayerWorldTransfer
 
 
 
+
 /*
  * ============================================================
  * EXISTING WORLD PROVIDER
@@ -684,6 +688,7 @@ internal static class ExistingWorldTransferProvider
         }
     }
 }
+
 
 
 
@@ -860,6 +865,7 @@ public static class MultiplayerWorldSyncState
 }
 
 
+
 // ============================================================
 // WORLD SYNCHRONIZATION CONTROLLER
 // ============================================================
@@ -972,6 +978,7 @@ public static class WorldSynchronizationController
 
 
 
+
 // ============================================================
 // WORLD TRANSFER VALIDATOR
 // ============================================================
@@ -1006,6 +1013,7 @@ internal static class WorldTransferValidator
             received == expected;
     }
 }
+
 
 
 
@@ -1212,6 +1220,7 @@ internal sealed class WorldTransferReceiver
 
 
 
+
 // ============================================================
 // WORLD TRANSFER SERVICE
 // ============================================================
@@ -1366,6 +1375,7 @@ public static class WorldTransferService
 
 
 
+
 // ============================================================
 // WORLD TRANSFER HOST SERVICE
 // ============================================================
@@ -1510,6 +1520,7 @@ internal static class WorldTransferHostService
 
 
 
+
 // ============================================================
 // WORLD READY HANDLER
 // ============================================================
@@ -1546,6 +1557,7 @@ internal static class WorldReadyHandler
         );
     }
 }
+
 
 
 
@@ -1615,6 +1627,7 @@ public sealed class HostWorldState
         }
     }
 }
+
 
 
 
