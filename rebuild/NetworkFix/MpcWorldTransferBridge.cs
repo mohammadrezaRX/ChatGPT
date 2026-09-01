@@ -65,5 +65,25 @@ namespace MultiplayerCampaign
                 }
             }
         }
+
+        // ReceiveComplete is followed by WorldReadyHandler.Handle() in the
+        // network dispatcher. During the transfer load that is too early:
+        // the SaveGame has only just been handed to Bannerlord. Let the
+        // OnLoadFinished recovery patch publish Ready instead.
+        [HarmonyPatch(typeof(WorldReadyHandler), "Handle")]
+        private static class WorldReadyPatch
+        {
+            private static bool Prefix()
+            {
+                try
+                {
+                    return !MpcRecoveryRuntime.Loading;
+                }
+                catch
+                {
+                    return true;
+                }
+            }
+        }
     }
 }
