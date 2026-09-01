@@ -1,11 +1,12 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
-
-using TaleWorlds.CampaignSystem;
-// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
 using HarmonyLib;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using TaleWorlds.CampaignSystem;
 using BinaryReader = System.IO.BinaryReader;
 using Helpers;
 using MultiplayerCampaign;
@@ -35,6 +36,7 @@ using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
+
 
 
 
@@ -246,6 +248,7 @@ public sealed class MultiplayerUIState
         }
     }
 }
+
 
 
 
@@ -612,6 +615,7 @@ namespace MultiplayerCampaign
 
 
 
+
     /*
      * ============================================================
      * INITIAL MENU
@@ -689,6 +693,7 @@ namespace MultiplayerCampaign
             );
         }
     }
+
 
 
 
