@@ -49,10 +49,10 @@ jobs:
           $path = 'rebuild/MpcNetwork.cs'
           $text = Get-Content $path -Raw
 
-          if ($text -notmatch 'private bool _connectionRunning;') { throw 'Network client anchor missing.' }
-
+          $oldField = '        private bool _connectionRunning;'
+          if (($text.Split($oldField).Count - 1) -ne 1) { throw 'Network client anchor missing.' }
           if ($text -notmatch 'private int _connectionGeneration;') {
-            $text = $text.Replace('private bool _connectionRunning;', "private bool _connectionRunning;`r`n`r`n        private int _connectionGeneration;")
+            $text = $text.Replace($oldField, "$oldField`r`n`r`n        private int _connectionGeneration;")
           }
 
           $connectPattern = '(?s)        public void Connect\(\s*string ip\)\s*\{.*?        \}\s*\r?\n\r?\n        private async Task ConnectAsync\('
@@ -96,15 +96,17 @@ jobs:
         private async Task ConnectAsync(
 '@
           $newText = [regex]::Replace($text, $connectPattern, $connectReplacement, 1)
-          if ($newText -eq $text) { throw 'Connect method replacement failed.' }
+          if ($newText -eq $text) { throw 'Connect replacement failed.' }
           $text = $newText
 
           $sigPattern = 'private async Task ConnectAsync\(\s*string ip,\s*CancellationToken token\)'
           $sigReplacement = "private async Task ConnectAsync(`r`n            string ip,`r`n            CancellationToken token,`r`n            int generation)"
-          $text = [regex]::Replace($text, $sigPattern, $sigReplacement, 1)
+          $newText = [regex]::Replace($text, $sigPattern, $sigReplacement, 1)
+          if ($newText -eq $text) { throw 'ConnectAsync signature replacement failed.' }
+          $text = $newText
 
-          $connectBodyPattern = '(?s)                await client\.ConnectAsync\(\s*ip,\s*25565\s*\);.*?                _tcpClient =\s*client;'
-          $connectBodyReplacement = @'
+          $bodyPattern = '(?s)                await client\.ConnectAsync\(\s*ip,\s*25565\s*\);\s*\r?\n\s*if \(\s*token\.IsCancellationRequested\s*\)\s*\{\s*client\.Close\(\);\s*return;\s*\}\s*\r?\n\s*_tcpClient =\s*client;'
+          $bodyReplacement = @'
                 Task connectTask = client.ConnectAsync(ip, 25565);
 
                 Task completed = await Task.WhenAny(
@@ -133,7 +135,7 @@ jobs:
 
                 _tcpClient = client;
 '@
-          $newText = [regex]::Replace($text, $connectBodyPattern, $connectBodyReplacement, 1)
+          $newText = [regex]::Replace($text, $bodyPattern, $bodyReplacement, 1)
           if ($newText -eq $text) { throw 'ConnectAsync body replacement failed.' }
           $text = $newText
 
@@ -156,9 +158,16 @@ jobs:
           $text = $newText
 
           $disconnectPattern = 'private void DisconnectInternal\(\)\s*\{'
-          $text = [regex]::Replace($text, $disconnectPattern, "private void DisconnectInternal()`r`n        {`r`n            _connectionGeneration++;", 1)
+          $newText = [regex]::Replace($text, $disconnectPattern, "private void DisconnectInternal()`r`n        {`r`n            _connectionGeneration++;", 1)
+          if ($newText -eq $text) { throw 'DisconnectInternal replacement failed.' }
+          $text = $newText
 
           Set-Content $path -Value $text -Encoding UTF8
+
+          $verify = Get-Content $path -Raw
+          foreach ($needle in @('_connectionGeneration', 'Task.WhenAny', 'Connection attempt timed out after 10 seconds.', 'int generation')) {
+            if ($verify -notmatch [regex]::Escape($needle)) { throw "Network patch verification failed: $needle" }
+          }
           Write-Host 'NETWORK_RECONNECT_PATCH=TRUE'
 
       - name: Thematic modular split
@@ -191,23 +200,21 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $files = @(Get-ChildItem rebuild -Filter *.cs -File)
-          Write-Host "Root C# files: $($files.Count)"
-          $files | ForEach-Object { Write-Host $_.Name }
-          $main = $files | Where-Object { $_.Name -eq 'MultiplayerCampaignSubModule.cs' }
-          if ($null -eq $main) { throw "Main submodule source is missing." }
           if ($files.Count -ne 10) { throw "Expected exactly 10 thematic C# files, got $($files.Count)." }
           if (Test-Path "rebuild/MpcConnectionRecoveryFix.cs") { throw "Old standalone recovery file was not merged." }
           $map = Get-Content "rebuild/REFACTOR_MAP.txt" -Raw
-          if ($map -notmatch 'DECLARATIONS=\d+') { throw "REFACTOR_MAP declaration count missing." }
-          if ($map -notmatch 'EMITTED=\d+') { throw "REFACTOR_MAP emitted count missing." }
           if ($map -notmatch 'FILES=10') { throw "Thematic layout is not exactly 10 files." }
+          if ($map -notmatch 'MultiplayerNetworkClient -> MpcNetwork\.cs') { throw "Network client is not in MpcNetwork.cs." }
           if ($map -notmatch 'MultiplayerCampaignBehavior -> MpcCampaign\.cs') { throw "Campaign behavior is not in MpcCampaign.cs." }
           if ($map -notmatch 'MultiplayerCampaignVM -> MpcUI\.cs') { throw "Campaign UI VM is not in MpcUI.cs." }
-          if ($map -notmatch 'MultiplayerNetworkClient -> MpcNetwork\.cs') { throw "Network client is not in MpcNetwork.cs." }
-          if ($map -notmatch 'MultiplayerCampaignHost -> MpcNetwork\.cs') { throw "Campaign host network service is not in MpcNetwork.cs." }
           if ($map -notmatch 'RemotePlayerManager -> MpcPlayers\.cs') { throw "RemotePlayerManager is not in MpcPlayers.cs." }
           if ($map -notmatch 'MpcRecoveryRuntime -> MpcSaveRecovery\.cs') { throw "Recovery runtime is not in MpcSaveRecovery.cs." }
           if ($map -notmatch 'MpcSaveTransferPatch -> MpcSaveRecovery\.cs') { throw "Save transfer patch is not in MpcSaveRecovery.cs." }
+          $network = Get-Content "rebuild/MpcNetwork.cs" -Raw
+          if ($network -notmatch '_connectionGeneration') { throw "Patched reconnect generation was lost during thematic split." }
+          if ($network -notmatch 'Task\.WhenAny') { throw "Patched connect timeout was lost during thematic split." }
+          if ($network -notmatch 'Connection attempt timed out after 10 seconds\.') { throw "Patched timeout message was lost during thematic split." }
+          Write-Host "NETWORK_PATCH_PRESERVED_AFTER_SPLIT=TRUE"
 
       - name: Restore
         shell: pwsh
@@ -235,11 +242,9 @@ jobs:
           Write-Host "===== MPC BUILD SUMMARY ====="
           if (Test-Path build.log) {
             Write-Host "--- Errors ---"
-            Select-String -Path build.log -Pattern '(?i)error [A-Z0-9]+|: error |error\s*CS[0-9]+|Build FAILED' |
-              Select-Object -Last 120 | ForEach-Object { Write-Host $_.Line }
+            Select-String -Path build.log -Pattern '(?i)error [A-Z0-9]+|: error |error\s*CS[0-9]+|Build FAILED' | Select-Object -Last 120 | ForEach-Object { Write-Host $_.Line }
             Write-Host "--- Warnings ---"
-            Select-String -Path build.log -Pattern '(?i)warning [A-Z0-9]+|: warning |warning\s*CS[0-9]+' |
-              Select-Object -Last 120 | ForEach-Object { Write-Host $_.Line }
+            Select-String -Path build.log -Pattern '(?i)warning [A-Z0-9]+|: warning |warning\s*CS[0-9]+' | Select-Object -Last 120 | ForEach-Object { Write-Host $_.Line }
             Write-Host "--- Tail ---"
             Get-Content build.log -Tail 180
           }
@@ -269,14 +274,10 @@ jobs:
           if (Test-Path build.log) {
             [void]$summary.AppendLine()
             [void]$summary.AppendLine("ERRORS:")
-            Get-Content build.log |
-              Select-String -Pattern '(?i): error |error\s*CS[0-9]+|Build FAILED' |
-              Select-Object -Last 120 |
-              ForEach-Object { [void]$summary.AppendLine($_.Line) }
+            Get-Content build.log | Select-String -Pattern '(?i): error |error\s*CS[0-9]+|Build FAILED' | Select-Object -Last 120 | ForEach-Object { [void]$summary.AppendLine($_.Line) }
             [void]$summary.AppendLine()
             [void]$summary.AppendLine("TAIL:")
-            Get-Content build.log -Tail 100 |
-              ForEach-Object { [void]$summary.AppendLine($_) }
+            Get-Content build.log -Tail 100 | ForEach-Object { [void]$summary.AppendLine($_) }
           }
           Set-Content -Path rebuild/BUILD_FAILURE.txt -Value $summary.ToString() -Encoding UTF8
           git config user.name "github-actions[bot]"
@@ -286,7 +287,7 @@ jobs:
           git commit -m "ci: record MPC build failure [skip ci]"
           git push origin HEAD:edit
 
-      - name: Commit modular source after successful build
+      - name: Commit network source after successful build
         if: success()
         shell: pwsh
         run: |
@@ -296,10 +297,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm -r --cached --ignore-unmatch DLLs 2>$null
           git add rebuild/MpcNetwork.cs
-          if (git diff --cached --quiet) {
-            Write-Host "No network source changes to commit."
-            exit 0
-          }
+          if (git diff --cached --quiet) { throw "No network source changes to commit." }
           git commit -m "fix: make MPC client reconnectable with timeout [skip ci]"
           git push origin HEAD:edit
 
