@@ -3,6 +3,8 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Text;
 
+record DeclInfo(string Namespace, string Name, string Text, List<string> Usings, string SourceFile, int Order);
+
 if (args.Length < 3)
     throw new ArgumentException("Usage: ThematicSplitter <source.cs> <output-dir> [recovery.cs]");
 
@@ -18,7 +20,7 @@ if (!string.IsNullOrWhiteSpace(recoveryPath) && File.Exists(recoveryPath))
 var allDecls = new List<DeclInfo>();
 var globalUsings = new SortedSet<string>(StringComparer.Ordinal);
 var globalExterns = new SortedSet<string>(StringComparer.Ordinal);
-var ordinal = 0;
+int ordinal = 0;
 
 foreach (var input in inputs)
 {
@@ -32,10 +34,8 @@ foreach (var input in inputs)
     }
 
     var root = tree.GetCompilationUnitRoot();
-    foreach (var ext in root.Externs)
-        globalExterns.Add(ext.ToFullString().TrimEnd());
-    foreach (var use in root.Usings)
-        globalUsings.Add(use.ToFullString().TrimEnd());
+    foreach (var ext in root.Externs) globalExterns.Add(ext.ToFullString().TrimEnd());
+    foreach (var use in root.Usings) globalUsings.Add(use.ToFullString().TrimEnd());
 
     CollectMembers(root.Members, "", new List<string>(), input.Path);
 }
@@ -64,18 +64,14 @@ void CollectMembers(IEnumerable<MemberDeclarationSyntax> members, string namespa
 
         if (member is BaseTypeDeclarationSyntax type)
         {
-            var name = GetIdentifier(type);
+            string? name = GetIdentifier(type);
             if (name != null)
-            {
                 allDecls.Add(new DeclInfo(namespaceName, name, member.ToFullString(), Distinct(localUsings), inputPath, ordinal++));
-            }
             continue;
         }
 
         if (member is DelegateDeclarationSyntax del)
-        {
             allDecls.Add(new DeclInfo(namespaceName, del.Identifier.Text, member.ToFullString(), Distinct(localUsings), inputPath, ordinal++));
-        }
     }
 }
 
@@ -98,9 +94,9 @@ static string Classify(DeclInfo d)
     if (d.Name.Equals("MultiplayerCampaignSubModule", StringComparison.Ordinal))
         return "MultiplayerCampaignSubModule.cs";
 
-    var n = d.Name;
-    var lower = n.ToLowerInvariant();
-    var text = d.Text;
+    string n = d.Name;
+    string lower = n.ToLowerInvariant();
+    string text = d.Text;
 
     if (lower.Contains("ui") || lower.Contains("gui") || lower.Contains("screen") || lower.Contains("viewmodel") || lower.Contains("menu"))
         return "MpcUI.cs";
@@ -158,45 +154,52 @@ if (Directory.Exists(oldSplit)) Directory.Delete(oldSplit, true);
 foreach (var file in targetFiles)
 {
     var group = groups.FirstOrDefault(g => string.Equals(g.Key, file, StringComparison.OrdinalIgnoreCase));
+    if (group == null) continue;
+
     var sb = new StringBuilder();
     sb.AppendLine("// Thematic MPC module. Original declarations are preserved and grouped by responsibility.");
     foreach (var ext in globalExterns) sb.AppendLine(ext);
     foreach (var use in globalUsings) sb.AppendLine(use);
     sb.AppendLine();
 
-    if (group != null)
+    foreach (var nsGroup in group.GroupBy(d => d.Namespace, StringComparer.OrdinalIgnoreCase).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
     {
-        foreach (var nsGroup in group.GroupBy(d => d.Namespace, StringComparer.OrdinalIgnoreCase).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(nsGroup.Key))
         {
-            if (!string.IsNullOrWhiteSpace(nsGroup.Key))
-            {
-                sb.Append("namespace ").Append(nsGroup.Key).AppendLine();
-                sb.AppendLine("{");
-            }
+            sb.Append("namespace ").Append(nsGroup.Key).AppendLine();
+            sb.AppendLine("{");
+        }
 
-            foreach (var decl in nsGroup.OrderBy(d => d.Order))
-            {
-                sb.AppendLine(decl.Text.TrimEnd());
-                sb.AppendLine();
-            }
-
-            if (!string.IsNullOrWhiteSpace(nsGroup.Key)) sb.AppendLine("}");
+        foreach (var decl in nsGroup.OrderBy(d => d.Order))
+        {
+            sb.AppendLine(decl.Text.TrimEnd());
             sb.AppendLine();
         }
+
+        if (!string.IsNullOrWhiteSpace(nsGroup.Key)) sb.AppendLine("}");
+        sb.AppendLine();
     }
 
-    if (group != null)
-        File.WriteAllText(Path.Combine(outputDir, file), sb.ToString(), new UTF8Encoding(false));
+    File.WriteAllText(Path.Combine(outputDir, file), sb.ToString(), new UTF8Encoding(false));
 }
 
 var expectedKeys = allDecls.GroupBy(d => (d.Namespace, d.Name)).ToDictionary(g => g.Key, g => g.Count());
 var emittedDecls = new List<DeclInfo>();
+
 foreach (var file in targetFiles)
 {
     var path = Path.Combine(outputDir, file);
     if (!File.Exists(path)) continue;
-    var tree = CSharpSyntaxTree.ParseText(await File.ReadAllTextAsync(path, Encoding.UTF8), new CSharpParseOptions(LanguageVersion.Latest));
-    emittedDecls.AddRange(ExtractDecls(tree.GetCompilationUnitRoot(), file));
+    var generatedText = await File.ReadAllTextAsync(path, Encoding.UTF8);
+    var generatedTree = CSharpSyntaxTree.ParseText(generatedText, new CSharpParseOptions(LanguageVersion.Latest));
+    var generatedErrors = generatedTree.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+    if (generatedErrors.Count > 0)
+    {
+        Console.WriteLine($"GENERATED_PARSE_ERRORS={generatedErrors.Count} FILE={file}");
+        foreach (var error in generatedErrors.Take(50)) Console.WriteLine(error);
+        return 3;
+    }
+    emittedDecls.AddRange(ExtractDecls(generatedTree.GetCompilationUnitRoot(), file));
 }
 
 static IEnumerable<DeclInfo> ExtractDecls(CompilationUnitSyntax root, string outputFile)
@@ -231,11 +234,20 @@ static IEnumerable<DeclInfo> ExtractDecls(CompilationUnitSyntax root, string out
 }
 
 var actualKeys = emittedDecls.GroupBy(d => (d.Namespace, d.Name)).ToDictionary(g => g.Key, g => g.Count());
-if (expectedKeys.Count != actualKeys.Count || expectedKeys.Any(kv => !actualKeys.TryGetValue(kv.Key, out var count) || count != kv.Value))
-    throw new InvalidOperationException("Declaration preservation failed: source and generated type multisets differ.");
+if (expectedKeys.Count != actualKeys.Count || expectedKeys.Any(kv => !actualKeys.TryGetValue(kv.Key, out var actualCount) || actualCount != kv.Value))
+{
+    Console.WriteLine("DECLARATION_PRESERVATION_FAILURE");
+    foreach (var missing in expectedKeys.Where(kv => !actualKeys.TryGetValue(kv.Key, out var c) || c != kv.Value))
+        Console.WriteLine($"MISSING_OR_MISMATCH={missing.Key.Namespace}.{missing.Key.Name} expected={missing.Value} actual={(actualKeys.TryGetValue(missing.Key, out var count) ? count : 0)}");
+    return 4;
+}
 
 var mainPath = Path.Combine(outputDir, "MultiplayerCampaignSubModule.cs");
-if (!File.Exists(mainPath)) throw new InvalidOperationException("Main submodule was not generated.");
+if (!File.Exists(mainPath))
+{
+    Console.WriteLine("MAIN_SUBMODULE_MISSING");
+    return 5;
+}
 
 var map = new StringBuilder();
 map.AppendLine("THEMATIC MPC REFACTOR");
