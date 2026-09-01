@@ -16,7 +16,7 @@ namespace MultiplayerCampaign
             GameStateManager manager = Game.Current.GameStateManager;
             Type stateType = typeof(CharacterCreationState);
             object state = null;
-            object content = CreateCharacterCreationContent();
+            object content = CreateCompatibleContent(stateType);
 
             MethodInfo[] methods = typeof(GameStateManager).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             for (int i = 0; i < methods.Length && state == null; i++)
@@ -32,7 +32,7 @@ namespace MultiplayerCampaign
 
                 try
                 {
-                    if (parameters.Length == 0)
+                    if (parameters.Length == 0 && content == null)
                         state = closed.Invoke(manager, null);
                     else if (parameters.Length == 1 && parameters[0].ParameterType == typeof(object[]))
                         state = closed.Invoke(manager, new object[] { content == null ? new object[0] : new object[] { content } });
@@ -40,50 +40,61 @@ namespace MultiplayerCampaign
                 catch { }
             }
 
-            if (state == null)
+            if (state == null && content != null)
             {
                 ConstructorInfo[] constructors = stateType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 for (int i = 0; i < constructors.Length && state == null; i++)
                 {
                     ParameterInfo[] parameters = constructors[i].GetParameters();
-                    if (parameters.Length == 1 && content != null && parameters[0].ParameterType.IsInstanceOfType(content))
-                    {
-                        try { state = constructors[i].Invoke(new object[] { content }); }
-                        catch { }
-                    }
+                    if (parameters.Length != 1 || !parameters[0].ParameterType.IsInstanceOfType(content))
+                        continue;
+                    try { state = constructors[i].Invoke(new object[] { content }); }
+                    catch { }
                 }
             }
 
             if (state == null)
-                throw new InvalidOperationException("Bannerlord CharacterCreationState could not be created.");
+                throw new InvalidOperationException("Bannerlord CharacterCreationState could not be created with a compatible character-creation content object.");
 
             manager.CleanAndPushState((CharacterCreationState)state, 0);
         }
 
-        private static object CreateCharacterCreationContent()
+        private static object CreateCompatibleContent(Type stateType)
         {
             Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
-            Type preferred = null;
+            ConstructorInfo[] constructors = stateType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
-            for (int i = 0; i < assemblies.Length; i++)
+            for (int c = 0; c < constructors.Length; c++)
             {
-                try
+                ParameterInfo[] parameters = constructors[c].GetParameters();
+                if (parameters.Length != 1)
+                    continue;
+
+                Type required = parameters[0].ParameterType;
+                for (int a = 0; a < assemblies.Length; a++)
                 {
-                    foreach (Type type in assemblies[i].GetTypes())
+                    try
                     {
-                        if (type == null || type.IsAbstract)
-                            continue;
-                        if (string.Equals(type.Name, "SandboxCharacterCreationContent", StringComparison.OrdinalIgnoreCase))
-                            preferred = type;
-                    }
-                }
-                catch { }
-            }
+                        Type[] types = assemblies[a].GetTypes();
+                        for (int t = 0; t < types.Length; t++)
+                        {
+                            Type candidate = types[t];
+                            if (candidate == null || candidate.IsAbstract || candidate == required)
+                                continue;
+                            if (!required.IsAssignableFrom(candidate))
+                                continue;
 
-            if (preferred != null)
-            {
-                try { return Activator.CreateInstance(preferred, true); }
-                catch { }
+                            try
+                            {
+                                object value = Activator.CreateInstance(candidate, true);
+                                if (value != null)
+                                    return value;
+                            }
+                            catch { }
+                        }
+                    }
+                    catch { }
+                }
             }
 
             return null;
