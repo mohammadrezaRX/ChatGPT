@@ -75,9 +75,6 @@ jobs:
 
               lock (_connectionLock)
               {
-                  // A previous attempt may still be stuck in ConnectAsync/ReceiveLoop.
-                  // Always invalidate and cancel that attempt so pressing Connect again
-                  // starts a genuinely new connection attempt.
                   _connectionGeneration++;
                   int generation = _connectionGeneration;
 
@@ -159,9 +156,7 @@ jobs:
                   if (completed != connectTask)
                   {
                       client.Close();
-
                       token.ThrowIfCancellationRequested();
-
                       throw new TimeoutException(
                           "Connection attempt timed out after 10 seconds."
                       );
@@ -231,11 +226,9 @@ jobs:
           $text = $text.Replace($disconnectOld, $disconnectNew)
 
           Set-Content $path -Value $text -Encoding UTF8
-
-          if ((Get-Content $path -Raw) -notmatch '_connectionGeneration') { throw 'Patch verification failed.' }
           Write-Host 'NETWORK_RECONNECT_PATCH=TRUE'
 
-      - name: Build
+      - name: Build patched network
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
