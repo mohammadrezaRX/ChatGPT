@@ -3,12 +3,13 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
-using HarmonyLib;
+using TaleWorlds.CampaignSystem;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 
-using TaleWorlds.CampaignSystem;
+using HarmonyLib;
 using BinaryReader = System.IO.BinaryReader;
 using Helpers;
 using MultiplayerCampaign;
@@ -38,6 +39,7 @@ using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
 using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
+
 
 
 
@@ -127,6 +129,7 @@ internal static class RemoteSnapshotDispatcher
 
 
 
+
 // ============================================================
 // CAMPAIGN THREAD DISPATCHER
 // ============================================================
@@ -200,6 +203,7 @@ internal static class CampaignThreadDispatcher
 
 
 
+
 // ============================================================
 // CAMPAIGN TICK DISPATCHER
 // ============================================================
@@ -235,6 +239,7 @@ internal static class CampaignTickDispatcher
 
 
 
+
 // ============================================================
 // FINAL NETWORK CLIENT PATCH
 // ============================================================
@@ -250,6 +255,7 @@ internal static class FinalNetworkClientPatch
             );
     }
 }
+
 
 
 
@@ -347,6 +353,7 @@ namespace MultiplayerCampaign
 
 
 
+
     [HarmonyLib.HarmonyPatch(typeof(MultiplayerCampaignRebuildLayer.MpcClientParty), "Ensure")]
     internal static class MpcFinalBlockSharedPartyV2
     {
@@ -358,6 +365,7 @@ namespace MultiplayerCampaign
             } catch { __result = null; }
         }
     }
+
 
 
 
@@ -392,6 +400,7 @@ namespace MultiplayerCampaign
 
 
 
+
     [HarmonyLib.HarmonyPatch(typeof(MultiplayerCampaignBehavior), "OnCampaignTick")]
     internal static class MpcFinalCampaignThreadPatchV2
     {
@@ -405,6 +414,7 @@ namespace MultiplayerCampaign
             } catch { }
         }
     }
+
 
 
 
