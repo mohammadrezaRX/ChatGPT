@@ -1,6 +1,7 @@
 using System;
 using System.Reflection;
 using HarmonyLib;
+using TaleWorlds.CampaignSystem.CharacterCreationContent;
 using TaleWorlds.Core;
 using TaleWorlds.MountAndBlade;
 
@@ -64,6 +65,32 @@ namespace MultiplayerCampaign
             Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
             ConstructorInfo[] constructors = stateType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
+            // Prefer the known Sandbox content type when this Bannerlord build exposes it.
+            for (int a = 0; a < assemblies.Length; a++)
+            {
+                try
+                {
+                    Type[] types = assemblies[a].GetTypes();
+                    for (int t = 0; t < types.Length; t++)
+                    {
+                        Type candidate = types[t];
+                        if (candidate == null || candidate.IsAbstract)
+                            continue;
+                        if (!string.Equals(candidate.Name, "SandboxCharacterCreationContent", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        try
+                        {
+                            object value = Activator.CreateInstance(candidate, true);
+                            if (value != null)
+                                return value;
+                        }
+                        catch { }
+                    }
+                }
+                catch { }
+            }
+
+            // Otherwise find any concrete type assignable to the constructor parameter.
             for (int c = 0; c < constructors.Length; c++)
             {
                 ParameterInfo[] parameters = constructors[c].GetParameters();
