@@ -41,7 +41,8 @@ jobs:
           if (!(Test-Path "DLLs")) {
             throw "DLLs directory from main was not imported"
           }
-          Write-Host "Imported Bannerlord DLLs from main."
+          git restore --staged DLLs 2>$null
+          Write-Host "Imported Bannerlord DLLs from main without staging them."
 
       - name: Thematic modular split
         shell: pwsh
@@ -96,7 +97,7 @@ jobs:
             Select-String -Path build.log -Pattern '(?i)error [A-Z0-9]+|: error |error\s*CS[0-9]+|Build FAILED' |
               Select-Object -Last 120 | ForEach-Object { Write-Host $_.Line }
             Write-Host "--- Warnings ---"
-            Select-String -Path build.log -Pattern '(?i)warning [A-Z0-9]+|: warning |warning\s*CS[0-9]+' |
+            Select-String -Path build.log -Pattern '(?i)warning [A-Z0-9]+|: warning |warning\s*CS[0-9]+ ' |
               Select-Object -Last 120 | ForEach-Object { Write-Host $_.Line }
             Write-Host "--- Tail ---"
             Get-Content build.log -Tail 180
@@ -139,6 +140,7 @@ jobs:
           Set-Content -Path rebuild/BUILD_FAILURE.txt -Value $summary.ToString() -Encoding UTF8
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -r --cached --ignore-unmatch DLLs 2>$null
           git add rebuild/BUILD_FAILURE.txt
           git commit -m "ci: record MPC build failure [skip ci]"
           git push origin HEAD:edit
@@ -151,6 +153,7 @@ jobs:
           if (Test-Path "rebuild/BUILD_FAILURE.txt") { Remove-Item "rebuild/BUILD_FAILURE.txt" -Force }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -r --cached --ignore-unmatch DLLs 2>$null
           git add rebuild
           if (git diff --cached --quiet) {
             Write-Host "No modular source changes to commit."
