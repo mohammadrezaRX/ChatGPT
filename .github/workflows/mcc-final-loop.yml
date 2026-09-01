@@ -112,13 +112,43 @@ jobs:
             build.log
             dotnet-info.log
             rebuild/REFACTOR_MAP.txt
+            rebuild/BUILD_FAILURE.txt
           if-no-files-found: warn
+
+      - name: Record build failure
+        if: failure()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $summary = New-Object System.Text.StringBuilder
+          [void]$summary.AppendLine("MPC BUILD FAILURE")
+          [void]$summary.AppendLine("COMMIT=${{ github.sha }}")
+          [void]$summary.AppendLine("RUN=${{ github.run_id }}")
+          if (Test-Path build.log) {
+            [void]$summary.AppendLine()
+            [void]$summary.AppendLine("ERRORS:")
+            Get-Content build.log |
+              Select-String -Pattern '(?i): error |error\s*CS[0-9]+|Build FAILED' |
+              Select-Object -Last 120 |
+              ForEach-Object { [void]$summary.AppendLine($_.Line) }
+            [void]$summary.AppendLine()
+            [void]$summary.AppendLine("TAIL:")
+            Get-Content build.log -Tail 100 |
+              ForEach-Object { [void]$summary.AppendLine($_) }
+          }
+          Set-Content -Path rebuild/BUILD_FAILURE.txt -Value $summary.ToString() -Encoding UTF8
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add rebuild/BUILD_FAILURE.txt
+          git commit -m "ci: record MPC build failure [skip ci]"
+          git push origin HEAD:edit
 
       - name: Commit modular source after successful build
         if: success()
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          if (Test-Path "rebuild/BUILD_FAILURE.txt") { Remove-Item "rebuild/BUILD_FAILURE.txt" -Force }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add rebuild
