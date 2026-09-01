@@ -1,0 +1,194 @@
+<Window>
+
+    <Widget
+        WidthSizePolicy="StretchToParent"
+        HeightSizePolicy="StretchToParent"
+        Sprite="background_1">
+
+        <Children>
+
+            <Widget
+                WidthSizePolicy="StretchToParent"
+                HeightSizePolicy="StretchToParent"
+                Sprite="BlankWhiteSquare"
+                AlphaFactor="0.35">
+            </Widget>
+
+            <!-- ================================================= -->
+            <!-- MAIN PAGE                                         -->
+            <!-- ================================================= -->
+
+            <Widget
+                WidthSizePolicy="Fixed"
+                HeightSizePolicy="Fixed"
+                SuggestedWidth="950"
+                SuggestedHeight="760"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Sprite="frame_001_9"
+                IsVisible="@ShowMain">
+
+                <Children>
+
+                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="MULTIPLAYER CAMPAIGN" />
+                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="40" MarginTop="120" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Text" Text="LAN CAMPAIGN" />
+
+                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="520" SuggestedHeight="95" MarginTop="205" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteOpenCreate">
+                        <Children>
+                            <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="CREATE HOST" />
+                        </Children>
+                    </ButtonWidget>
+
+                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="520" SuggestedHeight="95" MarginTop="325" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteOpenJoin">
+                        <Children>
+                            <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="JOIN HOST" />
+                        </Children>
+                    </ButtonWidget>
+
+                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="220" SuggestedHeight="65" MarginBottom="55" HorizontalAlignment="Center" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteBack">
+                        <Children>
+                            <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="‹  BACK" />
+                        </Children>
+                    </ButtonWidget>
+
+                </Children>
+            </Widget>
+
+            <!-- ================================================= -->
+            <!-- CHARACTER CREATION / SLOT PAGE                   -->
+            <!-- ================================================= -->
+
+            <Widget
+                WidthSizePolicy="Fixed"
+                HeightSizePolicy="Fixed"
+                SuggestedWidth="950"
+                SuggestedHeight="760"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Sprite="frame_001_9"
+                IsVisible="@ShowCharacter">
+
+                <Children>
+
+                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="45" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="CREATE / SELECT CHARACTER" />
+                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="40" MarginTop="112" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="SELECT ONE OF THREE CHARACTER SLOTS" />
+
+                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="88" MarginTop="165" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSelectSlot1">
+                        <Children>
+                            <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="SLOT 1  —  @Slot1Name" />
+                        </Children>
+                    </ButtonWidget>
+
+                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="88" MarginTop="270" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSelectSlot2">
+                        <Children>
+                            <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="SLOT 2  —  @Slot2Name" />
+                        </Children>
+                    </ButtonWidget>
+
+                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="88" MarginTop="375" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteSelectSlot3">
+                        <Children>
+                            <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="SLOT 3  —  @Slot3Name" />
+                        </Children>
+                    </ButtonWidget>
+
+                    <EditableTextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="65" MarginTop="480" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="CustomBattle.Search.TextBox" Text="@CharacterName" />
+
+                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="320" SuggestedHeight="72" MarginTop="565" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteCreateCharacter">
+                        <Children>
+                            <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="CREATE CHARACTER" />
+                        </Children>
+                    </ButtonWidget>
+
+                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="800" SuggestedHeight="45" MarginBottom="115" HorizontalAlignment="Center" VerticalAlignment="Bottom" Brush="PreAlpha.Text" Text="@StatusText" />
+
+                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="220" SuggestedHeight="65" MarginBottom="45" HorizontalAlignment="Left" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteBackToMain">
+                        <Children>
+                            <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="‹  MAIN" />
+                        </Children>
+                    </ButtonWidget>
+
+                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="260" SuggestedHeight="65" MarginBottom="45" HorizontalAlignment="Right" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteBackToJoin">
+                        <Children>
+                            <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="CONTINUE TO JOIN ›" />
+                        </Children>
+                    </ButtonWidget>
+
+                </Children>
+            </Widget>
+
+            <!-- ================================================= -->
+            <!-- CREATE HOST PAGE                                  -->
+            <!-- ================================================= -->
+
+            <Widget
+                WidthSizePolicy="Fixed"
+                HeightSizePolicy="Fixed"
+                SuggestedWidth="950"
+                SuggestedHeight="760"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Sprite="frame_001_9"
+                IsVisible="@ShowCreate">
+
+                <Children>
+                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="CREATE HOST" />
+                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="45" MarginTop="185" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Text" Text="START A NEW CAMPAIGN" />
+                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="45" MarginTop="235" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="YOUR CHARACTER NAME WILL BE CHOSEN IN CAMPAIGN" />
+
+                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="520" SuggestedHeight="95" MarginTop="335" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteStartHost">
+                        <Children>
+                            <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="START HOST" />
+                        </Children>
+                    </ButtonWidget>
+
+                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="45" MarginTop="455" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="@StatusText" />
+
+                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="220" SuggestedHeight="65" MarginBottom="55" HorizontalAlignment="Center" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteBackToMain">
+                        <Children>
+                            <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="‹  BACK" />
+                        </Children>
+                    </ButtonWidget>
+                </Children>
+            </Widget>
+
+            <!-- ================================================= -->
+            <!-- JOIN HOST PAGE                                    -->
+            <!-- ================================================= -->
+
+            <Widget
+                WidthSizePolicy="Fixed"
+                HeightSizePolicy="Fixed"
+                SuggestedWidth="950"
+                SuggestedHeight="760"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Sprite="frame_001_9"
+                IsVisible="@ShowJoin">
+
+                <Children>
+                    <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="Fixed" SuggestedHeight="70" MarginTop="55" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="FullScreenNotice.Title" Text="JOIN HOST" />
+                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="600" SuggestedHeight="40" MarginTop="170" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="HOST IP ADDRESS" />
+
+                    <EditableTextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="600" SuggestedHeight="75" MarginTop="215" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="CustomBattle.Search.TextBox" Text="@IpAddress" />
+
+                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="600" SuggestedHeight="38" MarginTop="300" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="CHARACTER: @CharacterName" />
+
+                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="520" SuggestedHeight="95" MarginTop="350" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="ButtonBrush" Command.Click="ExecuteJoinHost">
+                        <Children>
+                            <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="JOIN HOST" />
+                        </Children>
+                    </ButtonWidget>
+
+                    <TextWidget WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="700" SuggestedHeight="45" MarginTop="465" HorizontalAlignment="Center" VerticalAlignment="Top" Brush="PreAlpha.Text" Text="@StatusText" />
+
+                    <ButtonWidget DoNotPassEventsToChildren="true" WidthSizePolicy="Fixed" HeightSizePolicy="Fixed" SuggestedWidth="260" SuggestedHeight="65" MarginBottom="55" HorizontalAlignment="Center" VerticalAlignment="Bottom" Brush="ButtonBrush" Command.Click="ExecuteOpenJoin">
+                        <Children>
+                            <TextWidget WidthSizePolicy="StretchToParent" HeightSizePolicy="StretchToParent" HorizontalAlignment="Center" VerticalAlignment="Center" Brush="FullScreenNotice.Text" Text="‹  CHARACTER" />
+                        </Children>
+                    </ButtonWidget>
+                </Children>
+            </Widget>
+
+        </Children>
+    </Widget>
+</Window>
