@@ -1,6 +1,6 @@
 MPC BUILD FAILURE
-COMMIT=c822723447231708835551684bc9fc3af81acf93
-RUN=33509032559
+COMMIT=7acf054dc2427817139caf1674dd1eda5c02c308
+RUN=33680381644
 
 ERRORS:
      1>D:\a\ChatGPT\ChatGPT\rebuild\CharacterCreation\MpcNativeCharacterCreationFix.cs(109,26): error CS0246: The type or namespace name 'CharacterCreationState' could not be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
@@ -10,7 +10,7 @@ Build FAILED.
          D:\a\ChatGPT\ChatGPT\rebuild\CharacterCreation\MpcNativeCharacterCreationFix.cs(112,37): error CS0246: The type or namespace name 'CharacterCreationState' could not be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
 
 TAIL:
-Build started 9/1/2026 12:42:18 PM.
+Build started 9/2/2026 8:38:20 PM.
      1>Project "D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj" on node 1 (default targets).
      1>GenerateTargetFrameworkMonikerAttribute:
        Skipping target "GenerateTargetFrameworkMonikerAttribute" because all output files are up-to-date with respect to the input files.
@@ -108,5 +108,5 @@ Build FAILED.
     30 Warning(s)
     2 Error(s)
 
-Time Elapsed 00:00:00.96
+Time Elapsed 00:00:00.89
 
