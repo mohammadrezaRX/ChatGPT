@@ -1,17 +1,13 @@
 MPC BUILD FAILURE
-COMMIT=f819c96af89e6953c2da39f4f080f8a0f03bff00
-RUN=34826446413
+COMMIT=e72b01152112bb08f7df00191ba3b87a1a998f63
+RUN=34827050211
 
 ERRORS:
-     1>D:\a\ChatGPT\ChatGPT\rebuild\CharacterCreation\MpcNativeCharacterCreationFix.cs(109,26): error CS0246: The type or namespace name 'CharacterCreationState' could not be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-     1>D:\a\ChatGPT\ChatGPT\rebuild\CharacterCreation\MpcNativeCharacterCreationFix.cs(112,37): error CS0246: The type or namespace name 'CharacterCreationState' could not be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\NetworkFix\MpcHandshakeProtocolFix.cs(31,17): error CS0272: The property or indexer 'HostClientConnection.PlayerId' cannot be used in this context because the set accessor is inaccessible [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
 Build FAILED.
-         D:\a\ChatGPT\ChatGPT\rebuild\CharacterCreation\MpcNativeCharacterCreationFix.cs(109,26): error CS0246: The type or namespace name 'CharacterCreationState' could not be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-         D:\a\ChatGPT\ChatGPT\rebuild\CharacterCreation\MpcNativeCharacterCreationFix.cs(112,37): error CS0246: The type or namespace name 'CharacterCreationState' could not be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\NetworkFix\MpcHandshakeProtocolFix.cs(31,17): error CS0272: The property or indexer 'HostClientConnection.PlayerId' cannot be used in this context because the set accessor is inaccessible [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
 
 TAIL:
-     1>Project "D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj" on node 1 (default targets).
-     1>PrepareForBuild:
          Creating directory "bin\Debug\netstandard2.0\".
        GenerateTargetFrameworkMonikerAttribute:
        Skipping target "GenerateTargetFrameworkMonikerAttribute" because all output files are up-to-date with respect to the input files.
@@ -60,8 +56,9 @@ TAIL:
      1>D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignSubModule.cs(28,7): warning CS0105: The using directive for 'HarmonyLib' appeared previously in this namespace [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
      1>D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignSubModule.cs(43,7): warning CS0105: The using directive for 'System' appeared previously in this namespace [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
      1>D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignSubModule.cs(47,7): warning CS0105: The using directive for 'TaleWorlds.CampaignSystem' appeared previously in this namespace [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-     1>D:\a\ChatGPT\ChatGPT\rebuild\CharacterCreation\MpcNativeCharacterCreationFix.cs(109,26): error CS0246: The type or namespace name 'CharacterCreationState' could not be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-     1>D:\a\ChatGPT\ChatGPT\rebuild\CharacterCreation\MpcNativeCharacterCreationFix.cs(112,37): error CS0246: The type or namespace name 'CharacterCreationState' could not be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\NetworkFix\MpcHandshakeProtocolFix.cs(31,17): error CS0272: The property or indexer 'HostClientConnection.PlayerId' cannot be used in this context because the set accessor is inaccessible [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcPatches.cs(723,21): warning CS4014: Because this call is not awaited, execution of the current method continues before the call is completed. Consider applying the 'await' operator to the result of the call. [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+     1>D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(1000,25): warning CS0414: The field 'FinalSubModuleState._campaignStarted' is assigned but its value is never used [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
          CompilerServer: server - server processed compilation - MultiplayerCampaignRebuild (netstandard2.0)
      1>Done Building Project "D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj" (default targets) -- FAILED.
 
@@ -99,15 +96,16 @@ Build FAILED.
          D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignSubModule.cs(28,7): warning CS0105: The using directive for 'HarmonyLib' appeared previously in this namespace [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
          D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignSubModule.cs(43,7): warning CS0105: The using directive for 'System' appeared previously in this namespace [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
          D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignSubModule.cs(47,7): warning CS0105: The using directive for 'TaleWorlds.CampaignSystem' appeared previously in this namespace [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcPatches.cs(723,21): warning CS4014: Because this call is not awaited, execution of the current method continues before the call is completed. Consider applying the 'await' operator to the result of the call. [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\MpcCore.cs(1000,25): warning CS0414: The field 'FinalSubModuleState._campaignStarted' is assigned but its value is never used [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
 
 
        "D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj" (default target) (1) ->
        (CoreCompile target) -> 
-         D:\a\ChatGPT\ChatGPT\rebuild\CharacterCreation\MpcNativeCharacterCreationFix.cs(109,26): error CS0246: The type or namespace name 'CharacterCreationState' could not be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
-         D:\a\ChatGPT\ChatGPT\rebuild\CharacterCreation\MpcNativeCharacterCreationFix.cs(112,37): error CS0246: The type or namespace name 'CharacterCreationState' could not be found (are you missing a using directive or an assembly reference?) [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
+         D:\a\ChatGPT\ChatGPT\rebuild\NetworkFix\MpcHandshakeProtocolFix.cs(31,17): error CS0272: The property or indexer 'HostClientConnection.PlayerId' cannot be used in this context because the set accessor is inaccessible [D:\a\ChatGPT\ChatGPT\rebuild\MultiplayerCampaignRebuild.csproj]
 
-    30 Warning(s)
-    2 Error(s)
+    32 Warning(s)
+    1 Error(s)
 
-Time Elapsed 00:00:01.01
+Time Elapsed 00:00:01.36
 
