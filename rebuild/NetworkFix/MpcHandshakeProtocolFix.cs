@@ -61,10 +61,7 @@ namespace MultiplayerCampaign
                         typeof(HostClientConnection),
                         "SendWorldSafelyAsync");
 
-                    method?.Invoke(
-                        __instance,
-                        null
-                    );
+                    method?.Invoke(__instance, null);
                 }
                 catch (Exception ex)
                 {
@@ -73,6 +70,76 @@ namespace MultiplayerCampaign
                         ex.Message
                     );
                 }
+
+                return false;
+            }
+        }
+
+        [HarmonyPatch(typeof(HostClientConnection), "HandleReady")]
+        private static class HostReadyPatch
+        {
+            private static bool Prefix(
+                HostClientConnection __instance,
+                byte[] payload)
+            {
+                if (__instance == null)
+                    return false;
+
+                string playerId;
+                string playerName;
+
+                if (!PlayerReadyPacket.Read(
+                    payload,
+                    out playerId,
+                    out playerName))
+                {
+                    __instance.SendError("Invalid ready packet.");
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(__instance.PlayerId))
+                {
+                    __instance.SendError("Handshake required before ready.");
+                    return false;
+                }
+
+                __instance.PlayerName = NetworkUtilities.SafeName(playerName);
+                __instance.Ready = true;
+
+                try
+                {
+                    MethodInfo onReady = AccessTools.Method(
+                        typeof(MultiplayerCampaignHost),
+                        "OnPlayerReady");
+
+                    if (onReady != null)
+                    {
+                        onReady.Invoke(
+                            MultiplayerCampaignSubModule.GetHost(),
+                            new object[] { __instance }
+                        );
+                    }
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    HostConnectionEvents.Ready(__instance);
+                }
+                catch
+                {
+                }
+
+                __instance.Send(
+                    new NetworkMessageData(
+                        NetworkPacketType.WorldJoinAck,
+                        NetworkProtocol.CreatePayload(
+                            writer => writer.Write("World synchronized.")
+                        )
+                    )
+                );
 
                 return false;
             }
