@@ -1,33 +1,60 @@
 // Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
 // The thematic source remains generated/maintained by the repository build process.
 using System;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using HarmonyLib;
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+// Thematic MPC module. Original declarations are preserved and grouped by responsibility.
+
+using TaleWorlds.CampaignSystem;
+using BinaryReader = System.IO.BinaryReader;
+using HarmonyLib;
+using Helpers;
+using MultiplayerCampaign;
+using SandBox;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.Net;
 using System.Net.Sockets;
+using System.Net;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
-using HarmonyLib;
-using Helpers;
-using TaleWorlds.CampaignSystem;
+using System.Threading;
+using System;
 using TaleWorlds.CampaignSystem.Actions;
 using TaleWorlds.CampaignSystem.CharacterCreationContent;
 using TaleWorlds.CampaignSystem.Party;
+using TaleWorlds.CampaignSystem;
 using TaleWorlds.Core;
 using TaleWorlds.Engine.GauntletUI;
 using TaleWorlds.GauntletUI;
 using TaleWorlds.Library;
 using TaleWorlds.Localization;
-using TaleWorlds.MountAndBlade;
 using TaleWorlds.MountAndBlade.View;
 using TaleWorlds.MountAndBlade.ViewModelCollection.InitialMenu;
-using TaleWorlds.SaveSystem;
+using TaleWorlds.MountAndBlade;
 using TaleWorlds.SaveSystem.Load;
+using TaleWorlds.SaveSystem;
 using TaleWorlds.ScreenSystem;
 
 namespace MultiplayerCampaign
@@ -74,12 +101,14 @@ namespace MultiplayerCampaign
         }
     }
 
+
     internal static class MultiplayerUIStateManager
     {
         private static readonly MultiplayerUIState State = new MultiplayerUIState();
         public static MultiplayerUIState Current { get { return State; } }
         public static void Reset() { State.Reset(); }
     }
+
 
     public sealed class MultiplayerCampaignVM : ViewModel
     {
@@ -305,6 +334,7 @@ namespace MultiplayerCampaign
         }
     }
 
+
     [HarmonyPatch(typeof(InitialMenuVM), "RefreshMenuOptions")]
     public static class InitialMenuPatch
     {
@@ -336,6 +366,7 @@ namespace MultiplayerCampaign
             ScreenManager.PushScreen(ViewCreatorManager.CreateScreenView<MultiplayerCampaignScreen>());
         }
     }
+
 
     public sealed class MultiplayerCampaignScreen : ScreenBase
     {
@@ -397,4 +428,6 @@ namespace MultiplayerCampaign
             base.OnFinalize();
         }
     }
+
 }
+
