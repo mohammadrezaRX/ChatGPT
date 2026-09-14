@@ -42,6 +42,7 @@ jobs:
       - name: Verify source layout
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $files = @(Get-ChildItem rebuild -Filter *.cs -File)
           if ($files.Count -ne 10) { throw "Expected 10 thematic C# files, got $($files.Count)" }
           if (!(Test-Path "rebuild/MultiplayerCampaignRebuild.csproj")) { throw "Build project is missing" }
@@ -60,7 +61,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $dll = 'rebuild/bin/Debug/netstandard2.0/MultiplayerCampaign.dll'
+          $dll = 'rebuild/bin/Release/netstandard2.0/MultiplayerCampaign.dll'
           if (!(Test-Path $dll)) { throw "Expected output DLL was not produced" }
           $item = Get-Item $dll
           if ($item.Length -le 0) { throw "Output DLL is empty" }
@@ -71,7 +72,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path build-dll | Out-Null
-          Copy-Item 'rebuild/bin/Debug/netstandard2.0/MultiplayerCampaign.dll' 'build-dll/MultiplayerCampaign.dll' -Force
+          Copy-Item 'rebuild/bin/Release/netstandard2.0/MultiplayerCampaign.dll' 'build-dll/MultiplayerCampaign.dll' -Force
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add build-dll/MultiplayerCampaign.dll
