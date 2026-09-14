@@ -28,7 +28,42 @@ namespace MultiplayerCampaign
                     return false;
                 }
 
-                __instance.PlayerId = Guid.NewGuid().ToString("N");
+                try
+                {
+                    PropertyInfo playerIdProperty =
+                        typeof(HostClientConnection).GetProperty(
+                            "PlayerId",
+                            BindingFlags.Instance |
+                            BindingFlags.Public |
+                            BindingFlags.NonPublic
+                        );
+
+                    MethodInfo playerIdSetter =
+                        playerIdProperty?.GetSetMethod(true);
+
+                    if (playerIdSetter == null)
+                        throw new MissingMethodException(
+                            "HostClientConnection.PlayerId setter was not found."
+                        );
+
+                    playerIdSetter.Invoke(
+                        __instance,
+                        new object[]
+                        {
+                            Guid.NewGuid().ToString("N")
+                        }
+                    );
+                }
+                catch (Exception ex)
+                {
+                    __instance.SendError(
+                        "Handshake initialization failed: " +
+                        ex.Message
+                    );
+
+                    return false;
+                }
+
                 __instance.PlayerName = NetworkUtilities.SafeName(playerName);
                 __instance.Ready = false;
 
