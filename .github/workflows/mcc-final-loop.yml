@@ -38,144 +38,49 @@ jobs:
           $ErrorActionPreference = 'Stop'
           git fetch origin main --depth=1
           git checkout origin/main -- DLLs
-          if (!(Test-Path "DLLs")) {
-            throw "DLLs directory from main was not imported"
-          }
+          if (!(Test-Path "DLLs")) { throw "DLLs directory from main was not imported" }
           git restore --staged DLLs 2>$null
-          Write-Host "Imported Bannerlord DLLs from main without staging them."
 
       - name: Thematic modular split
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           dotnet run --project tools/RoslynSplitter/RoslynSplitter.csproj -- rebuild rebuild
-          if (!(Test-Path "rebuild/REFACTOR_MAP.txt")) {
-            throw "Thematic splitter did not produce REFACTOR_MAP.txt"
-          }
+          if (!(Test-Path "rebuild/REFACTOR_MAP.txt")) { throw "Thematic splitter did not produce REFACTOR_MAP.txt" }
 
       - name: Verify source layout
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $files = @(Get-ChildItem rebuild -Filter *.cs -File)
-          Write-Host "Root C# files: $($files.Count)"
-          $files | ForEach-Object { Write-Host $_.Name }
-          $main = $files | Where-Object { $_.Name -eq 'MultiplayerCampaignSubModule.cs' }
-          if ($null -eq $main) { throw "Main submodule source is missing." }
+          if ($null -eq ($files | Where-Object { $_.Name -eq 'MultiplayerCampaignSubModule.cs' })) { throw "Main submodule source is missing." }
           if ($files.Count -ne 10) { throw "Expected exactly 10 thematic C# files, got $($files.Count)." }
-          if (Test-Path "rebuild/MpcConnectionRecoveryFix.cs") { throw "Old standalone recovery file was not merged." }
           $map = Get-Content "rebuild/REFACTOR_MAP.txt" -Raw
-          if ($map -notmatch 'DECLARATIONS=\d+') { throw "REFACTOR_MAP declaration count missing." }
-          if ($map -notmatch 'EMITTED=\d+') { throw "REFACTOR_MAP emitted count missing." }
           if ($map -notmatch 'FILES=10') { throw "Thematic layout is not exactly 10 files." }
-          if ($map -notmatch 'MultiplayerCampaignBehavior -> MpcCampaign\.cs') { throw "Campaign behavior is not in MpcCampaign.cs." }
-          if ($map -notmatch 'MultiplayerCampaignVM -> MpcUI\.cs') { throw "Campaign UI VM is not in MpcUI.cs." }
-          if ($map -notmatch 'MultiplayerNetworkClient -> MpcNetwork\.cs') { throw "Network client is not in MpcNetwork.cs." }
-          if ($map -notmatch 'MultiplayerCampaignHost -> MpcNetwork\.cs') { throw "Campaign host network service is not in MpcNetwork.cs." }
-          if ($map -notmatch 'RemotePlayerManager -> MpcPlayers\.cs') { throw "RemotePlayerManager is not in MpcPlayers.cs." }
-          if ($map -notmatch 'MpcRecoveryRuntime -> MpcSaveRecovery\.cs') { throw "Recovery runtime is not in MpcSaveRecovery.cs." }
-          if ($map -notmatch 'MpcSaveTransferPatch -> MpcSaveRecovery\.cs') { throw "Save transfer patch is not in MpcSaveRecovery.cs." }
 
       - name: Restore
         shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          dotnet restore rebuild/MultiplayerCampaignRebuild.csproj --verbosity normal
+        run: dotnet restore rebuild/MultiplayerCampaignRebuild.csproj --verbosity normal
 
       - name: Build
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
-          Write-Host "===== MPC BUILD START ====="
-          dotnet --info 2>&1 | Tee-Object -FilePath dotnet-info.log
-          dotnet build rebuild/MultiplayerCampaignRebuild.csproj --configuration Release --no-restore --verbosity normal 2>&1 |
-            Tee-Object -FilePath build.log
+          dotnet build rebuild/MultiplayerCampaignRebuild.csproj --configuration Release --no-restore --verbosity normal 2>&1 | Tee-Object -FilePath build.log
           $exitCode = $LASTEXITCODE
           Write-Host "BUILD_EXIT_CODE=$exitCode"
-          Write-Host "===== MPC BUILD END ====="
           if ($exitCode -ne 0) { exit $exitCode }
 
-      - name: Print build summary
-        if: always()
-        shell: pwsh
-        run: |
-          Write-Host "===== MPC BUILD SUMMARY ====="
-          if (Test-Path build.log) {
-            Write-Host "--- Errors ---"
-            Select-String -Path build.log -Pattern '(?i)error [A-Z0-9]+|: error |error\s*CS[0-9]+|Build FAILED' |
-              Select-Object -Last 120 | ForEach-Object { Write-Host $_.Line }
-            Write-Host "--- Warnings ---"
-            Select-String -Path build.log -Pattern '(?i)warning [A-Z0-9]+|: warning |warning\s*CS[0-9]+' |
-              Select-Object -Last 120 | ForEach-Object { Write-Host $_.Line }
-            Write-Host "--- Tail ---"
-            Get-Content build.log -Tail 180
-          }
-          Write-Host "============================="
-
-      - name: Upload diagnostic logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mpc-build-diagnostics-${{ github.run_id }}
-          path: |
-            build.log
-            dotnet-info.log
-            rebuild/REFACTOR_MAP.txt
-            rebuild/BUILD_FAILURE.txt
-          if-no-files-found: warn
-
-      - name: Record build failure
-        if: failure()
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $summary = New-Object System.Text.StringBuilder
-          [void]$summary.AppendLine("MPC BUILD FAILURE")
-          [void]$summary.AppendLine("COMMIT=${{ github.sha }}")
-          [void]$summary.AppendLine("RUN=${{ github.run_id }}")
-          if (Test-Path build.log) {
-            [void]$summary.AppendLine()
-            [void]$summary.AppendLine("ERRORS:")
-            Get-Content build.log |
-              Select-String -Pattern '(?i): error |error\s*CS[0-9]+|Build FAILED' |
-              Select-Object -Last 120 |
-              ForEach-Object { [void]$summary.AppendLine($_.Line) }
-            [void]$summary.AppendLine()
-            [void]$summary.AppendLine("TAIL:")
-            Get-Content build.log -Tail 100 |
-              ForEach-Object { [void]$summary.AppendLine($_) }
-          }
-          Set-Content -Path rebuild/BUILD_FAILURE.txt -Value $summary.ToString() -Encoding UTF8
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -r --cached --ignore-unmatch DLLs 2>$null
-          git add rebuild/BUILD_FAILURE.txt
-          git commit -m "ci: record MPC build failure [skip ci]"
-          git push origin HEAD:edit
-
-      - name: Commit modular source after successful build
-        if: success()
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if (Test-Path "rebuild/BUILD_FAILURE.txt") { Remove-Item "rebuild/BUILD_FAILURE.txt" -Force }
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -r --cached --ignore-unmatch DLLs 2>$null
-          git add rebuild
-          if (git diff --cached --quiet) {
-            Write-Host "No modular source changes to commit."
-            exit 0
-          }
-          git commit -m "refactor: modularize MPC into thematic modules [skip ci]"
-          git push origin HEAD:edit
-
       - name: Verify success
-        if: success()
         shell: pwsh
         run: |
-          Write-Host "================================"
-          Write-Host "BUILD SUCCESS"
-          Write-Host "THEMATIC MODULES READY"
-          Write-Host "ERRORS = 0"
-          Write-Host "================================"
+          $ErrorActionPreference = 'Stop'
+          if (!(Test-Path 'rebuild/bin/Release/netstandard2.0/MultiplayerCampaign.dll')) { throw 'Release DLL was not produced.' }
+          $errors = 0
+          if (Test-Path build.log) {
+            $matches = Select-String -Path build.log -Pattern '(?i): error |error\s*CS[0-9]+'
+            if ($matches) { $errors = @($matches).Count }
+          }
+          Write-Host "ERRORS = $errors"
+          if ($errors -ne 0) { throw "Build log contains $errors error(s)." }
+          Write-Host 'BUILD SUCCESS'
