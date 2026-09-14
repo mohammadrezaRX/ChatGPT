@@ -119,7 +119,7 @@ namespace MultiplayerCampaign
             }
         }
 
-        private static Type FindCharacterCreationStateType()
+        internal static Type FindCharacterCreationStateType()
         {
             Type type = AccessTools.TypeByName("CharacterCreationState");
             if (type != null)
@@ -219,7 +219,9 @@ namespace MultiplayerCampaign
     {
         private static MethodBase TargetMethod()
         {
-            Type stateType = MpcNativeCharacterCreationFix.FindCharacterCreationStateTypeForPatch();
+            Type stateType =
+                MpcNativeCharacterCreationFix.FindCharacterCreationStateType();
+
             if (stateType == null)
                 return null;
 
