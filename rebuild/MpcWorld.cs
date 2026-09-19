@@ -2070,5 +2070,207 @@ namespace MultiplayerCampaignRebuildLayer
         }
     }
 
-}
+// ============================================================
+// WORLD TRANSFER FIXES
+// ============================================================
 
+// ============================================================
+// CONSOLIDATED NETWORK FIXES
+// ============================================================
+
+// --- MpcWorldTransferGuard.cs ---
+internal static class MpcWorldTransferGuardState
+    {
+        private static readonly object Sync = new object();
+        private static readonly HashSet<HostClientConnection> Sent = new HashSet<HostClientConnection>();
+
+        public static bool AllowInitial(HostClientConnection connection)
+        {
+            if (connection == null)
+                return false;
+
+            lock (Sync)
+            {
+                if (Sent.Contains(connection))
+                    return false;
+
+                Sent.Add(connection);
+                return true;
+            }
+        }
+
+        public static void Remove(HostClientConnection connection)
+        {
+            if (connection == null)
+                return;
+
+            lock (Sync)
+            {
+                Sent.Remove(connection);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(HostClientConnection), "SendWorldSafelyAsync")]
+    internal static class MpcWorldTransferDuplicatePatch
+    {
+        private static bool Prefix(HostClientConnection __instance, ref Task __result)
+        {
+            if (MpcWorldTransferGuardState.AllowInitial(__instance))
+                return true;
+
+            __result = Task.CompletedTask;
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(HostClientConnection), "Close")]
+    internal static class MpcWorldTransferConnectionCleanupPatch
+    {
+        private static void Postfix(HostClientConnection __instance)
+        {
+            MpcWorldTransferGuardState.Remove(__instance);
+        }
+    }
+
+
+// --- MpcWorldTransferBridge.cs ---
+/// <summary>
+    /// Keeps the active client world-transfer receiver and the
+    /// recovery/save-loading path connected.
+    ///
+    /// MultiplayerNetworkClient routes WorldBegin/WorldChunk/
+    /// WorldComplete directly to MultiplayerWorldTransfer.
+    /// The previous bridge patched WorldTransferService instead,
+    /// so the active client never reached FinishClientLoad().
+    /// </summary>
+    internal static class MpcWorldTransferBridge
+    {
+        [HarmonyPatch(typeof(MultiplayerWorldTransfer), "HandleWorldBegin")]
+        private static class BeginPatch
+        {
+            private static void Prefix()
+            {
+                try
+                {
+                    // Start the client-side recovery timeout before receiving data.
+                    if (!MpcRecoveryRuntime.Loading)
+                    {
+                        MpcRecoveryRuntime.BeginLoad();
+                    }
+
+                    MultiplayerConnectionStatus.Set(
+                        MultiplayerConnectionState.SynchronizingWorld
+                    );
+                }
+                catch (Exception ex)
+                {
+                    try
+                    {
+                        HostConsole.WriteLine(
+                            "[!] World transfer initialization failed: " + ex.Message
+                        );
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(MultiplayerWorldTransfer), "HandleWorldComplete")]
+        private static class CompletePatch
+        {
+            private static void Postfix()
+            {
+                try
+                {
+                    // The active MultiplayerNetworkClient does not call
+                    // FinishClientLoad() after HandleWorldComplete().
+                    // Trigger it here so MpcSaveTransferPatch can take over
+                    // and load MCC_Transfer through Bannerlord's save system.
+                    MultiplayerWorldTransfer.FinishClientLoad();
+                }
+                catch (Exception ex)
+                {
+                    try
+                    {
+                        MpcRecoveryRuntime.AbortLoad(
+                            "World transfer completion failed: " + ex.Message
+                        );
+                    }
+                    catch { }
+                }
+            }
+        }
+    }
+
+
+// --- MpcWorldTransferRuntimeFix.cs ---
+internal static class MpcWorldTransferRuntimeFix
+    {
+        private static readonly object Sync = new object();
+        private static readonly HashSet<HostClientConnection> WorldSent =
+            new HashSet<HostClientConnection>();
+
+        public static bool ShouldSendWorld(HostClientConnection client)
+        {
+            if (client == null)
+                return false;
+
+            lock (Sync)
+            {
+                if (WorldSent.Contains(client))
+                    return false;
+
+                WorldSent.Add(client);
+                return true;
+            }
+        }
+
+        public static void ForgetClient(HostClientConnection client)
+        {
+            if (client == null)
+                return;
+
+            lock (Sync)
+            {
+                WorldSent.Remove(client);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(WorldTransferHostService), "Send")]
+    internal static class MpcWorldTransferHostOncePatch
+    {
+        private static bool Prefix(HostClientConnection client)
+        {
+            if (MpcWorldTransferRuntimeFix.ShouldSendWorld(client))
+                return true;
+
+            try
+            {
+                HostConsole.WriteLine("[*] Duplicate world transfer suppressed for this client.");
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(HostClientConnection), "Close")]
+    internal static class MpcWorldTransferClientClosePatch
+    {
+        private static void Prefix(HostClientConnection __instance)
+        {
+            try
+            {
+                MpcWorldTransferRuntimeFix.ForgetClient(__instance);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+}
