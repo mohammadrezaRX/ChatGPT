@@ -8937,10 +8937,7 @@ namespace MultiplayerCampaign
                             message.Payload
                         );
 
-                    _worldReady =
-                        MultiplayerWorldTransfer.IsComplete;
-
-                    if (_worldReady)
+                    if (MultiplayerWorldTransfer.IsComplete)
                     {
                         _vm?.SetStatus(
                             "MCC RECEIVED - LOADING..."
