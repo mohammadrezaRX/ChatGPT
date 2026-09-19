@@ -127,6 +127,7 @@ namespace MultiplayerCampaign
 
             string[] names =
             {
+                "TaleWorlds.CampaignSystem.CharacterCreationContent.CharacterCreationState",
                 "TaleWorlds.CampaignSystem.CharacterCreationState",
                 "TaleWorlds.CampaignSystem.CharacterCreation.CharacterCreationState",
                 "TaleWorlds.MountAndBlade.CharacterCreationState",
