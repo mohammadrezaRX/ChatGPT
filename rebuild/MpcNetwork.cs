@@ -420,12 +420,9 @@ internal sealed class HostClientConnection
         );
 
         /*
-         * World transfer happens only after a valid
-         * handshake identity exists.
+         * Client already has the local MCC save.
+         * Only the logical world session is synchronized.
          */
-
-        _ =
-            SendWorldSafelyAsync();
     }
 
 
@@ -492,8 +489,21 @@ internal sealed class HostClientConnection
 
     private void HandleResyncRequest()
     {
-        _ =
-            SendWorldSafelyAsync();
+        Send(
+            new NetworkMessageData(
+                NetworkPacketType.WorldJoinAck,
+                NetworkProtocol.CreatePayload(
+                    writer =>
+                    {
+                        writer.Write(
+                            "SESSION " +
+                            MultiplayerSessionId.Get() +
+                            " ACTIVE"
+                        );
+                    }
+                )
+            )
+        );
     }
 
 
@@ -1415,17 +1425,80 @@ internal static class MultiplayerSessionId
     {
         lock (Sync)
         {
-            if (
-                string.IsNullOrWhiteSpace(
-                    _id))
-            {
-                _id =
-                    Guid.NewGuid()
-                        .ToString("N");
-            }
+            if (string.IsNullOrWhiteSpace(_id))
+                _id = CreateWorldId("MCC");
 
             return _id;
         }
+    }
+
+    public static string CreateWorldId(
+        string worldName)
+    {
+        string safeName =
+            string.IsNullOrWhiteSpace(worldName)
+                ? "MCC"
+                : worldName.Trim();
+
+        StringBuilder builder =
+            new StringBuilder();
+
+        for (int i = 0; i < safeName.Length; i++)
+        {
+            char c = safeName[i];
+
+            if (
+                char.IsLetterOrDigit(c) ||
+                c == '_' ||
+                c == '-')
+            {
+                builder.Append(c);
+            }
+            else
+            {
+                builder.Append('_');
+            }
+        }
+
+        if (builder.Length == 0)
+            builder.Append("MCC");
+
+        lock (Sync)
+        {
+            _id =
+                "world[" +
+                DateTime.Now.ToString("yyyyMMdd") +
+                "][" +
+                DateTime.Now.ToString("HHmmss") +
+                "][" +
+                builder.ToString() +
+                "]";
+
+            return _id;
+        }
+    }
+
+    public static bool SetFromHost(
+        string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return false;
+
+        string value = sessionId.Trim();
+
+        if (!value.StartsWith(
+                "world[",
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        lock (Sync)
+        {
+            _id = value;
+        }
+
+        return true;
     }
 
     public static void Reset()
@@ -1519,19 +1592,31 @@ public static class MultiplayerSessionStartup
             MultiplayerCampaignGameState
                 .InitializeClient();
 
+            MultiplayerSessionState
+                .StartClient();
+
             MultiplayerConnectionStatus
                 .Set(
                     MultiplayerConnectionState
                         .Connecting
                 );
 
-            MultiplayerNetworkClient
-                .Instance
-                .Connect(
+            MultiplayerCampaignSubModule
+                .RequestClient(
                     ip.Trim()
                 );
 
-            return true;
+            if (Campaign.Current != null)
+            {
+                MultiplayerCampaignSubModule
+                    .StartClientIfReady();
+
+                return true;
+            }
+
+            return
+                MultiplayerCampaignSubModule
+                    .LoadClientCampaign();
         }
         catch (Exception ex)
         {
@@ -2965,13 +3050,30 @@ internal static class SessionHandshake
         out string assignedId,
         out string message)
     {
+        string sessionId;
+
+        return ReadWelcome(
+            payload,
+            out assignedId,
+            out message,
+            out sessionId
+        );
+    }
+
+    public static bool ReadWelcome(
+        byte[] payload,
+        out string assignedId,
+        out string message,
+        out string sessionId)
+    {
         assignedId = null;
         message = "";
+        sessionId = null;
 
         if (
             payload == null ||
             payload.Length == 0 ||
-            payload.Length > 1024)
+            payload.Length > 2048)
         {
             return false;
         }
@@ -2999,17 +3101,15 @@ internal static class SessionHandshake
                     stream.Position <
                     stream.Length)
                 {
-                    reader.ReadString();
+                    sessionId =
+                        reader.ReadString();
                 }
 
-                if (
-                    string.IsNullOrWhiteSpace(
-                        assignedId))
-                {
-                    return false;
-                }
-
-                return true;
+                return
+                    !string.IsNullOrWhiteSpace(
+                        assignedId) &&
+                    !string.IsNullOrWhiteSpace(
+                        sessionId);
             }
         }
         catch
@@ -8982,22 +9082,61 @@ namespace MultiplayerCampaign
         private void HandleWelcome(
             byte[] payload)
         {
-            string text =
-                NetworkProtocol.ReadString(
-                    payload
-                );
+            string assignedId;
+            string message;
+            string sessionId;
 
-            if (
-                string.IsNullOrWhiteSpace(
-                    text))
+            if (!SessionHandshake.ReadWelcome(
+                    payload,
+                    out assignedId,
+                    out message,
+                    out sessionId))
             {
-                text =
-                    "CONNECTED";
+                _vm?.SetStatus(
+                    "INVALID SESSION WELCOME"
+                );
+                return;
             }
 
+            if (!MultiplayerSessionId.SetFromHost(
+                    sessionId))
+            {
+                _vm?.SetStatus(
+                    "INVALID WORLD SESSION"
+                );
+                return;
+            }
+
+            NetworkIdentityService
+                .SetAssignedId(
+                    assignedId
+                );
+
+            HandshakeState
+                .SetWelcome(
+                    assignedId
+                );
+
+            _worldLoaded = true;
+            _worldReady = true;
+
+            MultiplayerSessionState
+                .SetWorldReady(
+                    true
+                );
+
+            MultiplayerConnectionStatus
+                .Set(
+                    MultiplayerConnectionState
+                        .Ready
+                );
+
             _vm?.SetStatus(
-                text
+                "JOINED " +
+                MultiplayerSessionId.Get()
             );
+
+            SendPlayerReady();
         }
 
         private void HandleWorldJoinAck(
@@ -9078,20 +9217,12 @@ namespace MultiplayerCampaign
 
         private void SendHello()
         {
-            string name =
-                LocalPlayerState
-                    .GetDisplayName();
-
             byte[] payload =
-                NetworkProtocol.CreatePayload(
-                    writer =>
-                    {
-                        writer.Write(
-                            name ??
-                            "Player"
-                        );
-                    }
-                );
+                SessionHandshake
+                    .BuildHello();
+
+            HandshakeState
+                .SetHelloSent();
 
             Send(
                 NetworkPacketType.Hello,
@@ -9101,6 +9232,14 @@ namespace MultiplayerCampaign
 
         public void SendPlayerReady()
         {
+            if (
+                !IsConnected ||
+                !HandshakeState.WelcomeReceived ||
+                HandshakeState.PlayerReadySent)
+            {
+                return;
+            }
+
             byte[] payload =
                 NetworkProtocol.CreatePayload(
                     writer =>
@@ -9116,6 +9255,9 @@ namespace MultiplayerCampaign
                 NetworkPacketType.PlayerReady,
                 payload
             );
+
+            HandshakeState
+                .SetPlayerReadySent();
         }
 
         public void SendLocalPlayerState(
