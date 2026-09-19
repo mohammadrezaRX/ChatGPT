@@ -1174,23 +1174,11 @@ public static class MultiplayerSessionController
     public static void StartClient(
         string ip)
     {
-        MultiplayerSessionState
-            .StartClient();
-
-        LocalPlayerState
-            .SetDisplayName(
-                LocalPlayerState
-                    .GetDisplayName()
-            );
-
-        MultiplayerNetworkClient
-            .Instance
-            .Connect(
-                string.IsNullOrWhiteSpace(
-                    ip)
-                    ? "127.0.0.1"
-                    : ip.Trim()
-            );
+        MultiplayerSessionStartup.StartClient(
+            string.IsNullOrWhiteSpace(ip)
+                ? "127.0.0.1"
+                : ip.Trim()
+        );
     }
 
     public static void Stop()
@@ -2579,8 +2567,7 @@ internal static class RemotePlayerNetworkAdapter
         }
 
         if (
-            id ==
-            LocalPlayerState.GetNetworkId())
+            id == NetworkIdentityService.GetCurrentId())
         {
             return;
         }
@@ -2633,8 +2620,7 @@ internal static class RemotePlayerNetworkAdapter
         }
 
         if (
-            id ==
-            LocalPlayerState.GetNetworkId())
+            id == NetworkIdentityService.GetCurrentId())
         {
             return;
         }
@@ -2797,8 +2783,8 @@ internal static class PlayerReadyPacket
                 writer =>
                 {
                     writer.Write(
-                        LocalPlayerState
-                            .GetNetworkId()
+                        NetworkIdentityService
+                            .GetCurrentId()
                     );
 
                     writer.Write(
@@ -5177,8 +5163,7 @@ internal static class NetworkPacketProcessor
         }
 
         if (
-            snapshot.PlayerId ==
-            LocalPlayerState.GetNetworkId())
+            snapshot.PlayerId == NetworkIdentityService.GetCurrentId())
         {
             return;
         }
@@ -6840,8 +6825,7 @@ public static class FinalRemotePlayerSession
         }
 
         if (
-            id ==
-            LocalPlayerState.GetNetworkId())
+            id == NetworkIdentityService.GetCurrentId())
         {
             return;
         }
@@ -6891,8 +6875,7 @@ public static class FinalRemotePlayerSession
         }
 
         if (
-            id ==
-            LocalPlayerState.GetNetworkId())
+            id == NetworkIdentityService.GetCurrentId())
         {
             return;
         }
@@ -7674,8 +7657,8 @@ public sealed class MultiplayerCampaignHost
                      */
 
                     writer.Write(
-                        LocalPlayerState
-                            .GetNetworkId()
+                        NetworkIdentityService
+                            .GetCurrentId()
                     );
 
                     writer.Write(
