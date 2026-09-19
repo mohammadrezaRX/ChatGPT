@@ -302,8 +302,12 @@ namespace MultiplayerCampaign
 
             LocalPlayerState.SetDisplayName(character);
             PlayerName = character;
-            StatusText = "CONNECTING...";
-            MultiplayerNetworkClient.Instance.Connect(IpAddress.Trim());
+            StatusText = "LOADING LOCAL MCC...";
+            if (!MultiplayerSessionStartup.StartClient(
+                    IpAddress.Trim()))
+            {
+                StatusText = "MCC LOAD FAILED";
+            }
         }
 
         public void UpdateNetwork()
