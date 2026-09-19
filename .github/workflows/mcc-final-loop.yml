@@ -64,6 +64,14 @@ jobs:
           Write-Host "BUILD_EXIT_CODE=$exitCode"
           if ($exitCode -ne 0) { exit $exitCode }
 
+      - name: Upload verified DLL
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MultiplayerCampaign-DLL-${{ github.sha }}
+          path: rebuild/bin/Release/netstandard2.0/MultiplayerCampaign.dll
+          if-no-files-found: error
+
       - name: Verify success
         shell: pwsh
         run: |
