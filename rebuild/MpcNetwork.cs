@@ -85,7 +85,7 @@ using TaleWorlds.ScreenSystem;
 
 internal sealed class HostClientConnection
 {
-    private readonly MultiplayerCampaignHost _host;
+    private readonly global::MultiplayerCampaignHost _host;
 
     private readonly TcpClient _client;
 
@@ -152,7 +152,7 @@ internal sealed class HostClientConnection
 
 
     public HostClientConnection(
-        MultiplayerCampaignHost host,
+        global::MultiplayerCampaignHost host,
         TcpClient client)
     {
         _host =
@@ -4183,7 +4183,7 @@ internal static class HostClientSnapshotBroadcaster
 
     public static void Update(
         float dt,
-        MultiplayerCampaignHost host)
+        global::MultiplayerCampaignHost host)
     {
         if (host == null)
         {
@@ -5005,7 +5005,7 @@ internal static class SessionStatusUpdater
                     .Length
             );
 
-        MultiplayerCampaignHost host =
+        global::MultiplayerCampaignHost host =
             MultiplayerCampaignSubModule
                 .GetHost();
 
@@ -5937,7 +5937,7 @@ internal static class SessionJoinController
 internal static class TwoPlayerSessionValidator
 {
     public static bool CanAddClient(
-        MultiplayerCampaignHost host)
+        global::MultiplayerCampaignHost host)
     {
         if (host == null)
         {
@@ -7154,7 +7154,7 @@ public sealed class MultiplayerCampaignHost
 
     private const int Port = 25565;
 
-    public MultiplayerCampaignHost(
+    public global::MultiplayerCampaignHost(
         string hostName)
     {
         _hostName =
@@ -9602,7 +9602,7 @@ namespace MultiplayerCampaignRebuildLayer
 
         private static void BroadcastHostState()
         {
-            MultiplayerCampaignHost host = MultiplayerCampaignSubModule.GetHost();
+            global::MultiplayerCampaignHost host = MultiplayerCampaignSubModule.GetHost();
             if (host == null || Campaign.Current == null || MobileParty.MainParty == null)
                 return;
 
@@ -9644,7 +9644,7 @@ namespace MultiplayerCampaignRebuildLayer
 
         private static void BroadcastWorldParties()
         {
-            MultiplayerCampaignHost host = MultiplayerCampaignSubModule.GetHost();
+            global::MultiplayerCampaignHost host = MultiplayerCampaignSubModule.GetHost();
             if (host == null || Campaign.Current == null)
                 return;
 
@@ -9988,7 +9988,7 @@ internal static class MpcHandshakeProtocolFix
                 try
                 {
                     MethodInfo onReady = AccessTools.Method(
-                        typeof(MultiplayerCampaignHost),
+                        typeof(global::MultiplayerCampaignHost),
                         "OnPlayerReady");
 
                     if (onReady != null)
