@@ -604,35 +604,7 @@ public static class MultiplayerWorldTransfer
 
     public static void FinishClientLoad()
     {
-        byte[] world;
-
-        lock (Sync)
-        {
-            if (
-                !_complete ||
-                _worldData == null)
-            {
-                return;
-            }
-
-            world =
-                _worldData;
-
-            _worldData =
-                null;
-
-            _complete =
-                false;
-        }
-
-        /*
-         * World transfer is obsolete in the local-MCC session model.
-         * Keep this method as a compatibility no-op for old callers.
-         */
-
-        CampaignMessageFeed.Show(
-            "World synchronization completed."
-        );
+        Clear();
     }
 
 
