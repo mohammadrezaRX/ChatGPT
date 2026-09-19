@@ -7154,7 +7154,7 @@ public sealed class MultiplayerCampaignHost
 
     private const int Port = 25565;
 
-    public global::MultiplayerCampaignHost(
+    public MultiplayerCampaignHost(
         string hostName)
     {
         _hostName =

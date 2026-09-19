@@ -1853,7 +1853,7 @@ internal static class MultiplayerCampaignMasterUpdate
 public static class MultiplayerCampaignHostExtensions
 {
     public static void BroadcastHostSnapshot(
-        this MultiplayerCampaignHost host,
+        this global::MultiplayerCampaignHost host,
         string targetPlayerId)
     {
         if (host == null)
@@ -1973,7 +1973,7 @@ internal static class HostCampaignSnapshotLoop
 
     public static void Update(
         float dt,
-        MultiplayerCampaignHost host)
+        global::MultiplayerCampaignHost host)
     {
         if (host == null)
         {
@@ -3833,7 +3833,7 @@ namespace MultiplayerCampaign
 
             _networkTimer = 0f;
 
-            MultiplayerCampaignHost host =
+            global::MultiplayerCampaignHost host =
                 MultiplayerCampaignSubModule
                     .GetHost();
 

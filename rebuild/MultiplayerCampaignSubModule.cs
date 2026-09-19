@@ -73,7 +73,7 @@ namespace MultiplayerCampaign
         internal const string HostSaveName =
             "MCC";
 
-        private static MultiplayerCampaignHost _host;
+        private static global::MultiplayerCampaignHost _host;
 
         private static bool _hostRequested;
 
@@ -218,14 +218,14 @@ namespace MultiplayerCampaign
                 .Connect(ip);
         }
 
-        internal static MultiplayerCampaignHost GetHost()
+        internal static global::MultiplayerCampaignHost GetHost()
         {
             return _host;
         }
 
         public static void StopHost()
         {
-            MultiplayerCampaignHost host =
+            global::MultiplayerCampaignHost host =
                 _host;
 
             _host = null;
@@ -344,7 +344,7 @@ namespace MultiplayerCampaign
                 .StartHost();
 
             _host =
-                new MultiplayerCampaignHost(
+                new global::MultiplayerCampaignHost(
                     LocalPlayerState.GetDisplayName()
                 );
 
