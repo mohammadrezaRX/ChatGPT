@@ -26,7 +26,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $files = @(Get-ChildItem rebuild -Filter *.cs -File)
-          if ($files.Count -ne 10) { throw "Expected 10 consolidated C# files, got $($files.Count)" }
+          if ($files.Count -ne 9) { throw "Expected 9 consolidated C# files, got $($files.Count)" }
           if (!(Test-Path rebuild/MultiplayerCampaignRebuild.csproj)) { throw 'Build project is missing' }
       
       - name: Restore
