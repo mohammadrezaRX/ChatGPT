@@ -396,9 +396,6 @@ namespace MultiplayerCampaign
             {
                 try
                 {
-                    if (MpcRecoveryRuntime.Loading)
-                        return false;
-
                     byte[] world = MultiplayerWorldTransfer.GetReceivedWorld();
                     if (world == null || world.Length == 0)
                     {
