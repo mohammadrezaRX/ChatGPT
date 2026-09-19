@@ -1,62 +1,81 @@
 name: MPC Build
+
 on:
   push:
-    branches: [edit]
+    branches:
+      - edit
   pull_request:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
+
 permissions:
   contents: write
+
 jobs:
   build:
+    name: Build MPC
     runs-on: windows-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+
     steps:
       - name: Checkout edit
         uses: actions/checkout@v4
         with:
           ref: edit
           fetch-depth: 0
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Import Bannerlord DLLs from main
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          git fetch origin main --depth=1
-          git checkout origin/main -- DLLs
-          if (!(Test-Path DLLs)) { throw 'DLLs directory is missing' }
-          git restore --staged DLLs 2>$null
+
       - name: Thematic modular split
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           dotnet run --project tools/RoslynSplitter/RoslynSplitter.csproj -- rebuild rebuild
-          if (!(Test-Path rebuild/REFACTOR_MAP.txt)) { throw 'Thematic split failed' }
+          if (!(Test-Path "rebuild/REFACTOR_MAP.txt")) {
+            throw "Thematic splitter did not produce REFACTOR_MAP.txt"
+          }
+
       - name: Verify source layout
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $files = @(Get-ChildItem rebuild -Filter *.cs -File)
-          if ($files.Count -ne 10) { throw "Expected 10 thematic C# files, got $($files.Count)" }
-          if (!(Test-Path rebuild/MultiplayerCampaignRebuild.csproj)) { throw 'Build project is missing' }
+          if ($null -eq ($files | Where-Object { $_.Name -eq 'MultiplayerCampaignSubModule.cs' })) { throw "Main submodule source is missing." }
+          if ($files.Count -ne 10) { throw "Expected exactly 10 thematic C# files, got $($files.Count)." }
+          $map = Get-Content "rebuild/REFACTOR_MAP.txt" -Raw
+          if ($map -notmatch 'FILES=10') { throw "Thematic layout is not exactly 10 files." }
+
       - name: Restore
         shell: pwsh
         run: dotnet restore rebuild/MultiplayerCampaignRebuild.csproj --verbosity normal
+
       - name: Build
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          dotnet build rebuild/MultiplayerCampaignRebuild.csproj --configuration Release --no-restore --verbosity normal 2>&1 | Tee-Object build.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $ErrorActionPreference = 'Continue'
+          dotnet build rebuild/MultiplayerCampaignRebuild.csproj --configuration Release --no-restore --verbosity normal 2>&1 | Tee-Object -FilePath build.log
+          $exitCode = $LASTEXITCODE
+          Write-Host "BUILD_EXIT_CODE=$exitCode"
+          if ($exitCode -ne 0) { exit $exitCode }
+
       - name: Verify success
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if (!(Test-Path rebuild/bin/Release/netstandard2.0/MultiplayerCampaign.dll)) { throw 'Release DLL was not produced.' }
-          $m = Select-String -Path build.log -Pattern '(?i): error |error\s*CS[0-9]+'
-          $count = if ($m) { @($m).Count } else { 0 }
-          Write-Host "ERRORS = $count"
-          if ($count -ne 0) { throw "Build log contains $count error(s)." }
-          Write-Host 'BUILD SUCCESS'
+          if (!(Test-Path 'rebuild/bin/Release/netstandard2.0/MultiplayerCampaign.dll')) { throw 'Release DLL was not produced.' }
+          $errors = 0
+          if (Test-Path build.log) {
+            $matches = Select-String -Path build.log -Pattern '(?i): error |error\s*CS[0-9]+'
+            if ($matches) { $errors = @($matches).Count }
+          }
+          Write-Host "ERRORS = $errors"
+          if ($errors -ne 0) { throw "Build log contains $errors error(s)." }
+          $item = Get-Item 'rebuild/bin/Release/netstandard2.0/MultiplayerCampaign.dll'
+          Write-Host "DLL_SIZE=$($item.Length)"
+          Write-Host "BUILD SUCCESS"
