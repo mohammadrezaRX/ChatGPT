@@ -8341,7 +8341,7 @@ public static class MultiplayerCampaignStatus
         }
     }
 }
-
+}
 
 namespace MultiplayerCampaign
 {
@@ -10329,5 +10329,4 @@ internal static class MpcNetworkReconnectController
         }
     }
 
-}
 }
