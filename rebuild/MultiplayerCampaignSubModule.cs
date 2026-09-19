@@ -73,13 +73,11 @@ namespace MultiplayerCampaign
         internal const string HostSaveName =
             "MCC";
 
-        private static global::MultiplayerCampaignHost _host;
+        private static MultiplayerCampaignHost _host;
 
         private static bool _hostRequested;
 
-        private static bool _clientRequested;
-
-        private static string _clientAddress;
+        private static bool _loadingTransferredWorld;
 
         protected override void OnSubModuleLoad()
         {
@@ -118,8 +116,6 @@ namespace MultiplayerCampaign
         public static void RequestHost()
         {
             _hostRequested = true;
-            _clientRequested = false;
-            _clientAddress = null;
         }
 
         public static bool IsHostRequested()
@@ -127,105 +123,29 @@ namespace MultiplayerCampaign
             return _hostRequested;
         }
 
-        public static void RequestClient(
-            string ip)
+        public static void BeginTransferredWorldLoad()
         {
-            _clientRequested =
-                !string.IsNullOrWhiteSpace(ip);
-
-            _clientAddress =
-                _clientRequested
-                    ? ip.Trim()
-                    : null;
-
-            _hostRequested = false;
+            _loadingTransferredWorld = true;
         }
 
-        public static bool LoadClientCampaign()
+        public static void EndTransferredWorldLoad()
         {
-            if (Campaign.Current != null)
-                return true;
-
-            try
-            {
-                HostConsole.WriteLine(
-                    "[*] Loading local MCC for Client..."
-                );
-
-                if (!MBSaveLoad.IsSaveGameFileExists(HostSaveName))
-                {
-                    HostConsole.WriteLine(
-                        "[!] Local MCC save was not found on Client."
-                    );
-                    return false;
-                }
-
-                LoadResult result =
-                    MBSaveLoad.LoadSaveGameData(
-                        HostSaveName
-                    );
-
-                if (result == null || !result.Successful)
-                {
-                    HostConsole.WriteLine(
-                        "[!] Local MCC save could not be loaded on Client."
-                    );
-                    return false;
-                }
-
-                MBGameManager.StartNewGame(
-                    new SandBoxGameManager(result)
-                );
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                HostConsole.WriteLine(
-                    "[!] Client MCC load error: " +
-                    ex.Message
-                );
-                return false;
-            }
+            _loadingTransferredWorld = false;
         }
 
-        public static void StartClientIfReady()
+        public static bool IsLoadingTransferredWorld()
         {
-            if (!_clientRequested ||
-                string.IsNullOrWhiteSpace(_clientAddress) ||
-                Campaign.Current == null)
-            {
-                return;
-            }
-
-            string ip = _clientAddress;
-
-            _clientAddress = null;
-            _clientRequested = false;
-
-            MultiplayerSessionState.StartClient();
-
-            MultiplayerConnectionStatus.Set(
-                MultiplayerConnectionState.Connecting
-            );
-
-            HostConsole.WriteLine(
-                "[*] Local MCC is ready. Joining world session..."
-            );
-
-            MultiplayerNetworkClient
-                .Instance
-                .Connect(ip);
+            return _loadingTransferredWorld;
         }
 
-        internal static global::MultiplayerCampaignHost GetHost()
+        internal static MultiplayerCampaignHost GetHost()
         {
             return _host;
         }
 
         public static void StopHost()
         {
-            global::MultiplayerCampaignHost host =
+            MultiplayerCampaignHost host =
                 _host;
 
             _host = null;
@@ -245,14 +165,6 @@ namespace MultiplayerCampaign
 
         public static bool LoadHostCampaign()
         {
-            if (Campaign.Current != null)
-            {
-                HostConsole.WriteLine(
-                    "[*] MCC is already loaded. Reusing current Campaign."
-                );
-                return true;
-            }
-
             try
             {
                 HostConsole.WriteLine(
@@ -335,25 +247,12 @@ namespace MultiplayerCampaign
                 return;
             }
 
-            MultiplayerSessionId
-                .CreateWorldId(
-                    HostSaveName
-                );
-
-            MultiplayerSessionState
-                .StartHost();
-
             _host =
-                new global::MultiplayerCampaignHost(
+                new MultiplayerCampaignHost(
                     LocalPlayerState.GetDisplayName()
                 );
 
             _host.Start();
-
-            HostConsole.WriteLine(
-                "[*] World session: " +
-                MultiplayerSessionId.Get()
-            );
         }
 
         /*
@@ -365,6 +264,18 @@ namespace MultiplayerCampaign
         public override void OnGameEnd(
             Game game)
         {
+            /*
+             * When Client's old Campaign is destroyed while
+             * the transferred MCC Campaign is being loaded,
+             * TCP must remain alive.
+             */
+
+            if (_loadingTransferredWorld)
+            {
+                base.OnGameEnd(game);
+                return;
+            }
+
             RemotePlayerManager.Clear();
 
             StopHost();
@@ -372,10 +283,6 @@ namespace MultiplayerCampaign
             MultiplayerNetworkClient
                 .Instance
                 .Disconnect();
-
-            _clientRequested = false;
-            _clientAddress = null;
-            MultiplayerSessionId.Reset();
 
             base.OnGameEnd(game);
         }
@@ -390,32 +297,8 @@ namespace MultiplayerCampaign
                 .Instance
                 .Disconnect();
 
-            _clientRequested = false;
-            _clientAddress = null;
-            MultiplayerSessionId.Reset();
-
             base.OnSubModuleUnloaded();
         }
-
-    [HarmonyPatch(typeof(SandBoxGameManager), "OnLoadFinished")]
-    internal static class MpcLocalCampaignLoadPatch
-    {
-        private static void Postfix()
-        {
-            try
-            {
-                MultiplayerCampaignSubModule
-                    .StartClientIfReady();
-            }
-            catch (Exception ex)
-            {
-                HostConsole.WriteLine(
-                    "[!] Client session start failed: " +
-                    ex.Message
-                );
-            }
-        }
-    }
     }
 
 }

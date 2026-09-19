@@ -85,7 +85,7 @@ using TaleWorlds.ScreenSystem;
 
 internal sealed class HostClientConnection
 {
-    private readonly global::MultiplayerCampaignHost _host;
+    private readonly MultiplayerCampaignHost _host;
 
     private readonly TcpClient _client;
 
@@ -152,7 +152,7 @@ internal sealed class HostClientConnection
 
 
     public HostClientConnection(
-        global::MultiplayerCampaignHost host,
+        MultiplayerCampaignHost host,
         TcpClient client)
     {
         _host =
@@ -379,27 +379,10 @@ internal sealed class HostClientConnection
     private void HandleHello(
         byte[] payload)
     {
-        string requestedId;
-        string requestedName;
-
-        if (!SessionHandshake.ReadHello(
-                payload,
-                out requestedId,
-                out requestedName))
-        {
-            SendError(
-                "Invalid handshake packet."
+        string requestedName =
+            NetworkProtocol.ReadString(
+                payload
             );
-            return;
-        }
-
-        if (!NetworkStateValidator.IsValidPlayerId(requestedId))
-        {
-            SendError(
-                "Invalid player identity."
-            );
-            return;
-        }
 
         PlayerId =
             Guid.NewGuid().ToString(
@@ -411,38 +394,23 @@ internal sealed class HostClientConnection
                 requestedName
             );
 
-        Ready =
-            false;
-
         Send(
             new NetworkMessageData(
                 NetworkPacketType.Welcome,
-                SessionHandshake.BuildWelcome(
-                    PlayerId,
-                    "Connected as " +
-                    PlayerName
-                )
-            )
-        );
-
-        Send(
-            new NetworkMessageData(
-                NetworkPacketType.WorldJoinAck,
                 NetworkProtocol.CreatePayload(
                     writer =>
                     {
                         writer.Write(
-                            "SESSION " +
-                            MultiplayerSessionId.Get() +
-                            " READY"
+                            "Connected as " +
+                            PlayerName
+                        );
+
+                        writer.Write(
+                            PlayerId
                         );
                     }
                 )
             )
-        );
-
-        HostConnectionEvents.Connected(
-            this
         );
 
         HostConsole.WriteLine(
@@ -452,9 +420,37 @@ internal sealed class HostClientConnection
         );
 
         /*
-         * The client already loaded the local MCC save.
-         * Only the logical world session is synchronized.
+         * World transfer happens only after a valid
+         * handshake identity exists.
          */
+
+        _ =
+            SendWorldSafelyAsync();
+    }
+
+
+    /*
+     * ========================================================
+     * WORLD SEND
+     * ========================================================
+     */
+
+    private async Task SendWorldSafelyAsync()
+    {
+        try
+        {
+            await _host
+                .SendWorldToClientAsync(
+                    this
+                );
+        }
+        catch (Exception ex)
+        {
+            SendError(
+                "World synchronization failed: " +
+                ex.Message
+            );
+        }
     }
 
 
@@ -467,47 +463,22 @@ internal sealed class HostClientConnection
     private void HandleReady(
         byte[] payload)
     {
-        string playerId;
-        string playerName;
-
-        if (!PlayerReadyPacket.Read(
-                payload,
-                out playerId,
-                out playerName))
-        {
-            SendError(
-                "Invalid ready packet."
+        string name =
+            NetworkProtocol.ReadString(
+                payload
             );
-            return;
-        }
 
         if (
-            string.IsNullOrWhiteSpace(PlayerId) ||
-            !string.Equals(
-                PlayerId,
-                playerId,
-                StringComparison.Ordinal
-            ))
+            !string.IsNullOrWhiteSpace(
+                name))
         {
-            SendError(
-                "Invalid player session identity."
-            );
-            return;
+            PlayerName =
+                SanitizeName(
+                    name
+                );
         }
 
-        PlayerName =
-            SanitizeName(
-                playerName
-            );
-
-        Ready =
-            true;
-
         _host.OnPlayerReady(
-            this
-        );
-
-        HostConnectionEvents.Ready(
             this
         );
     }
@@ -521,21 +492,8 @@ internal sealed class HostClientConnection
 
     private void HandleResyncRequest()
     {
-        Send(
-            new NetworkMessageData(
-                NetworkPacketType.WorldJoinAck,
-                NetworkProtocol.CreatePayload(
-                    writer =>
-                    {
-                        writer.Write(
-                            "SESSION " +
-                            MultiplayerSessionId.Get() +
-                            " ACTIVE"
-                        );
-                    }
-                )
-            )
-        );
+        _ =
+            SendWorldSafelyAsync();
     }
 
 
@@ -1206,11 +1164,23 @@ public static class MultiplayerSessionController
     public static void StartClient(
         string ip)
     {
-        MultiplayerSessionStartup.StartClient(
-            string.IsNullOrWhiteSpace(ip)
-                ? "127.0.0.1"
-                : ip.Trim()
-        );
+        MultiplayerSessionState
+            .StartClient();
+
+        LocalPlayerState
+            .SetDisplayName(
+                LocalPlayerState
+                    .GetDisplayName()
+            );
+
+        MultiplayerNetworkClient
+            .Instance
+            .Connect(
+                string.IsNullOrWhiteSpace(
+                    ip)
+                    ? "127.0.0.1"
+                    : ip.Trim()
+            );
     }
 
     public static void Stop()
@@ -1436,84 +1406,34 @@ public static class MultiplayerConnectionStatus
 
 internal static class MultiplayerSessionId
 {
+    private static string _id;
+
     private static readonly object Sync =
         new object();
-
-    private static string _id;
 
     public static string Get()
     {
         lock (Sync)
         {
-            if (string.IsNullOrWhiteSpace(_id))
-                _id = CreateWorldId("MCC");
+            if (
+                string.IsNullOrWhiteSpace(
+                    _id))
+            {
+                _id =
+                    Guid.NewGuid()
+                        .ToString("N");
+            }
 
             return _id;
         }
-    }
-
-    public static string CreateWorldId(string worldName)
-    {
-        string safeName =
-            string.IsNullOrWhiteSpace(worldName)
-                ? "MCC"
-                : worldName.Trim();
-
-        StringBuilder builder =
-            new StringBuilder();
-
-        for (int i = 0; i < safeName.Length; i++)
-        {
-            char c = safeName[i];
-
-            if (char.IsLetterOrDigit(c) || c == '_' || c == '-')
-                builder.Append(c);
-            else
-                builder.Append('_');
-        }
-
-        if (builder.Length == 0)
-            builder.Append("MCC");
-
-        string id =
-            "world[" +
-            DateTime.Now.ToString("yyyyMMdd") +
-            "][" +
-            DateTime.Now.ToString("HHmmss") +
-            "][" +
-            builder.ToString() +
-            "]";
-
-        lock (Sync)
-        {
-            _id = id;
-            return _id;
-        }
-    }
-
-    public static bool SetFromHost(string sessionId)
-    {
-        if (string.IsNullOrWhiteSpace(sessionId))
-            return false;
-
-        string value = sessionId.Trim();
-
-        if (!value.StartsWith("world[", StringComparison.Ordinal))
-            return false;
-
-        lock (Sync)
-        {
-            _id = value;
-        }
-
-        return true;
     }
 
     public static void Reset()
     {
         lock (Sync)
         {
-            _id = null;
+            _id =
+                null;
         }
     }
 }
@@ -2599,7 +2519,8 @@ internal static class RemotePlayerNetworkAdapter
         }
 
         if (
-            id == NetworkIdentityService.GetCurrentId())
+            id ==
+            LocalPlayerState.GetNetworkId())
         {
             return;
         }
@@ -2652,7 +2573,8 @@ internal static class RemotePlayerNetworkAdapter
         }
 
         if (
-            id == NetworkIdentityService.GetCurrentId())
+            id ==
+            LocalPlayerState.GetNetworkId())
         {
             return;
         }
@@ -2815,8 +2737,8 @@ internal static class PlayerReadyPacket
                 writer =>
                 {
                     writer.Write(
-                        NetworkIdentityService
-                            .GetCurrentId()
+                        LocalPlayerState
+                            .GetNetworkId()
                     );
 
                     writer.Write(
@@ -3041,17 +2963,15 @@ internal static class SessionHandshake
     public static bool ReadWelcome(
         byte[] payload,
         out string assignedId,
-        out string message,
-        out string sessionId)
+        out string message)
     {
         assignedId = null;
         message = "";
-        sessionId = null;
 
         if (
             payload == null ||
             payload.Length == 0 ||
-            payload.Length > 2048)
+            payload.Length > 1024)
         {
             return false;
         }
@@ -3079,15 +2999,17 @@ internal static class SessionHandshake
                     stream.Position <
                     stream.Length)
                 {
-                    sessionId =
-                        reader.ReadString();
+                    reader.ReadString();
                 }
 
-                return
-                    !string.IsNullOrWhiteSpace(
-                        assignedId) &&
-                    !string.IsNullOrWhiteSpace(
-                        sessionId);
+                if (
+                    string.IsNullOrWhiteSpace(
+                        assignedId))
+                {
+                    return false;
+                }
+
+                return true;
             }
         }
         catch
@@ -3095,6 +3017,27 @@ internal static class SessionHandshake
             return false;
         }
     }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // ============================================================
 // CONNECTION HANDSHAKE STATE
@@ -3515,11 +3458,33 @@ internal static class ClientNetworkMessageRouter
                 break;
 
             case NetworkPacketType.WorldBegin:
+
+                WorldTransferService
+                    .ReceiveBegin(
+                        message.Payload
+                    );
+
+                break;
+
             case NetworkPacketType.WorldChunk:
+
+                WorldTransferService
+                    .ReceiveChunk(
+                        message.Payload
+                    );
+
+                break;
+
             case NetworkPacketType.WorldComplete:
-                HostConsole.WriteLine(
-                    "[!] Ignored obsolete world-transfer packet."
-                );
+
+                WorldTransferService
+                    .ReceiveComplete(
+                        message.Payload
+                    );
+
+                WorldReadyHandler
+                    .Handle();
+
                 break;
 
             case NetworkPacketType.PlayerSnapshot:
@@ -3563,19 +3528,16 @@ internal static class ClientNetworkMessageRouter
     {
         string assignedId;
         string message;
-        string sessionId;
 
-        if (!SessionHandshake.ReadWelcome(
-                payload,
-                out assignedId,
-                out message,
-                out sessionId))
+        if (
+            !SessionHandshake
+                .ReadWelcome(
+                    payload,
+                    out assignedId,
+                    out message))
         {
             return;
         }
-
-        if (!MultiplayerSessionId.SetFromHost(sessionId))
-            return;
 
         NetworkIdentityService
             .SetAssignedId(
@@ -3590,7 +3552,7 @@ internal static class ClientNetworkMessageRouter
         MultiplayerConnectionStatus
             .Set(
                 MultiplayerConnectionState
-                    .Ready
+                    .SynchronizingWorld
             );
 
         MultiplayerSessionState
@@ -3600,10 +3562,7 @@ internal static class ClientNetworkMessageRouter
             string.IsNullOrWhiteSpace(
                 message)
                 ? "Connected to Host."
-                : message +
-                  " [" +
-                  sessionId +
-                  "]"
+                : message
         );
     }
 
@@ -4158,7 +4117,7 @@ internal static class HostClientSnapshotBroadcaster
 
     public static void Update(
         float dt,
-        global::MultiplayerCampaignHost host)
+        MultiplayerCampaignHost host)
     {
         if (host == null)
         {
@@ -4980,7 +4939,7 @@ internal static class SessionStatusUpdater
                     .Length
             );
 
-        global::MultiplayerCampaignHost host =
+        MultiplayerCampaignHost host =
             MultiplayerCampaignSubModule
                 .GetHost();
 
@@ -5037,12 +4996,32 @@ internal static class NetworkPacketProcessor
                 break;
 
             case NetworkPacketType.WorldBegin:
+
+                WorldTransferService
+                    .ReceiveBegin(
+                        message.Payload
+                    );
+
+                break;
+
             case NetworkPacketType.WorldChunk:
+
+                WorldTransferService
+                    .ReceiveChunk(
+                        message.Payload
+                    );
+
+                break;
+
             case NetworkPacketType.WorldComplete:
 
-                HostConsole.WriteLine(
-                    "[!] Ignored obsolete world-transfer packet."
-                );
+                WorldTransferService
+                    .ReceiveComplete(
+                        message.Payload
+                    );
+
+                WorldReadyHandler
+                    .Handle();
 
                 break;
 
@@ -5095,20 +5074,16 @@ internal static class NetworkPacketProcessor
     {
         string assignedId;
         string message;
-        string sessionId;
 
-        if (!SessionHandshake
+        if (
+            !SessionHandshake
                 .ReadWelcome(
                     payload,
                     out assignedId,
-                    out message,
-                    out sessionId))
+                    out message))
         {
             return;
         }
-
-        if (!MultiplayerSessionId.SetFromHost(sessionId))
-            return;
 
         NetworkIdentityService
             .SetAssignedId(
@@ -5120,11 +5095,19 @@ internal static class NetworkPacketProcessor
                 assignedId
             );
 
+        MultiplayerConnectionStatus
+            .Set(
+                MultiplayerConnectionState
+                    .SynchronizingWorld
+            );
+
         MultiplayerUIStateManager
             .Current
             .SetStatus(
-                "JOINED " +
-                MultiplayerSessionId.Get()
+                string.IsNullOrWhiteSpace(
+                    message)
+                    ? "Connected"
+                    : message
             );
     }
 
@@ -5148,7 +5131,8 @@ internal static class NetworkPacketProcessor
         }
 
         if (
-            snapshot.PlayerId == NetworkIdentityService.GetCurrentId())
+            snapshot.PlayerId ==
+            LocalPlayerState.GetNetworkId())
         {
             return;
         }
@@ -5912,7 +5896,7 @@ internal static class SessionJoinController
 internal static class TwoPlayerSessionValidator
 {
     public static bool CanAddClient(
-        global::MultiplayerCampaignHost host)
+        MultiplayerCampaignHost host)
     {
         if (host == null)
         {
@@ -6328,12 +6312,8 @@ internal static class FinalNetworkMessageRouter
                     .ReadWelcome(
                         payload,
                         out assignedId,
-                        out message,
-                        out sessionId))
+                        out message))
             {
-                if (!MultiplayerSessionId.SetFromHost(sessionId))
-                    return;
-
                 NetworkIdentityService
                     .SetAssignedId(
                         assignedId
@@ -6347,7 +6327,7 @@ internal static class FinalNetworkMessageRouter
                 MultiplayerConnectionStatus
                     .Set(
                         MultiplayerConnectionState
-                            .Ready
+                            .SynchronizingWorld
                     );
             }
 
@@ -6814,7 +6794,8 @@ public static class FinalRemotePlayerSession
         }
 
         if (
-            id == NetworkIdentityService.GetCurrentId())
+            id ==
+            LocalPlayerState.GetNetworkId())
         {
             return;
         }
@@ -6864,7 +6845,8 @@ public static class FinalRemotePlayerSession
         }
 
         if (
-            id == NetworkIdentityService.GetCurrentId())
+            id ==
+            LocalPlayerState.GetNetworkId())
         {
             return;
         }
@@ -7108,6 +7090,1088 @@ public static class MultiplayerCampaignConnection
  * ============================================================
  */
 
+public sealed class MultiplayerCampaignHost
+{
+    private readonly object _sync =
+        new object();
+
+    private readonly List<
+        HostClientConnection>
+        _clients =
+            new List<
+                HostClientConnection>();
+
+    private TcpListener _listener;
+
+    private CancellationTokenSource _cts;
+
+    private readonly string _hostName;
+
+    private bool _running;
+
+    private const int Port = 25565;
+
+    public MultiplayerCampaignHost(
+        string hostName)
+    {
+        _hostName =
+            string.IsNullOrWhiteSpace(
+                hostName)
+                ? "Host"
+                : hostName.Trim();
+    }
+
+
+    /*
+     * ========================================================
+     * START
+     * ========================================================
+     */
+
+    public void Start()
+    {
+        if (_running)
+        {
+            return;
+        }
+
+        try
+        {
+            _cts =
+                new CancellationTokenSource();
+
+            _listener =
+                new TcpListener(
+                    IPAddress.Any,
+                    Port
+                );
+
+            _listener.Start();
+
+            _running = true;
+
+            HostConsole.WriteLine(
+                "[MultiplayerCampaign] " +
+                "Server started on port " +
+                Port
+            );
+
+            _ =
+                AcceptLoopAsync(
+                    _cts.Token
+                );
+        }
+        catch (Exception ex)
+        {
+            _running =
+                false;
+
+            HostConsole.WriteLine(
+                "[!] Server start failed: " +
+                ex.Message
+            );
+
+            Stop();
+        }
+    }
+
+
+    /*
+     * ========================================================
+     * ACCEPT LOOP
+     * ========================================================
+     */
+
+    private async Task AcceptLoopAsync(
+        CancellationToken token)
+    {
+        while (
+            _running &&
+            !token.IsCancellationRequested)
+        {
+            try
+            {
+                TcpClient tcpClient =
+                    await _listener
+                        .AcceptTcpClientAsync();
+
+                if (
+                    tcpClient == null)
+                {
+                    continue;
+                }
+
+                tcpClient.NoDelay =
+                    true;
+
+                HostClientConnection client =
+                    new HostClientConnection(
+                        this,
+                        tcpClient
+                    );
+
+                lock (_sync)
+                {
+                    /*
+                     * The target build is two-player.
+                     *
+                     * Existing host is player one.
+                     * Only one remote client is required.
+                     */
+
+                    if (_clients.Count >= 1)
+                    {
+                        SendErrorAndClose(
+                            client,
+                            "Server is full."
+                        );
+
+                        continue;
+                    }
+
+                    _clients.Add(
+                        client
+                    );
+                }
+
+                _ =
+                    client.StartAsync(
+                        token
+                    );
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+            catch (SocketException)
+            {
+                if (!_running)
+                {
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                if (_running)
+                {
+                    HostConsole.WriteLine(
+                        "[!] Accept error: " +
+                        ex.Message
+                    );
+                }
+            }
+        }
+    }
+
+
+    /*
+     * ========================================================
+     * CLIENT REMOVE
+     * ========================================================
+     */
+
+    internal void RemoveClient(
+        HostClientConnection client)
+    {
+        if (client == null)
+        {
+            return;
+        }
+
+        bool removed;
+
+        lock (_sync)
+        {
+            removed =
+                _clients.Remove(
+                    client
+                );
+        }
+
+        if (removed)
+        {
+            string id =
+                client.PlayerId;
+
+            if (
+                !string.IsNullOrWhiteSpace(
+                    id))
+            {
+                BroadcastPlayerLeave(
+                    id
+                );
+            }
+
+            if (
+                !string.IsNullOrWhiteSpace(
+                    client.PlayerName))
+            {
+                HostConsole.WriteLine(
+                    "[MultiplayerCampaign] " +
+                    "Player left: " +
+                    client.PlayerName
+                );
+            }
+        }
+    }
+
+
+    /*
+     * ========================================================
+     * SEND ERROR
+     * ========================================================
+     */
+
+    private void SendErrorAndClose(
+        HostClientConnection client,
+        string message)
+    {
+        if (client == null)
+        {
+            return;
+        }
+
+        try
+        {
+            client.SendError(
+                message
+            );
+        }
+        catch
+        {
+        }
+
+        client.Close();
+    }
+
+
+    /*
+     * ========================================================
+     * BROADCAST PLAYER LEAVE
+     * ========================================================
+     */
+
+    private void BroadcastPlayerLeave(
+        string playerId)
+    {
+        if (
+            string.IsNullOrWhiteSpace(
+                playerId))
+        {
+            return;
+        }
+
+        byte[] payload =
+            NetworkProtocol.CreatePayload(
+                writer =>
+                {
+                    writer.Write(
+                        playerId
+                    );
+                }
+            );
+
+        NetworkMessageData data =
+            new NetworkMessageData(
+                NetworkPacketType.PlayerLeave,
+                payload
+            );
+
+        HostClientConnection[] clients =
+            GetClientsSnapshot();
+
+        for (
+            int i = 0;
+            i < clients.Length;
+            i++)
+        {
+            try
+            {
+                clients[i]?.Send(
+                    data
+                );
+            }
+            catch
+            {
+            }
+        }
+    }
+
+
+    /*
+     * ========================================================
+     * CLIENT SNAPSHOT
+     * ========================================================
+     */
+
+    internal void OnPlayerSnapshot(
+        HostClientConnection sender,
+        byte[] payload)
+    {
+        if (
+            sender == null ||
+            payload == null ||
+            payload.Length == 0)
+        {
+            return;
+        }
+
+        if (
+            sender.PlayerId == null)
+        {
+            return;
+        }
+
+        if (
+            payload.Length >
+            1024)
+        {
+            return;
+        }
+
+        try
+        {
+            using (
+                MemoryStream stream =
+                    new MemoryStream(
+                        payload))
+            using (
+                BinaryReader reader =
+                    new BinaryReader(
+                        stream,
+                        Encoding.UTF8,
+                        true))
+            {
+                /*
+                 * The player ID comes from the host-assigned
+                 * connection identity.
+                 *
+                 * We deliberately DO NOT trust the network
+                 * supplied ID for ownership.
+                 */
+
+                string suppliedId =
+                    reader.ReadString();
+
+                string suppliedName =
+                    reader.ReadString();
+
+                float x =
+                    reader.ReadSingle();
+
+                float y =
+                    reader.ReadSingle();
+
+                int partySize =
+                    reader.ReadInt32();
+
+                if (
+                    float.IsNaN(x) ||
+                    float.IsInfinity(x) ||
+                    float.IsNaN(y) ||
+                    float.IsInfinity(y))
+                {
+                    return;
+                }
+
+                string playerId =
+                    sender.PlayerId;
+
+                string playerName =
+                    string.IsNullOrWhiteSpace(
+                        sender.PlayerName)
+                        ? suppliedName
+                        : sender.PlayerName;
+
+                playerName =
+                    SanitizeName(
+                        playerName
+                    );
+
+                partySize =
+                    Math.Max(
+                        1,
+                        Math.Min(
+                            10000,
+                            partySize
+                        )
+                    );
+
+                sender.LastX =
+                    x;
+
+                sender.LastY =
+                    y;
+
+                sender.LastPartySize =
+                    partySize;
+
+                sender.PlayerName =
+                    playerName;
+
+                BroadcastSnapshot(
+                    sender
+                );
+            }
+        }
+        catch (Exception ex)
+        {
+            HostConsole.WriteLine(
+                "[!] Player state error: " +
+                ex.Message
+            );
+        }
+    }
+
+
+    /*
+     * ========================================================
+     * BROADCAST SNAPSHOT
+     * ========================================================
+     */
+
+    private void BroadcastSnapshot(
+        HostClientConnection changedClient)
+    {
+        HostClientConnection[] clients =
+            GetClientsSnapshot();
+
+        /*
+         * First send the changed Client snapshot
+         * to the Host-side game state.
+         *
+         * The Host campaign itself is player one and
+         * therefore does not need to receive itself.
+         *
+         * Every connected Client receives the remote
+         * player state of every other participant.
+         */
+
+        if (changedClient != null)
+        {
+            byte[] remotePayload =
+                BuildClientSnapshot(
+                    changedClient
+                );
+
+            NetworkMessageData message =
+                new NetworkMessageData(
+                    NetworkPacketType.PlayerSnapshot,
+                    remotePayload
+                );
+
+            for (
+                int i = 0;
+                i < clients.Length;
+                i++)
+            {
+                HostClientConnection client =
+                    clients[i];
+
+                if (
+                    client == null ||
+                    client == changedClient)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    client.Send(
+                        message
+                    );
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        /*
+         * Also send the Host's own Campaign position to Client.
+         */
+
+        SendHostSnapshotToClients(
+            clients
+        );
+    }
+
+
+    /*
+     * ========================================================
+     * HOST SNAPSHOT
+     * ========================================================
+     */
+
+    private void SendHostSnapshotToClients(
+        HostClientConnection[] clients)
+    {
+        if (
+            Campaign.Current == null ||
+            MobileParty.MainParty == null)
+        {
+            return;
+        }
+
+        CampaignVec2 position =
+            MobileParty.MainParty.Position;
+
+        int size =
+            CampaignWorld.GetMainPartySize();
+
+        byte[] payload =
+            NetworkProtocol.CreatePayload(
+                writer =>
+                {
+                    /*
+                     * Host has a stable local network ID.
+                     */
+
+                    writer.Write(
+                        LocalPlayerState
+                            .GetNetworkId()
+                    );
+
+                    writer.Write(
+                        LocalPlayerState
+                            .GetDisplayName()
+                    );
+
+                    writer.Write(
+                        position.X
+                    );
+
+                    writer.Write(
+                        position.Y
+                    );
+
+                    writer.Write(
+                        size
+                    );
+                }
+            );
+
+        NetworkMessageData message =
+            new NetworkMessageData(
+                NetworkPacketType.PlayerSnapshot,
+                payload
+            );
+
+        for (
+            int i = 0;
+            i < clients.Length;
+            i++)
+        {
+            HostClientConnection client =
+                clients[i];
+
+            if (client == null)
+            {
+                continue;
+            }
+
+            try
+            {
+                client.Send(
+                    message
+                );
+            }
+            catch
+            {
+            }
+        }
+    }
+
+
+    /*
+     * ========================================================
+     * BUILD CLIENT SNAPSHOT
+     * ========================================================
+     */
+
+    private static byte[] BuildClientSnapshot(
+        HostClientConnection client)
+    {
+        return NetworkProtocol.CreatePayload(
+            writer =>
+            {
+                writer.Write(
+                    client.PlayerId
+                );
+
+                writer.Write(
+                    client.PlayerName ??
+                    "Player"
+                );
+
+                writer.Write(
+                    client.LastX
+                );
+
+                writer.Write(
+                    client.LastY
+                );
+
+                writer.Write(
+                    Math.Max(
+                        1,
+                        client.LastPartySize
+                    )
+                );
+            }
+        );
+    }
+
+
+    /*
+     * ========================================================
+     * SEND WORLD BEGIN
+     * ========================================================
+     */
+
+    internal async Task SendWorldToClientAsync(
+        HostClientConnection client)
+    {
+        if (client == null)
+        {
+            return;
+        }
+
+        byte[] world =
+            BuildWorldTransferData();
+
+        if (
+            world == null ||
+            world.Length == 0)
+        {
+            client.SendError(
+                "Campaign world is unavailable."
+            );
+
+            return;
+        }
+
+        byte[] beginPayload =
+            NetworkProtocol.CreatePayload(
+                writer =>
+                {
+                    writer.Write(
+                        (long)world.Length
+                    );
+                }
+            );
+
+        client.Send(
+            new NetworkMessageData(
+                NetworkPacketType.WorldBegin,
+                beginPayload
+            )
+        );
+
+        const int chunkSize =
+            48 * 1024;
+
+        int offset = 0;
+
+        while (
+            offset < world.Length)
+        {
+            int count =
+                Math.Min(
+                    chunkSize,
+                    world.Length - offset
+                );
+
+            byte[] chunk =
+                new byte[count];
+
+            Buffer.BlockCopy(
+                world,
+                offset,
+                chunk,
+                0,
+                count
+            );
+
+            client.Send(
+                new NetworkMessageData(
+                    NetworkPacketType.WorldChunk,
+                    chunk
+                )
+            );
+
+            offset += count;
+
+            await Task.Yield();
+        }
+
+        client.Send(
+            new NetworkMessageData(
+                NetworkPacketType.WorldComplete,
+                Array.Empty<byte>()
+            )
+        );
+
+        client.Send(
+            new NetworkMessageData(
+                NetworkPacketType.WorldJoinAck,
+                NetworkProtocol.CreatePayload(
+                    writer =>
+                    {
+                        writer.Write(
+                            "World synchronization completed."
+                        );
+                    }
+                )
+            )
+        );
+    }
+
+
+    /*
+     * ========================================================
+     * BUILD WORLD DATA
+     * ========================================================
+     */
+
+    private static byte[] BuildWorldTransferData()
+    {
+        /*
+         * This method intentionally uses the existing
+         * project transfer mechanism when available.
+         *
+         * A save-backed Campaign should never be serialized
+         * by manually copying random Campaign objects.
+         */
+
+        byte[] existing =
+            ExistingWorldTransferProvider
+                .TryGetWorldData();
+
+        if (
+            existing != null &&
+            existing.Length > 0)
+        {
+            return existing;
+        }
+
+        /*
+         * Fallback:
+         *
+         * send a minimal valid payload instead of null.
+         *
+         * This prevents a client from waiting forever for
+         * WorldComplete after receiving WorldBegin.
+         */
+
+        return Encoding.UTF8.GetBytes(
+            "MULTIPLAYER_CAMPAIGN_WORLD"
+        );
+    }
+
+
+    /*
+     * ========================================================
+     * READY
+     * ========================================================
+     */
+
+    internal void OnPlayerReady(
+        HostClientConnection client)
+    {
+        if (client == null)
+        {
+            return;
+        }
+
+        client.Ready =
+            true;
+
+        HostConsole.WriteLine(
+            "[MultiplayerCampaign] " +
+            "Player joined: " +
+            SanitizeName(
+                client.PlayerName
+            )
+        );
+
+        /*
+         * Initial host snapshot.
+         */
+
+        SendInitialSnapshots(
+            client
+        );
+    }
+
+
+    /*
+     * ========================================================
+     * INITIAL SNAPSHOTS
+     * ========================================================
+     */
+
+    private void SendInitialSnapshots(
+        HostClientConnection target)
+    {
+        if (target == null)
+        {
+            return;
+        }
+
+        if (
+            Campaign.Current == null ||
+            MobileParty.MainParty == null)
+        {
+            return;
+        }
+
+        /*
+         * Host -> Client
+         */
+
+        CampaignVec2 hostPosition =
+            MobileParty.MainParty.Position;
+
+        int hostSize =
+            CampaignWorld.GetMainPartySize();
+
+        byte[] hostPayload =
+            NetworkProtocol.CreatePayload(
+                writer =>
+                {
+                    writer.Write(
+                        LocalPlayerState
+                            .GetNetworkId()
+                    );
+
+                    writer.Write(
+                        LocalPlayerState
+                            .GetDisplayName()
+                    );
+
+                    writer.Write(
+                        hostPosition.X
+                    );
+
+                    writer.Write(
+                        hostPosition.Y
+                    );
+
+                    writer.Write(
+                        hostSize
+                    );
+                }
+            );
+
+        target.Send(
+            new NetworkMessageData(
+                NetworkPacketType.PlayerSnapshot,
+                hostPayload
+            )
+        );
+
+        /*
+         * Existing other clients.
+         *
+         * The target build normally has only one remote
+         * client, but this keeps the server architecture
+         * valid.
+         */
+
+        HostClientConnection[] clients =
+            GetClientsSnapshot();
+
+        for (
+            int i = 0;
+            i < clients.Length;
+            i++)
+        {
+            HostClientConnection other =
+                clients[i];
+
+            if (
+                other == null ||
+                other == target ||
+                !other.Ready)
+            {
+                continue;
+            }
+
+            target.Send(
+                new NetworkMessageData(
+                    NetworkPacketType.PlayerSnapshot,
+                    BuildClientSnapshot(
+                        other
+                    )
+                )
+            );
+        }
+    }
+
+
+    /*
+     * ========================================================
+     * UPDATE
+     * ========================================================
+     */
+
+    public void Update()
+    {
+        if (!_running)
+        {
+            return;
+        }
+
+        HostClientConnection[] clients =
+            GetClientsSnapshot();
+
+        for (
+            int i = 0;
+            i < clients.Length;
+            i++)
+        {
+            HostClientConnection client =
+                clients[i];
+
+            if (client == null)
+            {
+                continue;
+            }
+
+            if (
+                !client.IsConnected)
+            {
+                client.Close();
+            }
+        }
+    }
+
+
+    /*
+     * ========================================================
+     * CLIENT SNAPSHOT
+     * ========================================================
+     */
+
+    internal HostClientConnection[] GetClientsSnapshot()
+    {
+        lock (_sync)
+        {
+            return _clients.ToArray();
+        }
+    }
+
+
+    /*
+     * ========================================================
+     * STOP
+     * ========================================================
+     */
+
+    public void Stop()
+    {
+        _running =
+            false;
+
+        try
+        {
+            _cts?.Cancel();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            _listener?.Stop();
+        }
+        catch
+        {
+        }
+
+        HostClientConnection[] clients =
+            GetClientsSnapshot();
+
+        lock (_sync)
+        {
+            _clients.Clear();
+        }
+
+        for (
+            int i = 0;
+            i < clients.Length;
+            i++)
+        {
+            try
+            {
+                clients[i]?.Close();
+            }
+            catch
+            {
+            }
+        }
+
+        _listener =
+            null;
+
+        _cts =
+            null;
+    }
+
+
+    /*
+     * ========================================================
+     * NAME SANITIZER
+     * ========================================================
+     */
+
+    private static string SanitizeName(
+        string name)
+    {
+        if (
+            string.IsNullOrWhiteSpace(
+                name))
+        {
+            return "Player";
+        }
+
+        string value =
+            name.Trim();
+
+        if (value.Length > 32)
+        {
+            value =
+                value.Substring(
+                    0,
+                    32
+                );
+        }
+
+        return value;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // ============================================================
 // PLAYER READY SERVICE
 // ============================================================
@@ -7234,7 +8298,7 @@ public static class MultiplayerCampaignStatus
         }
     }
 }
-}
+
 
 namespace MultiplayerCampaign
 {
@@ -7603,7 +8667,7 @@ namespace MultiplayerCampaign
                 SendHello();
 
                 _vm?.SetStatus(
-                    "CONNECTED - WAITING FOR SESSION"
+                    "CONNECTED - WAITING FOR MCC"
                 );
 
                 await ReceiveLoopAsync(
@@ -7850,11 +8914,36 @@ namespace MultiplayerCampaign
                     break;
 
                 case NetworkPacketType.WorldBegin:
-                case NetworkPacketType.WorldChunk:
-                case NetworkPacketType.WorldComplete:
-                    HostConsole.WriteLine(
-                        "[!] Ignored obsolete world-transfer packet."
+                    _vm?.SetStatus(
+                        "RECEIVING MCC..."
                     );
+
+                    MultiplayerWorldTransfer
+                        .HandleWorldBegin(
+                            message.Payload
+                        );
+                    break;
+
+                case NetworkPacketType.WorldChunk:
+                    MultiplayerWorldTransfer
+                        .HandleWorldChunk(
+                            message.Payload
+                        );
+                    break;
+
+                case NetworkPacketType.WorldComplete:
+                    MultiplayerWorldTransfer
+                        .HandleWorldComplete(
+                            message.Payload
+                        );
+
+                    if (MultiplayerWorldTransfer.IsComplete)
+                    {
+                        _vm?.SetStatus(
+                            "MCC RECEIVED - LOADING..."
+                        );
+                    }
+
                     break;
 
                 case NetworkPacketType.PlayerSnapshot:
@@ -7893,83 +8982,22 @@ namespace MultiplayerCampaign
         private void HandleWelcome(
             byte[] payload)
         {
-            string assignedId;
-            string message;
-            string sessionId;
+            string text =
+                NetworkProtocol.ReadString(
+                    payload
+                );
 
-            if (!SessionHandshake.ReadWelcome(
-                    payload,
-                    out assignedId,
-                    out message,
-                    out sessionId))
+            if (
+                string.IsNullOrWhiteSpace(
+                    text))
             {
-                HandleError(
-                    NetworkProtocol.CreatePayload(
-                        writer => writer.Write(
-                            "Invalid session welcome."
-                        )
-                    )
-                );
-                return;
+                text =
+                    "CONNECTED";
             }
-
-            if (!MultiplayerSessionId.SetFromHost(sessionId))
-            {
-                HandleError(
-                    NetworkProtocol.CreatePayload(
-                        writer => writer.Write(
-                            "Invalid world session."
-                        )
-                    )
-                );
-                return;
-            }
-
-            NetworkIdentityService.SetAssignedId(assignedId);
-            HandshakeState.SetWelcome(assignedId);
-
-            if (Campaign.Current == null)
-            {
-                HandleError(
-                    NetworkProtocol.CreatePayload(
-                        writer => writer.Write(
-                            "Local MCC world is not loaded."
-                        )
-                    )
-                );
-                return;
-            }
-
-            _worldLoaded = true;
-            _worldReady = true;
-
-            WorldSynchronizationController
-                .SetClientWorldReady(true);
-
-            MultiplayerSessionState
-                .SetWorldReady(true);
-
-            MultiplayerConnectionStatus
-                .Set(
-                    MultiplayerConnectionState
-                        .Ready
-                );
 
             _vm?.SetStatus(
-                "JOINED " +
-                MultiplayerSessionId.Get()
+                text
             );
-
-            CampaignMessageFeed.Show(
-                string.IsNullOrWhiteSpace(message)
-                    ? MultiplayerSessionId.Get()
-                    : message +
-                      " [" +
-                      MultiplayerSessionId.Get() +
-                      "]"
-            );
-
-            SendPlayerReady();
         }
 
         private void HandleWorldJoinAck(
@@ -8050,12 +9078,20 @@ namespace MultiplayerCampaign
 
         private void SendHello()
         {
-            byte[] payload =
-                SessionHandshake
-                    .BuildHello();
+            string name =
+                LocalPlayerState
+                    .GetDisplayName();
 
-            HandshakeState
-                .SetHelloSent();
+            byte[] payload =
+                NetworkProtocol.CreatePayload(
+                    writer =>
+                    {
+                        writer.Write(
+                            name ??
+                            "Player"
+                        );
+                    }
+                );
 
             Send(
                 NetworkPacketType.Hello,
@@ -8065,20 +9101,21 @@ namespace MultiplayerCampaign
 
         public void SendPlayerReady()
         {
-            if (!IsConnected ||
-                !HandshakeState.WelcomeReceived ||
-                HandshakeState.PlayerReadySent)
-            {
-                return;
-            }
+            byte[] payload =
+                NetworkProtocol.CreatePayload(
+                    writer =>
+                    {
+                        writer.Write(
+                            LocalPlayerState
+                                .GetDisplayName()
+                        );
+                    }
+                );
 
             Send(
                 NetworkPacketType.PlayerReady,
-                PlayerReadyPacket.Build()
+                payload
             );
-
-            HandshakeState
-                .SetPlayerReadySent();
         }
 
         public void SendLocalPlayerState(
@@ -8495,7 +9532,7 @@ namespace MultiplayerCampaignRebuildLayer
 
         private static void BroadcastHostState()
         {
-            global::MultiplayerCampaignHost host = MultiplayerCampaignSubModule.GetHost();
+            MultiplayerCampaignHost host = MultiplayerCampaignSubModule.GetHost();
             if (host == null || Campaign.Current == null || MobileParty.MainParty == null)
                 return;
 
@@ -8537,7 +9574,7 @@ namespace MultiplayerCampaignRebuildLayer
 
         private static void BroadcastWorldParties()
         {
-            global::MultiplayerCampaignHost host = MultiplayerCampaignSubModule.GetHost();
+            MultiplayerCampaignHost host = MultiplayerCampaignSubModule.GetHost();
             if (host == null || Campaign.Current == null)
                 return;
 
@@ -8865,13 +9902,9 @@ internal static class MpcHandshakeProtocolFix
                     return false;
                 }
 
-                if (string.IsNullOrWhiteSpace(__instance.PlayerId) ||
-                    !string.Equals(
-                        playerId,
-                        __instance.PlayerId,
-                        StringComparison.Ordinal))
+                if (string.IsNullOrWhiteSpace(__instance.PlayerId))
                 {
-                    __instance.SendError("Invalid player session identity.");
+                    __instance.SendError("Handshake required before ready.");
                     return false;
                 }
 
@@ -8881,7 +9914,7 @@ internal static class MpcHandshakeProtocolFix
                 try
                 {
                     MethodInfo onReady = AccessTools.Method(
-                        typeof(global::MultiplayerCampaignHost),
+                        typeof(MultiplayerCampaignHost),
                         "OnPlayerReady");
 
                     if (onReady != null)
@@ -9025,7 +10058,7 @@ internal static class MpcNetworkReconnectController
                 WriteConsole("[*] TCP connection established.");
 
                 InvokePrivate(client, "SendHello");
-                SetStatus(client, "CONNECTED - WAITING FOR SESSION");
+                SetStatus(client, "CONNECTED - RECEIVING MCC");
 
                 Task receiveTask = InvokePrivateTask(
                     client,

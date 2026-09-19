@@ -257,8 +257,7 @@ namespace MultiplayerCampaign
                 MpcCharacterSlots.Select(0);
 
             StatusText = "OPENING BANNERLORD CHARACTER CREATION...";
-            if (!MpcNativeCharacterCreationFix.Open())
-                StatusText = "CHARACTER CREATION FAILED";
+            MpcNativeCharacterCreationFix.RequestNativeCharacterCreation();
         }
 
         public void ExecuteStartHost()
@@ -303,14 +302,19 @@ namespace MultiplayerCampaign
 
             LocalPlayerState.SetDisplayName(character);
             PlayerName = character;
-            StatusText = "LOADING LOCAL MCC...";
-            if (!MultiplayerSessionStartup.StartClient(IpAddress.Trim()))
-                StatusText = "MCC LOAD FAILED";
+            StatusText = "CONNECTING...";
+            MultiplayerNetworkClient.Instance.Connect(IpAddress.Trim());
         }
 
         public void UpdateNetwork()
         {
+            MpcNativeCharacterCreationFix.ProcessPending();
             MultiplayerNetworkClient.Instance.Update();
+            if (MultiplayerNetworkClient.Instance.ConsumeWorldReady())
+            {
+                StatusText = "LOADING HOST WORLD...";
+                MultiplayerWorldTransfer.FinishClientLoad();
+            }
         }
 
         private void RefreshCharacterState()
@@ -429,212 +433,214 @@ namespace MultiplayerCampaign
 // CHARACTER CREATION
 // ============================================================
 
+// --- MpcNativeCharacterCreationFix.cs ---
 internal static class MpcNativeCharacterCreationFix
-{
-    public static bool Open()
     {
-        try
+        private static readonly object Sync = new object();
+        private static bool _pending;
+        private static bool _opening;
+        private static DateTime _requestUtc;
+
+        public static void RequestNativeCharacterCreation()
         {
+            lock (Sync)
+            {
+                _pending = true;
+                _opening = false;
+                _requestUtc = DateTime.UtcNow;
+            }
+        }
+
+        public static void ProcessPending()
+        {
+            lock (Sync)
+            {
+                if (!_pending || _opening)
+                    return;
+
+                if ((DateTime.UtcNow - _requestUtc).TotalSeconds > 15.0)
+                {
+                    _pending = false;
+                    return;
+                }
+            }
+
             Game game = Game.Current;
+            if (game == null)
+                return;
 
-            if (
-                game == null ||
-                game.GameStateManager == null)
-            {
-                HostConsole.WriteLine(
-                    "[!] Character Creator: GameStateManager is unavailable."
-                );
-                return false;
-            }
+            GameStateManager manager = game.GameStateManager;
+            if (manager == null)
+                return;
 
-            SandBoxGameManager sandboxManager =
-                MBGameManager.Current as SandBoxGameManager;
-
-            MethodInfo launchMethod =
-                AccessTools.Method(
-                    typeof(SandBoxGameManager),
-                    "LaunchSandboxCharacterCreation"
-                );
-
-            if (
-                sandboxManager != null &&
-                launchMethod != null)
-            {
-                launchMethod.Invoke(
-                    sandboxManager,
-                    null
-                );
-
-                HostConsole.WriteLine(
-                    "[*] Native Bannerlord Character Creation opened."
-                );
-
-                return true;
-            }
-
-            Type stateType =
-                FindCharacterCreationStateType();
-
+            Type stateType = FindCharacterCreationStateType();
             if (stateType == null)
             {
-                HostConsole.WriteLine(
-                    "[!] Bannerlord CharacterCreationState type was not found."
-                );
-                return false;
+                lock (Sync)
+                {
+                    _opening = false;
+                }
+
+                HostConsole.WriteLine("[!] Bannerlord CharacterCreationState type was not found.");
+                return;
             }
 
-            GameStateManager manager =
-                game.GameStateManager;
+            lock (Sync)
+            {
+                if (!_pending || _opening)
+                    return;
 
-            MethodInfo[] methods =
-                manager.GetType().GetMethods(
-                    BindingFlags.Instance |
-                    BindingFlags.Public |
-                    BindingFlags.NonPublic
+                _opening = true;
+                _pending = false;
+            }
+
+            try
+            {
+                MethodInfo createState = FindCreateStateMethod(manager.GetType());
+                if (createState == null)
+                    throw new MissingMethodException("GameStateManager.CreateState<T> was not found.");
+
+                MethodInfo closedCreateState =
+                    createState.MakeGenericMethod(stateType);
+
+                object state =
+                    closedCreateState.Invoke(
+                        manager,
+                        null
+                    );
+
+                if (state == null)
+                    throw new InvalidOperationException("Bannerlord CharacterCreationState could not be created.");
+
+                MethodInfo cleanAndPush =
+                    AccessTools.Method(
+                        manager.GetType(),
+                        "CleanAndPushState",
+                        new[] { stateType, typeof(int) }
+                    );
+
+                if (cleanAndPush == null)
+                    throw new MissingMethodException("GameStateManager.CleanAndPushState was not found.");
+
+                cleanAndPush.Invoke(
+                    manager,
+                    new object[] { state, 0 }
                 );
 
-            MethodInfo createStateDefinition = null;
+                HostConsole.WriteLine("[*] Native Bannerlord Character Creation opened.");
+            }
+            catch (Exception ex)
+            {
+                lock (Sync)
+                {
+                    _opening = false;
+                }
+
+                try
+                {
+                    HostConsole.WriteLine("[!] Native Character Creation failed: " + ex.Message);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        internal static Type FindCharacterCreationStateType()
+        {
+            Type type = AccessTools.TypeByName("CharacterCreationState");
+            if (type != null)
+                return type;
+
+            string[] names =
+            {
+                "TaleWorlds.CampaignSystem.CharacterCreationContent.CharacterCreationState",
+                "TaleWorlds.CampaignSystem.CharacterCreationState",
+                "TaleWorlds.CampaignSystem.CharacterCreation.CharacterCreationState",
+                "TaleWorlds.MountAndBlade.CharacterCreationState",
+                "SandBox.CharacterCreationState"
+            };
+
+            for (int i = 0; i < names.Length; i++)
+            {
+                type = AccessTools.TypeByName(names[i]);
+                if (type != null)
+                    return type;
+            }
+
+            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            for (int i = 0; i < assemblies.Length; i++)
+            {
+                try
+                {
+                    Type[] types = assemblies[i].GetTypes();
+                    for (int j = 0; j < types.Length; j++)
+                    {
+                        if (types[j] != null && types[j].Name == "CharacterCreationState")
+                            return types[j];
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return null;
+        }
+
+        private static MethodInfo FindCreateStateMethod(Type managerType)
+        {
+            MethodInfo[] methods = managerType.GetMethods(
+                BindingFlags.Instance |
+                BindingFlags.Public |
+                BindingFlags.NonPublic
+            );
 
             for (int i = 0; i < methods.Length; i++)
             {
                 MethodInfo method = methods[i];
-
-                if (
-                    method == null ||
+                if (method == null ||
                     method.Name != "CreateState" ||
-                    !method.IsGenericMethodDefinition ||
-                    method.GetGenericArguments().Length != 1 ||
+                    !method.IsGenericMethodDefinition)
+                {
+                    continue;
+                }
+
+                if (method.GetGenericArguments().Length != 1 ||
                     method.GetParameters().Length != 0)
                 {
                     continue;
                 }
 
-                createStateDefinition = method;
-                break;
+                return method;
             }
 
-            if (createStateDefinition == null)
-                throw new MissingMethodException(
-                    "GameStateManager.CreateState<T> was not found."
-                );
-
-            object state =
-                createStateDefinition
-                    .MakeGenericMethod(stateType)
-                    .Invoke(
-                        manager,
-                        null
-                    );
-
-            if (state == null)
-                throw new InvalidOperationException(
-                    "Bannerlord CharacterCreationState could not be created."
-                );
-
-            MethodInfo cleanAndPush = null;
-
-            for (int i = 0; i < methods.Length; i++)
-            {
-                MethodInfo method = methods[i];
-
-                if (
-                    method == null ||
-                    method.Name != "CleanAndPushState")
-                {
-                    continue;
-                }
-
-                ParameterInfo[] parameters =
-                    method.GetParameters();
-
-                if (
-                    parameters.Length == 2 &&
-                    parameters[1].ParameterType == typeof(int) &&
-                    parameters[0].ParameterType.IsAssignableFrom(
-                        state.GetType()))
-                {
-                    cleanAndPush = method;
-                    break;
-                }
-            }
-
-            if (cleanAndPush == null)
-                throw new MissingMethodException(
-                    "GameStateManager.CleanAndPushState was not found."
-                );
-
-            cleanAndPush.Invoke(
-                manager,
-                new object[]
-                {
-                    state,
-                    0
-                }
-            );
-
-            HostConsole.WriteLine(
-                "[*] Native Bannerlord Character Creation opened."
-            );
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            HostConsole.WriteLine(
-                "[!] Native Character Creation failed: " +
-                ex.Message
-            );
-
-            return false;
+            return null;
         }
     }
 
-    internal static Type FindCharacterCreationStateType()
+    [HarmonyPatch(typeof(MultiplayerCampaignVM), "ExecuteCreateCharacter")]
+    internal static class MpcNativeCreateCharacterButtonPatch
     {
-        Type type =
-            AccessTools.TypeByName(
-                "TaleWorlds.CampaignSystem.CharacterCreationContent.CharacterCreationState"
-            );
-
-        if (type != null)
-            return type;
-
-        type =
-            AccessTools.TypeByName(
-                "CharacterCreationState"
-            );
-
-        if (type != null)
-            return type;
-
-        Assembly[] assemblies =
-            AppDomain.CurrentDomain.GetAssemblies();
-
-        for (int i = 0; i < assemblies.Length; i++)
+        private static bool Prefix(MultiplayerCampaignVM __instance)
         {
             try
             {
-                Type[] types =
-                    assemblies[i].GetTypes();
+                if (MpcCharacterSlots.SelectedSlot < 0)
+                    MpcCharacterSlots.Select(0);
 
-                for (int j = 0; j < types.Length; j++)
-                {
-                    if (
-                        types[j] != null &&
-                        types[j].Name == "CharacterCreationState")
-                    {
-                        return types[j];
-                    }
-                }
+                __instance.SetStatus("OPENING BANNERLORD CHARACTER CREATION...");
+                MpcNativeCharacterCreationFix.RequestNativeCharacterCreation();
+                return false;
             }
-            catch
+            catch (Exception ex)
             {
+                try { __instance.SetStatus("CHARACTER CREATION FAILED"); } catch { }
+                try { HostConsole.WriteLine("[!] Character Creator request: " + ex); } catch { }
+                return false;
             }
         }
-
-        return null;
     }
-}
 
     [HarmonyPatch]
     internal static class MpcNativeCharacterCreationSavePatch
@@ -725,6 +731,5 @@ internal static class MpcNativeCharacterCreationFix
             }
         }
     }
-
 
 }
