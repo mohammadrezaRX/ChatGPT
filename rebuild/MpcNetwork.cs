@@ -3024,6 +3024,22 @@ internal static class SessionHandshake
             return false;
         }
 
+
+    public static bool ReadWelcome(
+        byte[] payload,
+        out string assignedId,
+        out string message)
+    {
+        string sessionId;
+
+        return ReadWelcome(
+            payload,
+            out assignedId,
+            out message,
+            out sessionId
+        );
+    }
+
         try
         {
             using (
