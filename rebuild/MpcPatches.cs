@@ -555,48 +555,28 @@ namespace MultiplayerCampaignRebuildLayer
 
     internal static class MpcRebuildPatches
     {
-        [HarmonyPatch(typeof(MultiplayerNetworkClient), "SendHello")]
-        private static class ClientHelloPatch
-        {
-            private static bool Prefix(MultiplayerNetworkClient __instance)
-            {
-                try
-                {
-                    MpcSession.SelectOrCreateIdentityFromCurrentPlayer();
-                    if (!MpcSession.HasSlot)
-                        return true;
-
-                    byte[] payload = NetworkProtocol.CreatePayload(
-                        writer =>
-                        {
-                            writer.Write("MPC2HELLO");
-                            writer.Write(MpcSession.Name ?? "Player");
-                            writer.Write(MpcSession.Slot);
-                            writer.Write(MpcSession.Id ?? "");
-                        });
-
-                    __instance.Send(NetworkPacketType.Hello, payload);
-                    return false;
-                }
-                catch
-                {
-                    return true;
-                }
-            }
-        }
-
         [HarmonyPatch(typeof(MultiplayerNetworkClient), "ProcessMessage")]
         private static class ClientMessagePatch
         {
             private static bool Prefix(NetworkMessage message)
             {
-                if (message == null || message.Type != NetworkPacketType.WorldPartySnapshot)
+                if (
+                    message == null ||
+                    message.Type != NetworkPacketType.WorldPartySnapshot)
+                {
                     return true;
+                }
 
                 try
                 {
-                    if (MpcRebuildPatches.ProcessPayload(message.Payload, true))
+                    if (
+                        MpcRebuildPatches
+                            .ProcessPayload(
+                                message.Payload,
+                                true))
+                    {
                         return false;
+                    }
                 }
                 catch
                 {
@@ -616,14 +596,13 @@ namespace MultiplayerCampaignRebuildLayer
             {
                 try
                 {
-                    if (type == NetworkPacketType.Hello && IsMpcHello(payload))
-                    {
-                        ApplyHello(__instance, payload);
-                        return false;
-                    }
-
-                    if (type == NetworkPacketType.WorldPartySnapshot &&
-                        MpcRebuildPatches.ProcessPayload(payload, false))
+                    if (
+                        type ==
+                        NetworkPacketType.WorldPartySnapshot &&
+                        MpcRebuildPatches
+                            .ProcessPayload(
+                                payload,
+                                false))
                     {
                         return false;
                     }
@@ -654,87 +633,21 @@ namespace MultiplayerCampaignRebuildLayer
             }
         }
 
-        private static bool ProcessPayload(byte[] payload, bool fromHost)
+        private static bool ProcessPayload(
+            byte[] payload,
+            bool fromHost)
         {
             try
             {
-                return MpcNetworkRuntime.ProcessNetworkPayload(payload, fromHost);
+                return MpcNetworkRuntime
+                    .ProcessNetworkPayload(
+                        payload,
+                        fromHost
+                    );
             }
             catch
             {
                 return false;
             }
-        }
-
-        private static bool IsMpcHello(byte[] payload)
-        {
-            if (payload == null || payload.Length == 0 || payload.Length > 1024)
-                return false;
-
-            try
-            {
-                using (MemoryStream stream = new MemoryStream(payload))
-                using (System.IO.BinaryReader reader = new System.IO.BinaryReader(stream, Encoding.UTF8, true))
-                    return reader.ReadString() == "MPC2HELLO";
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private static void ApplyHello(
-            HostClientConnection connection,
-            byte[] payload)
-        {
-            using (MemoryStream stream = new MemoryStream(payload))
-            using (System.IO.BinaryReader reader = new System.IO.BinaryReader(stream, Encoding.UTF8, true))
-            {
-                string magic = reader.ReadString();
-                string name = reader.ReadString();
-                int slot = reader.ReadInt32();
-                string characterId = reader.ReadString();
-
-                if (magic != "MPC2HELLO" || slot < 0 || slot >= 3 ||
-                    string.IsNullOrWhiteSpace(characterId))
-                {
-                    connection.SendError("Character slot is required.");
-                    return;
-                }
-
-                PropertyInfo property = typeof(HostClientConnection)
-                    .GetProperty("PlayerId", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                if (property != null)
-                    property.SetValue(connection, characterId, null);
-
-                connection.PlayerName = Sanitize(name);
-
-                connection.Send(new NetworkMessageData(
-                    NetworkPacketType.Welcome,
-                    NetworkProtocol.CreatePayload(
-                        writer =>
-                        {
-                            writer.Write("Connected as " + connection.PlayerName);
-                            writer.Write(characterId);
-                        })));
-
-                MultiplayerCampaignHost host = MultiplayerCampaignSubModule.GetHost();
-                if (host != null)
-                    host.SendWorldToClientAsync(connection);
-            }
-        }
-
-        private static string Sanitize(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-                return "Player";
-
-            value = value.Trim();
-            if (value.Length > 32)
-                value = value.Substring(0, 32);
-            return value;
         }
     }
-
-}
-
