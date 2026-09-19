@@ -9769,5 +9769,686 @@ namespace MultiplayerCampaignRebuildLayer
         }
     }
 
-}
 
+// ============================================================
+// CONSOLIDATED NETWORK FIXES
+// ============================================================
+
+// --- MpcWorldTransferGuard.cs ---
+internal static class MpcWorldTransferGuardState
+    {
+        private static readonly object Sync = new object();
+        private static readonly HashSet<HostClientConnection> Sent = new HashSet<HostClientConnection>();
+
+        public static bool AllowInitial(HostClientConnection connection)
+        {
+            if (connection == null)
+                return false;
+
+            lock (Sync)
+            {
+                if (Sent.Contains(connection))
+                    return false;
+
+                Sent.Add(connection);
+                return true;
+            }
+        }
+
+        public static void Remove(HostClientConnection connection)
+        {
+            if (connection == null)
+                return;
+
+            lock (Sync)
+            {
+                Sent.Remove(connection);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(HostClientConnection), "SendWorldSafelyAsync")]
+    internal static class MpcWorldTransferDuplicatePatch
+    {
+        private static bool Prefix(HostClientConnection __instance, ref Task __result)
+        {
+            if (MpcWorldTransferGuardState.AllowInitial(__instance))
+                return true;
+
+            __result = Task.CompletedTask;
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(HostClientConnection), "Close")]
+    internal static class MpcWorldTransferConnectionCleanupPatch
+    {
+        private static void Postfix(HostClientConnection __instance)
+        {
+            MpcWorldTransferGuardState.Remove(__instance);
+        }
+    }
+
+
+// --- MpcHandshakeProtocolFix.cs ---
+internal static class MpcHandshakeProtocolFix
+    {
+        [HarmonyPatch(typeof(HostClientConnection), "HandleHello")]
+        private static class HostHelloPatch
+        {
+            private static bool Prefix(
+                HostClientConnection __instance,
+                byte[] payload)
+            {
+                if (__instance == null)
+                    return false;
+
+                string playerId;
+                string playerName;
+
+                if (!SessionHandshake.ReadHello(
+                    payload,
+                    out playerId,
+                    out playerName))
+                {
+                    __instance.SendError("Invalid handshake packet.");
+                    return false;
+                }
+
+                try
+                {
+                    PropertyInfo playerIdProperty =
+                        typeof(HostClientConnection).GetProperty(
+                            "PlayerId",
+                            BindingFlags.Instance |
+                            BindingFlags.Public |
+                            BindingFlags.NonPublic
+                        );
+
+                    MethodInfo playerIdSetter =
+                        playerIdProperty?.GetSetMethod(true);
+
+                    if (playerIdSetter == null)
+                        throw new MissingMethodException(
+                            "HostClientConnection.PlayerId setter was not found."
+                        );
+
+                    playerIdSetter.Invoke(
+                        __instance,
+                        new object[]
+                        {
+                            Guid.NewGuid().ToString("N")
+                        }
+                    );
+                }
+                catch (Exception ex)
+                {
+                    __instance.SendError(
+                        "Handshake initialization failed: " +
+                        ex.Message
+                    );
+
+                    return false;
+                }
+
+                __instance.PlayerName = NetworkUtilities.SafeName(playerName);
+                __instance.Ready = false;
+
+                __instance.Send(
+                    new NetworkMessageData(
+                        NetworkPacketType.Welcome,
+                        SessionHandshake.BuildWelcome(
+                            __instance.PlayerId,
+                            "Connected as " + __instance.PlayerName
+                        )
+                    )
+                );
+
+                try
+                {
+                    HostConnectionEvents.Connected(__instance);
+                }
+                catch
+                {
+                }
+
+                HostConsole.WriteLine(
+                    "[MultiplayerCampaign] Player connected: " +
+                    __instance.PlayerName
+                );
+
+                try
+                {
+                    MethodInfo method = AccessTools.Method(
+                        typeof(HostClientConnection),
+                        "SendWorldSafelyAsync");
+
+                    method?.Invoke(__instance, null);
+                }
+                catch (Exception ex)
+                {
+                    __instance.SendError(
+                        "World synchronization failed: " +
+                        ex.Message
+                    );
+                }
+
+                return false;
+            }
+        }
+
+        [HarmonyPatch(typeof(HostClientConnection), "HandleReady")]
+        private static class HostReadyPatch
+        {
+            private static bool Prefix(
+                HostClientConnection __instance,
+                byte[] payload)
+            {
+                if (__instance == null)
+                    return false;
+
+                string playerId;
+                string playerName;
+
+                if (!PlayerReadyPacket.Read(
+                    payload,
+                    out playerId,
+                    out playerName))
+                {
+                    __instance.SendError("Invalid ready packet.");
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(__instance.PlayerId))
+                {
+                    __instance.SendError("Handshake required before ready.");
+                    return false;
+                }
+
+                __instance.PlayerName = NetworkUtilities.SafeName(playerName);
+                __instance.Ready = true;
+
+                try
+                {
+                    MethodInfo onReady = AccessTools.Method(
+                        typeof(MultiplayerCampaignHost),
+                        "OnPlayerReady");
+
+                    if (onReady != null)
+                    {
+                        onReady.Invoke(
+                            MultiplayerCampaignSubModule.GetHost(),
+                            new object[] { __instance }
+                        );
+                    }
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    HostConnectionEvents.Ready(__instance);
+                }
+                catch
+                {
+                }
+
+                __instance.Send(
+                    new NetworkMessageData(
+                        NetworkPacketType.WorldJoinAck,
+                        NetworkProtocol.CreatePayload(
+                            writer => writer.Write("World synchronized.")
+                        )
+                    )
+                );
+
+                return false;
+            }
+        }
+    }
+
+
+// --- MpcNetworkReconnectFix.cs ---
+internal static class MpcNetworkReconnectController
+    {
+        private static readonly object Sync = new object();
+        private static int Generation;
+        private static CancellationTokenSource ActiveCts;
+
+        public static void Start(MultiplayerNetworkClient client, string ip)
+        {
+            if (client == null)
+                return;
+
+            if (string.IsNullOrWhiteSpace(ip))
+            {
+                SetStatus(client, "CONNECTION FAILED: INVALID ADDRESS");
+                return;
+            }
+
+            CancellationTokenSource cts;
+            int generation;
+
+            lock (Sync)
+            {
+                CancelAndClose(client);
+                generation = ++Generation;
+
+                ResetNetworkState();
+
+                cts = new CancellationTokenSource();
+                ActiveCts = cts;
+
+                SetField(client, "_cts", cts);
+                SetField(client, "_connectionRunning", true);
+                SetField(client, "_worldReady", false);
+                SetField(client, "_worldLoaded", false);
+                SetPropertyBackingField(client, "IsConnected", false);
+            }
+
+            SetStatus(client, "CONNECTING");
+            _ = RunConnectAsync(client, ip.Trim(), cts, generation);
+        }
+
+        public static void Disconnect(MultiplayerNetworkClient client)
+        {
+            if (client == null)
+                return;
+
+            lock (Sync)
+            {
+                ++Generation;
+                ActiveCts = null;
+
+                CancelAndClose(client);
+                SetField(client, "_connectionRunning", false);
+                SetField(client, "_worldReady", false);
+                SetField(client, "_worldLoaded", false);
+                SetPropertyBackingField(client, "IsConnected", false);
+            }
+
+            try { MultiplayerConnectionStatus.Set(MultiplayerConnectionState.Disconnected); } catch { }
+        }
+
+        private static async Task RunConnectAsync(
+            MultiplayerNetworkClient client,
+            string ip,
+            CancellationTokenSource cts,
+            int generation)
+        {
+            TcpClient socket = null;
+
+            try
+            {
+                socket = new TcpClient
+                {
+                    NoDelay = true
+                };
+
+                Task connectTask = socket.ConnectAsync(ip, 25565);
+                Task timeoutTask = Task.Delay(TimeSpan.FromSeconds(10), cts.Token);
+                Task completed = await Task.WhenAny(connectTask, timeoutTask);
+
+                if (completed != connectTask)
+                {
+                    socket.Close();
+                    if (!cts.IsCancellationRequested)
+                        throw new TimeoutException("Connection attempt timed out after 10 seconds.");
+                    return;
+                }
+
+                await connectTask;
+
+                if (!IsCurrent(generation, cts) || cts.IsCancellationRequested)
+                {
+                    socket.Close();
+                    return;
+                }
+
+                NetworkStream stream = socket.GetStream();
+                SetField(client, "_tcpClient", socket);
+                SetField(client, "_stream", stream);
+                SetPropertyBackingField(client, "IsConnected", true);
+                TrySetConnectionState(MultiplayerConnectionState.Connected);
+
+                WriteConsole("[*] TCP connection established.");
+
+                InvokePrivate(client, "SendHello");
+                SetStatus(client, "CONNECTED - RECEIVING MCC");
+
+                Task receiveTask = InvokePrivateTask(
+                    client,
+                    "ReceiveLoopAsync",
+                    cts.Token);
+
+                if (receiveTask != null)
+                    await receiveTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                if (IsCurrent(generation, cts))
+                {
+                    SetPropertyBackingField(client, "IsConnected", false);
+                    SetField(client, "_connectionRunning", false);
+                    TrySetConnectionState(MultiplayerConnectionState.Disconnected);
+                    SetStatus(client, "CONNECTION FAILED: " + ex.Message);
+                    WriteConsole("[!] TCP connection error: " + ex.Message);
+                }
+            }
+            finally
+            {
+                lock (Sync)
+                {
+                    if (IsCurrent(generation, cts))
+                    {
+                        SetPropertyBackingField(client, "IsConnected", false);
+                        SetField(client, "_connectionRunning", false);
+
+                        TcpClient current = GetField<TcpClient>(client, "_tcpClient");
+                        if (ReferenceEquals(current, socket))
+                        {
+                            SetField(client, "_stream", null);
+                            SetField(client, "_tcpClient", null);
+                            SetField(client, "_cts", null);
+                            ActiveCts = null;
+                        }
+
+                        TrySetConnectionState(MultiplayerConnectionState.Disconnected);
+                    }
+                }
+
+                try { socket?.Close(); } catch { }
+            }
+        }
+
+        private static bool IsCurrent(int generation, CancellationTokenSource cts)
+        {
+            lock (Sync)
+            {
+                return generation == Generation &&
+                       ReferenceEquals(ActiveCts, cts);
+            }
+        }
+
+        private static void CancelAndClose(MultiplayerNetworkClient client)
+        {
+            try
+            {
+                CancellationTokenSource old = GetField<CancellationTokenSource>(client, "_cts");
+                old?.Cancel();
+                old?.Dispose();
+            }
+            catch { }
+
+            try { GetField<NetworkStream>(client, "_stream")?.Close(); } catch { }
+            try { GetField<TcpClient>(client, "_tcpClient")?.Close(); } catch { }
+
+            SetField(client, "_stream", null);
+            SetField(client, "_tcpClient", null);
+            SetField(client, "_cts", null);
+        }
+
+        private static void ResetNetworkState()
+        {
+            try { HandshakeState.Reset(); } catch { }
+            try { NetworkIdentityService.Reset(); } catch { }
+            try { MultiplayerConnectionStatus.Set(MultiplayerConnectionState.Connecting); } catch { }
+            try { WorldTransferService.Reset(); } catch { }
+            try { MultiplayerWorldTransfer.Clear(); } catch { }
+        }
+
+        private static void SetStatus(MultiplayerNetworkClient client, string message)
+        {
+            try { client.SetStatusDirect(message); } catch { }
+        }
+
+        private static void TrySetConnectionState(MultiplayerConnectionState state)
+        {
+            try { MultiplayerConnectionStatus.Set(state); } catch { }
+        }
+
+        private static void WriteConsole(string message)
+        {
+            try { HostConsole.WriteLine(message); } catch { }
+        }
+
+        private static T GetField<T>(object instance, string name)
+        {
+            FieldInfo field = AccessTools.Field(instance.GetType(), name);
+            if (field == null)
+                return default(T);
+
+            object value = field.GetValue(instance);
+            return value is T typed ? typed : default(T);
+        }
+
+        private static void SetField(object instance, string name, object value)
+        {
+            try
+            {
+                FieldInfo field = AccessTools.Field(instance.GetType(), name);
+                field?.SetValue(instance, value);
+            }
+            catch { }
+        }
+
+        private static void SetPropertyBackingField(object instance, string propertyName, bool value)
+        {
+            try
+            {
+                FieldInfo field = AccessTools.Field(
+                    instance.GetType(),
+                    "<" + propertyName + ">k__BackingField");
+
+                field?.SetValue(instance, value);
+            }
+            catch { }
+        }
+
+        private static void InvokePrivate(object instance, string methodName)
+        {
+            try
+            {
+                MethodInfo method = AccessTools.Method(instance.GetType(), methodName);
+                method?.Invoke(instance, null);
+            }
+            catch { }
+        }
+
+        private static Task InvokePrivateTask(
+            object instance,
+            string methodName,
+            CancellationToken token)
+        {
+            try
+            {
+                MethodInfo method = AccessTools.Method(
+                    instance.GetType(),
+                    methodName,
+                    new[] { typeof(CancellationToken) });
+
+                object result = method?.Invoke(
+                    instance,
+                    new object[] { token });
+
+                return result as Task;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(MultiplayerNetworkClient), "Connect")]
+    internal static class MpcNetworkReconnectConnectPatch
+    {
+        private static bool Prefix(
+            MultiplayerNetworkClient __instance,
+            string ip)
+        {
+            MpcNetworkReconnectController.Start(
+                __instance,
+                ip);
+
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(MultiplayerNetworkClient), "Disconnect")]
+    internal static class MpcNetworkReconnectDisconnectPatch
+    {
+        private static bool Prefix(
+            MultiplayerNetworkClient __instance)
+        {
+            MpcNetworkReconnectController.Disconnect(
+                __instance);
+
+            return false;
+        }
+    }
+
+
+// --- MpcWorldTransferBridge.cs ---
+/// <summary>
+    /// Keeps the active client world-transfer receiver and the
+    /// recovery/save-loading path connected.
+    ///
+    /// MultiplayerNetworkClient routes WorldBegin/WorldChunk/
+    /// WorldComplete directly to MultiplayerWorldTransfer.
+    /// The previous bridge patched WorldTransferService instead,
+    /// so the active client never reached FinishClientLoad().
+    /// </summary>
+    internal static class MpcWorldTransferBridge
+    {
+        [HarmonyPatch(typeof(MultiplayerWorldTransfer), "HandleWorldBegin")]
+        private static class BeginPatch
+        {
+            private static void Prefix()
+            {
+                try
+                {
+                    // Start the client-side recovery timeout before receiving data.
+                    if (!MpcRecoveryRuntime.Loading)
+                    {
+                        MpcRecoveryRuntime.BeginLoad();
+                    }
+
+                    MultiplayerConnectionStatus.Set(
+                        MultiplayerConnectionState.SynchronizingWorld
+                    );
+                }
+                catch (Exception ex)
+                {
+                    try
+                    {
+                        HostConsole.WriteLine(
+                            "[!] World transfer initialization failed: " + ex.Message
+                        );
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(MultiplayerWorldTransfer), "HandleWorldComplete")]
+        private static class CompletePatch
+        {
+            private static void Postfix()
+            {
+                try
+                {
+                    // The active MultiplayerNetworkClient does not call
+                    // FinishClientLoad() after HandleWorldComplete().
+                    // Trigger it here so MpcSaveTransferPatch can take over
+                    // and load MCC_Transfer through Bannerlord's save system.
+                    MultiplayerWorldTransfer.FinishClientLoad();
+                }
+                catch (Exception ex)
+                {
+                    try
+                    {
+                        MpcRecoveryRuntime.AbortLoad(
+                            "World transfer completion failed: " + ex.Message
+                        );
+                    }
+                    catch { }
+                }
+            }
+        }
+    }
+
+
+// --- MpcWorldTransferRuntimeFix.cs ---
+internal static class MpcWorldTransferRuntimeFix
+    {
+        private static readonly object Sync = new object();
+        private static readonly HashSet<HostClientConnection> WorldSent =
+            new HashSet<HostClientConnection>();
+
+        public static bool ShouldSendWorld(HostClientConnection client)
+        {
+            if (client == null)
+                return false;
+
+            lock (Sync)
+            {
+                if (WorldSent.Contains(client))
+                    return false;
+
+                WorldSent.Add(client);
+                return true;
+            }
+        }
+
+        public static void ForgetClient(HostClientConnection client)
+        {
+            if (client == null)
+                return;
+
+            lock (Sync)
+            {
+                WorldSent.Remove(client);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(WorldTransferHostService), "Send")]
+    internal static class MpcWorldTransferHostOncePatch
+    {
+        private static bool Prefix(HostClientConnection client)
+        {
+            if (MpcWorldTransferRuntimeFix.ShouldSendWorld(client))
+                return true;
+
+            try
+            {
+                HostConsole.WriteLine("[*] Duplicate world transfer suppressed for this client.");
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(HostClientConnection), "Close")]
+    internal static class MpcWorldTransferClientClosePatch
+    {
+        private static void Prefix(HostClientConnection __instance)
+        {
+            try
+            {
+                MpcWorldTransferRuntimeFix.ForgetClient(__instance);
+            }
+            catch
+            {
+            }
+        }
+    }
+}

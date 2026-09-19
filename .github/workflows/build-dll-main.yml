@@ -21,19 +21,14 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Thematic split
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          dotnet run --project tools/RoslynSplitter/RoslynSplitter.csproj -- rebuild rebuild
-          if (!(Test-Path rebuild/REFACTOR_MAP.txt)) { throw 'Thematic split failed' }
       - name: Verify source layout
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $files = @(Get-ChildItem rebuild -Filter *.cs -File)
-          if ($files.Count -ne 10) { throw "Expected 10 thematic C# files, got $($files.Count)" }
+          if ($files.Count -ne 10) { throw "Expected 10 consolidated C# files, got $($files.Count)" }
           if (!(Test-Path rebuild/MultiplayerCampaignRebuild.csproj)) { throw 'Build project is missing' }
+      
       - name: Restore
         shell: pwsh
         run: dotnet restore rebuild/MultiplayerCampaignRebuild.csproj --verbosity normal
