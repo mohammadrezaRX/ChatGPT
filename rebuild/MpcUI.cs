@@ -486,14 +486,14 @@ internal static class MpcNativeCharacterCreationFix
             GameStateManager manager =
                 game.GameStateManager;
 
-            MethodInfo createStateDefinition = null;
-
             MethodInfo[] methods =
                 manager.GetType().GetMethods(
                     BindingFlags.Instance |
                     BindingFlags.Public |
                     BindingFlags.NonPublic
                 );
+
+            MethodInfo createStateDefinition = null;
 
             for (int i = 0; i < methods.Length; i++)
             {
@@ -533,13 +533,6 @@ internal static class MpcNativeCharacterCreationFix
 
             MethodInfo cleanAndPush = null;
 
-            methods =
-                manager.GetType().GetMethods(
-                    BindingFlags.Instance |
-                    BindingFlags.Public |
-                    BindingFlags.NonPublic
-                );
-
             for (int i = 0; i < methods.Length; i++)
             {
                 MethodInfo method = methods[i];
@@ -555,16 +548,14 @@ internal static class MpcNativeCharacterCreationFix
                     method.GetParameters();
 
                 if (
-                    parameters.Length != 2 ||
-                    parameters[1].ParameterType != typeof(int) ||
-                    !parameters[0].ParameterType.IsAssignableFrom(
+                    parameters.Length == 2 &&
+                    parameters[1].ParameterType == typeof(int) &&
+                    parameters[0].ParameterType.IsAssignableFrom(
                         state.GetType()))
                 {
-                    continue;
+                    cleanAndPush = method;
+                    break;
                 }
-
-                cleanAndPush = method;
-                break;
             }
 
             if (cleanAndPush == null)
@@ -645,69 +636,7 @@ internal static class MpcNativeCharacterCreationFix
     }
 }
 
-
-    [HarmonyPatch(typeof(MultiplayerCampaignVM), "ExecuteCreateCharacter")]
-    internal static class MpcNativeCreateCharacterButtonPatch
-    {
-        private static bool Prefix(
-            MultiplayerCampaignVM __instance)
-        {
-            try
-            {
-                if (MpcCharacterSlots.SelectedSlot < 0)
-                    MpcCharacterSlots.Select(0);
-
-                __instance.SetStatus(
-                    "OPENING BANNERLORD CHARACTER CREATION..."
-                );
-
-                bool opened =
-                    MpcNativeCharacterCreationFix.Open();
-
-                if (!opened)
-                {
-                    try
-                    {
-                        __instance.SetStatus(
-                            "CHARACTER CREATION FAILED"
-                        );
-                    }
-                    catch
-                    {
-                    }
-                }
-
-                return false;
-            }
-            catch (Exception ex)
-            {
-                try
-                {
-                    __instance.SetStatus(
-                        "CHARACTER CREATION FAILED"
-                    );
-                }
-                catch
-                {
-                }
-
-                try
-                {
-                    HostConsole.WriteLine(
-                        "[!] Character Creator request: " +
-                        ex
-                    );
-                }
-                catch
-                {
-                }
-
-                return false;
-            }
-        }
-    }
-
-[HarmonyPatch]
+    [HarmonyPatch]
     internal static class MpcNativeCharacterCreationSavePatch
     {
         private static MethodBase TargetMethod()
