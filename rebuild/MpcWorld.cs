@@ -626,14 +626,9 @@ public static class MultiplayerWorldTransfer
         }
 
         /*
-         * The actual Bannerlord save/world loading mechanism
-         * is intentionally isolated here.
-         *
-         * The network thread never invokes this method.
+         * World transfer is obsolete in the local-MCC session model.
+         * Keep this method as a compatibility no-op for old callers.
          */
-
-        MultiplayerCampaignSubModule
-            .EndTransferredWorldLoad();
 
         CampaignMessageFeed.Show(
             "World synchronization completed."

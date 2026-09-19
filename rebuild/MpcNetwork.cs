@@ -379,10 +379,27 @@ internal sealed class HostClientConnection
     private void HandleHello(
         byte[] payload)
     {
-        string requestedName =
-            NetworkProtocol.ReadString(
-                payload
+        string requestedId;
+        string requestedName;
+
+        if (!SessionHandshake.ReadHello(
+                payload,
+                out requestedId,
+                out requestedName))
+        {
+            SendError(
+                "Invalid handshake packet."
             );
+            return;
+        }
+
+        if (!NetworkStateValidator.IsValidPlayerId(requestedId))
+        {
+            SendError(
+                "Invalid player identity."
+            );
+            return;
+        }
 
         PlayerId =
             Guid.NewGuid().ToString(
@@ -394,23 +411,38 @@ internal sealed class HostClientConnection
                 requestedName
             );
 
+        Ready =
+            false;
+
         Send(
             new NetworkMessageData(
                 NetworkPacketType.Welcome,
+                SessionHandshake.BuildWelcome(
+                    PlayerId,
+                    "Connected as " +
+                    PlayerName
+                )
+            )
+        );
+
+        Send(
+            new NetworkMessageData(
+                NetworkPacketType.WorldJoinAck,
                 NetworkProtocol.CreatePayload(
                     writer =>
                     {
                         writer.Write(
-                            "Connected as " +
-                            PlayerName
-                        );
-
-                        writer.Write(
-                            PlayerId
+                            "SESSION " +
+                            MultiplayerSessionId.Get() +
+                            " READY"
                         );
                     }
                 )
             )
+        );
+
+        HostConnectionEvents.Connected(
+            this
         );
 
         HostConsole.WriteLine(
@@ -420,8 +452,8 @@ internal sealed class HostClientConnection
         );
 
         /*
-         * The client loads the same MCC save locally.
-         * Only the logical world session is synchronized here.
+         * The client already loaded the local MCC save.
+         * Only the logical world session is synchronized.
          */
     }
 
@@ -460,22 +492,47 @@ internal sealed class HostClientConnection
     private void HandleReady(
         byte[] payload)
     {
-        string name =
-            NetworkProtocol.ReadString(
-                payload
-            );
+        string playerId;
+        string playerName;
 
-        if (
-            !string.IsNullOrWhiteSpace(
-                name))
+        if (!PlayerReadyPacket.Read(
+                payload,
+                out playerId,
+                out playerName))
         {
-            PlayerName =
-                SanitizeName(
-                    name
-                );
+            SendError(
+                "Invalid ready packet."
+            );
+            return;
         }
 
+        if (
+            string.IsNullOrWhiteSpace(PlayerId) ||
+            !string.Equals(
+                PlayerId,
+                playerId,
+                StringComparison.Ordinal
+            ))
+        {
+            SendError(
+                "Invalid player session identity."
+            );
+            return;
+        }
+
+        PlayerName =
+            SanitizeName(
+                playerName
+            );
+
+        Ready =
+            true;
+
         _host.OnPlayerReady(
+            this
+        );
+
+        HostConnectionEvents.Ready(
             this
         );
     }
