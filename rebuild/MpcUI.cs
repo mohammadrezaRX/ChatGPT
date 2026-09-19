@@ -516,12 +516,32 @@ internal static class MpcNativeCharacterCreationFix
                 if (state == null)
                     throw new InvalidOperationException("Bannerlord CharacterCreationState could not be created.");
 
-                MethodInfo cleanAndPush =
-                    AccessTools.Method(
-                        manager.GetType(),
-                        "CleanAndPushState",
-                        new[] { stateType, typeof(int) }
+                MethodInfo cleanAndPush = null;
+                MethodInfo[] managerMethods =
+                    manager.GetType().GetMethods(
+                        BindingFlags.Instance |
+                        BindingFlags.Public |
+                        BindingFlags.NonPublic
                     );
+
+                for (int i = 0; i < managerMethods.Length; i++)
+                {
+                    MethodInfo candidate = managerMethods[i];
+                    if (candidate == null ||
+                        candidate.Name != "CleanAndPushState")
+                        continue;
+
+                    ParameterInfo[] parameters = candidate.GetParameters();
+                    if (parameters.Length != 2 ||
+                        parameters[1].ParameterType != typeof(int))
+                        continue;
+
+                    if (!parameters[0].ParameterType.IsAssignableFrom(stateType))
+                        continue;
+
+                    cleanAndPush = candidate;
+                    break;
+                }
 
                 if (cleanAndPush == null)
                     throw new MissingMethodException("GameStateManager.CleanAndPushState was not found.");
