@@ -8667,7 +8667,7 @@ namespace MultiplayerCampaign
                 SendHello();
 
                 _vm?.SetStatus(
-                    "CONNECTED - RECEIVING MCC"
+                    "CONNECTED - WAITING FOR MCC"
                 );
 
                 await ReceiveLoopAsync(
