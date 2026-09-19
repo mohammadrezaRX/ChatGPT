@@ -437,7 +437,8 @@ internal static class MpcNativeCharacterCreationFix
         {
             Game game = Game.Current;
 
-            if (game == null ||
+            if (
+                game == null ||
                 game.GameStateManager == null)
             {
                 HostConsole.WriteLine(
@@ -455,7 +456,8 @@ internal static class MpcNativeCharacterCreationFix
                     "LaunchSandboxCharacterCreation"
                 );
 
-            if (sandboxManager != null &&
+            if (
+                sandboxManager != null &&
                 launchMethod != null)
             {
                 launchMethod.Invoke(
@@ -470,15 +472,114 @@ internal static class MpcNativeCharacterCreationFix
                 return true;
             }
 
-            CharacterCreationState state =
-                game.GameStateManager
-                    .CreateState<CharacterCreationState>();
+            Type stateType =
+                FindCharacterCreationStateType();
 
-            game.GameStateManager
-                .CleanAndPushState(
+            if (stateType == null)
+            {
+                HostConsole.WriteLine(
+                    "[!] Bannerlord CharacterCreationState type was not found."
+                );
+                return false;
+            }
+
+            GameStateManager manager =
+                game.GameStateManager;
+
+            MethodInfo createStateDefinition = null;
+
+            MethodInfo[] methods =
+                manager.GetType().GetMethods(
+                    BindingFlags.Instance |
+                    BindingFlags.Public |
+                    BindingFlags.NonPublic
+                );
+
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo method = methods[i];
+
+                if (
+                    method == null ||
+                    method.Name != "CreateState" ||
+                    !method.IsGenericMethodDefinition ||
+                    method.GetGenericArguments().Length != 1 ||
+                    method.GetParameters().Length != 0)
+                {
+                    continue;
+                }
+
+                createStateDefinition = method;
+                break;
+            }
+
+            if (createStateDefinition == null)
+                throw new MissingMethodException(
+                    "GameStateManager.CreateState<T> was not found."
+                );
+
+            object state =
+                createStateDefinition
+                    .MakeGenericMethod(stateType)
+                    .Invoke(
+                        manager,
+                        null
+                    );
+
+            if (state == null)
+                throw new InvalidOperationException(
+                    "Bannerlord CharacterCreationState could not be created."
+                );
+
+            MethodInfo cleanAndPush = null;
+
+            methods =
+                manager.GetType().GetMethods(
+                    BindingFlags.Instance |
+                    BindingFlags.Public |
+                    BindingFlags.NonPublic
+                );
+
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo method = methods[i];
+
+                if (
+                    method == null ||
+                    method.Name != "CleanAndPushState")
+                {
+                    continue;
+                }
+
+                ParameterInfo[] parameters =
+                    method.GetParameters();
+
+                if (
+                    parameters.Length != 2 ||
+                    parameters[1].ParameterType != typeof(int) ||
+                    !parameters[0].ParameterType.IsAssignableFrom(
+                        state.GetType()))
+                {
+                    continue;
+                }
+
+                cleanAndPush = method;
+                break;
+            }
+
+            if (cleanAndPush == null)
+                throw new MissingMethodException(
+                    "GameStateManager.CleanAndPushState was not found."
+                );
+
+            cleanAndPush.Invoke(
+                manager,
+                new object[]
+                {
                     state,
                     0
-                );
+                }
+            );
 
             HostConsole.WriteLine(
                 "[*] Native Bannerlord Character Creation opened."
@@ -489,7 +590,7 @@ internal static class MpcNativeCharacterCreationFix
         catch (Exception ex)
         {
             HostConsole.WriteLine(
-                "[!] Character Creator failed: " +
+                "[!] Native Character Creation failed: " +
                 ex.Message
             );
 
@@ -499,9 +600,51 @@ internal static class MpcNativeCharacterCreationFix
 
     internal static Type FindCharacterCreationStateType()
     {
-        return typeof(CharacterCreationState);
+        Type type =
+            AccessTools.TypeByName(
+                "TaleWorlds.CampaignSystem.CharacterCreationContent.CharacterCreationState"
+            );
+
+        if (type != null)
+            return type;
+
+        type =
+            AccessTools.TypeByName(
+                "CharacterCreationState"
+            );
+
+        if (type != null)
+            return type;
+
+        Assembly[] assemblies =
+            AppDomain.CurrentDomain.GetAssemblies();
+
+        for (int i = 0; i < assemblies.Length; i++)
+        {
+            try
+            {
+                Type[] types =
+                    assemblies[i].GetTypes();
+
+                for (int j = 0; j < types.Length; j++)
+                {
+                    if (
+                        types[j] != null &&
+                        types[j].Name == "CharacterCreationState")
+                    {
+                        return types[j];
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        return null;
     }
 }
+
 
     [HarmonyPatch(typeof(MultiplayerCampaignVM), "ExecuteCreateCharacter")]
     internal static class MpcNativeCreateCharacterButtonPatch
