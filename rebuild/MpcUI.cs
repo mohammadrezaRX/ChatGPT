@@ -517,7 +517,23 @@ internal static class MpcNativeCharacterCreationFix
                     "OPENING BANNERLORD CHARACTER CREATION..."
                 );
 
-                return MpcNativeCharacterCreationFix.Open();
+                bool opened =
+                    MpcNativeCharacterCreationFix.Open();
+
+                if (!opened)
+                {
+                    try
+                    {
+                        __instance.SetStatus(
+                            "CHARACTER CREATION FAILED"
+                        );
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                return false;
             }
             catch (Exception ex)
             {
