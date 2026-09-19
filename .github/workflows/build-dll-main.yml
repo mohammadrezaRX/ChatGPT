@@ -21,14 +21,6 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Import Bannerlord DLLs
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          git fetch origin main --depth=1
-          git checkout origin/main -- DLLs
-          if (!(Test-Path DLLs)) { throw 'DLLs directory is missing' }
-          git restore --staged DLLs 2>$null
       - name: Thematic split
         shell: pwsh
         run: |
