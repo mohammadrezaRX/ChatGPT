@@ -5062,32 +5062,12 @@ internal static class NetworkPacketProcessor
                 break;
 
             case NetworkPacketType.WorldBegin:
-
-                WorldTransferService
-                    .ReceiveBegin(
-                        message.Payload
-                    );
-
-                break;
-
             case NetworkPacketType.WorldChunk:
-
-                WorldTransferService
-                    .ReceiveChunk(
-                        message.Payload
-                    );
-
-                break;
-
             case NetworkPacketType.WorldComplete:
 
-                WorldTransferService
-                    .ReceiveComplete(
-                        message.Payload
-                    );
-
-                WorldReadyHandler
-                    .Handle();
+                HostConsole.WriteLine(
+                    "[!] Ignored obsolete world-transfer packet."
+                );
 
                 break;
 
