@@ -9830,6 +9830,53 @@ namespace MultiplayerCampaignRebuildLayer
 
                 WorldRevisionState.AcceptPlayer(state);
                 WorldRevisionState.AcceptParty(state);
+
+                /*
+                 * WorldPartySnapshot is the authoritative compact
+                 * player/party stream. Feed player snapshots into
+                 * the existing RemotePlayer -> MapMarker pipeline.
+                 * NPC parties are kept in WorldRevisionState only.
+                 */
+                if (!string.IsNullOrWhiteSpace(state.Id) &&
+                    !state.Id.StartsWith("party:", StringComparison.Ordinal))
+                {
+                    try
+                    {
+                        byte[] remotePayload =
+                            NetworkProtocol.CreatePayload(
+                                writer =>
+                                {
+                                    writer.Write(state.Id);
+                                    writer.Write(
+                                        NetworkUtilities.SafeName(state.Name)
+                                    );
+                                    writer.Write(state.X);
+                                    writer.Write(state.Y);
+                                    writer.Write(
+                                        Math.Max(
+                                            1,
+                                            Math.Min(
+                                                10000,
+                                                state.PartySize
+                                            )
+                                        )
+                                    );
+                                }
+                            );
+
+                        if (remotePayload != null &&
+                            remotePayload.Length <= 1024)
+                        {
+                            RemotePlayerManager.QueueSnapshot(
+                                remotePayload
+                            );
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+
                 return true;
             }
 
@@ -10002,21 +10049,25 @@ internal static class MpcHandshakeProtocolFix
                     __instance.PlayerName
                 );
 
-                try
-                {
-                    MethodInfo method = AccessTools.Method(
-                        typeof(HostClientConnection),
-                        "SendWorldSafelyAsync");
-
-                    method?.Invoke(__instance, null);
-                }
-                catch (Exception ex)
-                {
-                    __instance.SendError(
-                        "World synchronization failed: " +
-                        ex.Message
-                    );
-                }
+                /*
+                 * Client already loaded the same MCC save locally.
+                 * Do not transfer the save/world over TCP.
+                 */
+                __instance.Send(
+                    new NetworkMessageData(
+                        NetworkPacketType.WorldJoinAck,
+                        NetworkProtocol.CreatePayload(
+                            writer =>
+                            {
+                                writer.Write(
+                                    "SESSION " +
+                                    MultiplayerSessionId.Get() +
+                                    " ACTIVE"
+                                );
+                            }
+                        )
+                    )
+                );
 
                 return false;
             }
@@ -10200,7 +10251,7 @@ internal static class MpcNetworkReconnectController
                 WriteConsole("[*] TCP connection established.");
 
                 InvokePrivate(client, "SendHello");
-                SetStatus(client, "CONNECTED - RECEIVING MCC");
+                SetStatus(client, "CONNECTED - WAITING FOR HOST SESSION");
 
                 Task receiveTask = InvokePrivateTask(
                     client,
