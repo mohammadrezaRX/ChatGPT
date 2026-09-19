@@ -9067,14 +9067,7 @@ namespace MultiplayerCampaign
 
         public bool ConsumeWorldReady()
         {
-            if (!_worldReady)
-            {
-                return false;
-            }
-
-            _worldReady = false;
-
-            return true;
+            return false;
         }
 
         /*
