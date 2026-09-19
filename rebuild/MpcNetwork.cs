@@ -3588,16 +3588,19 @@ internal static class ClientNetworkMessageRouter
     {
         string assignedId;
         string message;
+        string sessionId;
 
-        if (
-            !SessionHandshake
-                .ReadWelcome(
-                    payload,
-                    out assignedId,
-                    out message))
+        if (!SessionHandshake.ReadWelcome(
+                payload,
+                out assignedId,
+                out message,
+                out sessionId))
         {
             return;
         }
+
+        if (!MultiplayerSessionId.SetFromHost(sessionId))
+            return;
 
         NetworkIdentityService
             .SetAssignedId(
@@ -3612,7 +3615,7 @@ internal static class ClientNetworkMessageRouter
         MultiplayerConnectionStatus
             .Set(
                 MultiplayerConnectionState
-                    .SynchronizingWorld
+                    .Ready
             );
 
         MultiplayerSessionState
@@ -3622,7 +3625,10 @@ internal static class ClientNetworkMessageRouter
             string.IsNullOrWhiteSpace(
                 message)
                 ? "Connected to Host."
-                : message
+                : message +
+                  " [" +
+                  sessionId +
+                  "]"
         );
     }
 
@@ -6367,8 +6373,12 @@ internal static class FinalNetworkMessageRouter
                     .ReadWelcome(
                         payload,
                         out assignedId,
-                        out message))
+                        out message,
+                        out sessionId))
             {
+                if (!MultiplayerSessionId.SetFromHost(sessionId))
+                    return;
+
                 NetworkIdentityService
                     .SetAssignedId(
                         assignedId
@@ -6382,7 +6392,7 @@ internal static class FinalNetworkMessageRouter
                 MultiplayerConnectionStatus
                     .Set(
                         MultiplayerConnectionState
-                            .SynchronizingWorld
+                            .Ready
                     );
             }
 

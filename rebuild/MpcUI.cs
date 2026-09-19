@@ -257,7 +257,8 @@ namespace MultiplayerCampaign
                 MpcCharacterSlots.Select(0);
 
             StatusText = "OPENING BANNERLORD CHARACTER CREATION...";
-            MpcNativeCharacterCreationFix.RequestNativeCharacterCreation();
+            if (!MpcNativeCharacterCreationFix.Open())
+                StatusText = "CHARACTER CREATION FAILED";
         }
 
         public void ExecuteStartHost()
