@@ -3024,22 +3024,6 @@ internal static class SessionHandshake
             return false;
         }
 
-
-    public static bool ReadWelcome(
-        byte[] payload,
-        out string assignedId,
-        out string message)
-    {
-        string sessionId;
-
-        return ReadWelcome(
-            payload,
-            out assignedId,
-            out message,
-            out sessionId
-        );
-    }
-
         try
         {
             using (
@@ -3053,15 +3037,25 @@ internal static class SessionHandshake
                         Encoding.UTF8,
                         true))
             {
-                assignedId = reader.ReadString();
-                message = reader.ReadString();
+                assignedId =
+                    reader.ReadString();
 
-                if (stream.Position < stream.Length)
-                    sessionId = reader.ReadString();
+                message =
+                    reader.ReadString();
+
+                if (
+                    stream.Position <
+                    stream.Length)
+                {
+                    sessionId =
+                        reader.ReadString();
+                }
 
                 return
-                    !string.IsNullOrWhiteSpace(assignedId) &&
-                    !string.IsNullOrWhiteSpace(sessionId);
+                    !string.IsNullOrWhiteSpace(
+                        assignedId) &&
+                    !string.IsNullOrWhiteSpace(
+                        sessionId);
             }
         }
         catch
@@ -3069,27 +3063,22 @@ internal static class SessionHandshake
             return false;
         }
     }
-}
 
+    public static bool ReadWelcome(
+        byte[] payload,
+        out string assignedId,
+        out string message)
+    {
+        string sessionId;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        return
+            ReadWelcome(
+                payload,
+                out assignedId,
+                out message,
+                out sessionId
+            );
+    }
 
 // ============================================================
 // CONNECTION HANDSHAKE STATE
