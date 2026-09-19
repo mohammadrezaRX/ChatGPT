@@ -8811,8 +8811,21 @@ namespace MultiplayerCampaign
             catch (OperationCanceledException)
             {
             }
-            catch
+            catch (Exception ex)
             {
+                if (!token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        HostConsole.WriteLine(
+                            "[!] MCC receive loop failed: " +
+                            ex.Message
+                        );
+                    }
+                    catch
+                    {
+                    }
+                }
             }
         }
 
@@ -8901,6 +8914,10 @@ namespace MultiplayerCampaign
                     break;
 
                 case NetworkPacketType.WorldBegin:
+                    _vm?.SetStatus(
+                        "RECEIVING MCC..."
+                    );
+
                     MultiplayerWorldTransfer
                         .HandleWorldBegin(
                             message.Payload
@@ -8915,12 +8932,21 @@ namespace MultiplayerCampaign
                     break;
 
                 case NetworkPacketType.WorldComplete:
-                    _worldReady = true;
-
                     MultiplayerWorldTransfer
                         .HandleWorldComplete(
                             message.Payload
                         );
+
+                    _worldReady =
+                        MultiplayerWorldTransfer.IsComplete;
+
+                    if (_worldReady)
+                    {
+                        _vm?.SetStatus(
+                            "MCC RECEIVED - LOADING..."
+                        );
+                    }
+
                     break;
 
                 case NetworkPacketType.PlayerSnapshot:
