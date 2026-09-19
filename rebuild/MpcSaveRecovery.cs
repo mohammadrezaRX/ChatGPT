@@ -361,7 +361,6 @@ namespace MultiplayerCampaign
                         return;
                     }
 
-                    MpcRecoveryRuntime.BeginLoad();
                     const int chunkSize = 48 * 1024;
                     client.Send(new NetworkMessageData(
                         NetworkPacketType.WorldBegin,
@@ -397,6 +396,9 @@ namespace MultiplayerCampaign
             {
                 try
                 {
+                    if (MpcRecoveryRuntime.Loading)
+                        return false;
+
                     byte[] world = MultiplayerWorldTransfer.GetReceivedWorld();
                     if (world == null || world.Length == 0)
                     {
