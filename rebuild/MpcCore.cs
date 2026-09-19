@@ -171,7 +171,7 @@ internal static class HostStateUpdateService
 
     public static void Update(
         float dt,
-        MultiplayerCampaignHost host)
+        global::MultiplayerCampaignHost host)
     {
         if (host == null)
         {
@@ -1090,7 +1090,7 @@ internal static class FinalHostUpdate
     public static void Update(
         float dt)
     {
-        MultiplayerCampaignHost host =
+        global::MultiplayerCampaignHost host =
             MultiplayerCampaignSubModule
                 .GetHost();
 
@@ -3683,7 +3683,7 @@ internal static class HostPlayerSnapshotService
 
     public static void Update(
         float dt,
-        MultiplayerCampaignHost host)
+        global::MultiplayerCampaignHost host)
     {
         if (host == null)
         {
